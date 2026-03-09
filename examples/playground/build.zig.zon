@@ -1,0 +1,12 @@
+.{
+    .name = .playground,
+    .version = "0.0.0",
+    .fingerprint = 0xdc1888485f281460,
+    .minimum_zig_version = "0.16.0-dev.2694+74f361a5c",
+    .dependencies = .{ .knots = .{ .path = "../../" } },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

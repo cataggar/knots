@@ -1,0 +1,32 @@
+.{
+    .name = .knots,
+    .version = "0.0.1",
+    .dependencies = .{
+        .glfw = .{
+            .url = "git+https://codeberg.org/shahwali/glfw-bindings.git#4b1a2147c360d7953cb0901af4f75c655c944cc3",
+            .hash = "glfw-0.0.3-TqMi_wRAAAA4bn1-0bI65CIeyIZ5wO7LP59YyJwLSw9u",
+        },
+        .wgpu = .{
+            .url = "git+https://codeberg.org/shahwali/wgpu-bindings.git#c4637ee3412069e8a1a759b37465b392b2d83594",
+            .hash = "wgpu-0.0.2-Z1CB1g08AQBrArPVBAK9PkmxIAI9KUN_rdekrY419koC",
+        },
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#3adbeefbc833c12656791d304b37a6315b357745",
+            .hash = "vulkan-0.0.0-r7YtxyBsAwD35FvkFhT2xruTNdCByD3TtGw44XWtfun8",
+        },
+        .vulkan_headers = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.346.tar.gz",
+            .hash = "N-V-__8AALm8ZgLElx_aOhj1o0gXqnPjftwC69uF2mw6rXNA",
+        },
+        .harfbuzz = .{ .path = "lib/harfbuzz" },
+        .freetype = .{ .path = "lib/freetype" },
+    },
+    .minimum_zig_version = "0.16.0-dev.2905+5d71e3051",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "lib",
+    },
+    .fingerprint = 0x32ed2118ddf54283,
+}
