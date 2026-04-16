@@ -310,33 +310,18 @@ pub fn setDisplayMode(self: *Window, mode: DisplayMode) void {
     const win = self.window.window;
     switch (mode) {
         .windowed => {
+            glfw.c.glfwRestoreWindow(win);
             switch (builtin.os.tag) {
                 inline .macos => {},
                 inline else => glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_TRUE),
             }
-            glfw.c.glfwSetWindowMonitor(
-                win,
-                null,
-                self.windowed_pos[0],
-                self.windowed_pos[1],
-                self.windowed_size[0],
-                self.windowed_size[1],
-                0,
-            );
+            glfw.c.glfwSetWindowMonitor(win, null, self.windowed_pos[0], self.windowed_pos[1], self.windowed_size[0], self.windowed_size[1], 0);
             self.is_fullscreen = false;
         },
         .fullscreen => |fullscreen| {
             self.saveWindowedGeometry(win);
             const monitor = glfw.c.glfwGetPrimaryMonitor() orelse return;
-            glfw.c.glfwSetWindowMonitor(
-                win,
-                monitor,
-                0,
-                0,
-                fullscreen.width,
-                fullscreen.height,
-                fullscreen.refresh_rate,
-            );
+            glfw.c.glfwSetWindowMonitor(win, monitor, 0, 0, fullscreen.width, fullscreen.height, fullscreen.refresh_rate);
             self.is_fullscreen = true;
         },
         .fullscreen_windowed => {
@@ -344,29 +329,16 @@ pub fn setDisplayMode(self: *Window, mode: DisplayMode) void {
             const monitor = glfw.c.glfwGetPrimaryMonitor() orelse return;
             const vid = glfw.c.glfwGetVideoMode(monitor) orelse return;
             switch (builtin.os.tag) {
-                inline .macos => {
-                    glfw.c.glfwSetWindowMonitor(
-                        win,
-                        monitor,
-                        0,
-                        0,
-                        vid.*.width,
-                        vid.*.height,
-                        vid.*.refreshRate,
-                    );
-                },
-                inline else => {
+                inline .macos => glfw.c.glfwSetWindowMonitor(win, monitor, 0, 0, vid.*.width, vid.*.height, vid.*.refreshRate),
+                inline .windows => {
                     glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_FALSE);
-                    glfw.c.glfwSetWindowMonitor(
-                        win,
-                        null,
-                        0,
-                        0,
-                        vid.*.width,
-                        vid.*.height,
-                        0,
-                    );
+                    glfw.c.glfwSetWindowMonitor(win, null, 0, 0, vid.*.width, vid.*.height, 0);
                 },
+                inline .linux => {
+                    glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_FALSE);
+                    glfw.c.glfwMaximizeWindow(win);
+                },
+                inline else => |os| @compileError("unsupported platform: " ++ @tagName(os)),
             }
             self.is_fullscreen = true;
         },
