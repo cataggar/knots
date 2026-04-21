@@ -1,12 +1,12 @@
 const std = @import("std");
 const Element = @import("layout").Element;
 
-const KeyType = union(enum) {
+const Type = union(enum) {
     src: std.builtin.SourceLocation,
     str: []const u8,
 };
 
-key: KeyType,
+key: Type,
 index: usize,
 
 const Key = @This();

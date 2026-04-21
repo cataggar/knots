@@ -13,44 +13,44 @@ height: Element.sizing.Axis = .grow(),
 style: Style = .{},
 interactive: bool = false,
 onDraw: *const fn (*App, *Painter) anyerror!void,
-cmds: *std.ArrayList(Decoration.DrawCmd),
+cmds: *std.ArrayList(DrawCmd),
 key: UI.Key,
 
 const Canvas = @This();
 
 pub const Painter = struct {
-    cmds: *std.ArrayList(Decoration.DrawCmd),
+    cmds: *std.ArrayList(DrawCmd),
     allocator: std.mem.Allocator,
 
-    pub fn fillRect(self: *Painter, r: Decoration.DrawCmd.FillRect) !void {
+    pub fn fillRect(self: *Painter, r: DrawCmd.FillRect) !void {
         try self.cmds.append(self.allocator, .{ .fill_rect = r });
     }
 
-    pub fn fillRectGradient(self: *Painter, r: Decoration.DrawCmd.FillRectGradient) !void {
+    pub fn fillRectGradient(self: *Painter, r: DrawCmd.FillRectGradient) !void {
         try self.cmds.append(self.allocator, .{ .fill_rect_gradient = r });
     }
 
-    pub fn strokeRect(self: *Painter, r: Decoration.DrawCmd.StrokeRect) !void {
+    pub fn strokeRect(self: *Painter, r: DrawCmd.StrokeRect) !void {
         try self.cmds.append(self.allocator, .{ .stroke_rect = r });
     }
 
-    pub fn fillCircle(self: *Painter, c: Decoration.DrawCmd.FillCircle) !void {
+    pub fn fillCircle(self: *Painter, c: DrawCmd.FillCircle) !void {
         try self.cmds.append(self.allocator, .{ .fill_circle = c });
     }
 
-    pub fn strokeCircle(self: *Painter, c: Decoration.DrawCmd.StrokeCircle) !void {
+    pub fn strokeCircle(self: *Painter, c: DrawCmd.StrokeCircle) !void {
         try self.cmds.append(self.allocator, .{ .stroke_circle = c });
     }
 
-    pub fn line(self: *Painter, l: Decoration.DrawCmd.Line) !void {
+    pub fn line(self: *Painter, l: DrawCmd.Line) !void {
         try self.cmds.append(self.allocator, .{ .line = l });
     }
 
-    pub fn fillTriangle(self: *Painter, t: Decoration.DrawCmd.FillTriangle) !void {
+    pub fn fillTriangle(self: *Painter, t: DrawCmd.FillTriangle) !void {
         try self.cmds.append(self.allocator, .{ .fill_triangle = t });
     }
 
-    pub fn fillConvexPolygon(self: *Painter, p: Decoration.DrawCmd.FillConvexPolygon) !void {
+    pub fn fillConvexPolygon(self: *Painter, p: DrawCmd.FillConvexPolygon) !void {
         try self.cmds.append(self.allocator, .{ .fill_convex_polygon = p });
     }
 };
