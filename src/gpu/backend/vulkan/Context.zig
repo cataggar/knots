@@ -50,7 +50,6 @@ descriptor_pools: std.ArrayList(DescriptorPoolEntry),
 texture_descriptor_set_layout: vk.DescriptorSetLayout,
 gpu_cfg: gpu.Context.Config,
 _current_image_index: u32 = 0,
-_native_device: NativeDevice = undefined,
 _get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
 
 fn loadVulkan() !vk.PfnGetInstanceProcAddr {
@@ -248,7 +247,6 @@ const vtable = gpu.Context.VTable{
     .createTexture = &createTexture,
     .createSampler = &createSampler,
     .resize = &resize,
-    .nativeDevice = &nativeDevice,
 };
 
 fn deinit(ptr: *anyopaque) void {
@@ -341,20 +339,6 @@ pub fn recreateSwapchain(self: *Context, width: u32, height: u32) !void {
         }
         self.command_pools = new_pools;
     }
-}
-
-fn nativeDevice(ptr: *anyopaque) *anyopaque {
-    const self: *Context = @ptrCast(@alignCast(ptr));
-    // Stable pointer — stored on the Context itself so it outlives the call
-    self._native_device = .{
-        .instance = self.instance,
-        .physical_device = self.physical_device,
-        .device = self.device,
-        .graphics_queue = self.graphics_queue,
-        .graphics_queue_family = self.graphics_queue_family,
-        .get_instance_proc_addr = self._get_instance_proc_addr,
-    };
-    return &self._native_device;
 }
 
 pub fn findMemoryType(self: *const Context, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {

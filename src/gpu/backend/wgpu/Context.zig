@@ -22,7 +22,6 @@ queue: wgpu.Queue,
 surface: wgpu.Surface,
 surface_format: wgpu.Texture.Format,
 present_mode: wgpu.types.PresentMode,
-_native_device: NativeDevice = undefined,
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle, cfg: gpu.Context.Config) !gpu.Context {
     const wgpu_handle: wgpu.RawWindowHandle = switch (window_handle) {
@@ -92,7 +91,6 @@ const vtable = gpu.Context.VTable{
     .createTexture = &createTexture,
     .createSampler = &createSampler,
     .resize = &resize,
-    .nativeDevice = &nativeDevice,
 };
 
 fn deinit(ptr: *anyopaque) void {
@@ -140,15 +138,6 @@ fn resize(ptr: *anyopaque, width: u32, height: u32) anyerror!void {
         .device = self.device,
         .present_mode = self.present_mode,
     });
-}
-
-fn nativeDevice(ptr: *anyopaque) *anyopaque {
-    const self: *Context = @ptrCast(@alignCast(ptr));
-    self._native_device = .{
-        .device = self.device,
-        .queue = self.queue,
-    };
-    return &self._native_device;
 }
 
 fn chooseSurfaceFormat(capabilities: wgpu.Surface.Capabilities) !wgpu.Texture.Format {

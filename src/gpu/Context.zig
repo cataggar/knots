@@ -55,7 +55,6 @@ pub const VTable = struct {
     createTexture: *const fn (ptr: *anyopaque, desc: Texture.Desc) anyerror!Texture,
     createSampler: *const fn (ptr: *anyopaque, desc: Sampler.Desc) anyerror!Sampler,
     resize: *const fn (ptr: *anyopaque, width: u32, height: u32) anyerror!void,
-    nativeDevice: *const fn (ptr: *anyopaque) *anyopaque,
 };
 
 pub inline fn deinit(self: *const Context) void {
@@ -86,8 +85,4 @@ pub inline fn resize(self: *Context, width: u32, height: u32) !void {
     try self.vtable.resize(self.ptr, width, height);
     self.cfg.window_width = width;
     self.cfg.window_height = height;
-}
-
-pub inline fn nativeDevice(self: *const Context) *anyopaque {
-    return self.vtable.nativeDevice(self.ptr);
 }
