@@ -2,24 +2,7 @@ const std = @import("std");
 const playground = @import("playground");
 const builtin = @import("builtin");
 
-pub const knots_theme = .{
-    .primary = .{ 0.820, 0.475, 0.196, 1.0 },
-    .secondary = .{ 0.204, 0.596, 0.584, 1.0 },
-    .success = .{ 0.553, 0.765, 0.243, 1.0 },
-    .info = .{ 0.204, 0.596, 0.584, 1.0 },
-    .warning = .{ 0.922, 0.796, 0.310, 1.0 },
-    .@"error" = .{ 0.800, 0.224, 0.224, 1.0 },
-    .bg = .{ 0.118, 0.098, 0.082, 1.0 },
-    .muted = .{ 0.176, 0.157, 0.137, 1.0 },
-    .elevated = .{ 0.216, 0.196, 0.173, 1.0 },
-    .accented = .{ 0.937, 0.894, 0.839, 1.0 },
-    .inverted = .{ 0.118, 0.098, 0.082, 1.0 },
-    .text = .{ 0.914, 0.878, 0.824, 1.0 },
-    .highlighted = .{ 1.000, 0.965, 0.918, 1.0 },
-    .toned = .{ 0.267, 0.243, 0.212, 1.0 },
-    .dimmed = .{ 0.467, 0.435, 0.392, 1.0 },
-    .radius = 10,
-};
+pub const knots_theme = @import("theme.zon");
 
 pub fn main(init: std.process.Init) !void {
     var app = try playground.init(init.io, init.gpa);

@@ -56,13 +56,15 @@ _get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
 fn loadVulkan() !vk.PfnGetInstanceProcAddr {
     switch (builtin.os.tag) {
         inline .windows => {
-            const win32 = @cImport({
-                @cDefine("WIN32_LEAN_AND_MEAN", {});
-                @cInclude("windows.h");
-            });
-
-            const handle = win32.LoadLibraryA("vulkan-1.dll") orelse return error.VulkanUnavailable;
-            const ptr = win32.GetProcAddress(handle, "vkGetInstanceProcAddr") orelse return error.VulkanUnavailable;
+            const HMODULE = *anyopaque;
+            const extern_LoadLibraryA = struct {
+                extern "kernel32" fn LoadLibraryA(lpLibFileName: [*:0]const u8) callconv(.winapi) ?HMODULE;
+            };
+            const extern_GetProcAddress = struct {
+                extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(.winapi) ?*anyopaque;
+            };
+            const handle = extern_LoadLibraryA.LoadLibraryA("vulkan-1.dll") orelse return error.VulkanUnavailable;
+            const ptr = extern_GetProcAddress.GetProcAddress(handle, "vkGetInstanceProcAddr") orelse return error.VulkanUnavailable;
             return @ptrCast(ptr);
         },
         inline else => {
@@ -433,6 +435,7 @@ fn getInstanceExtensions(window_handle: gpu.Context.WindowHandle) [if (builtin.o
             .wayland => vk.extensions.khr_wayland_surface.name,
             .x11 => vk.extensions.khr_xlib_surface.name,
         },
+        .emscripten => @panic("emscripten not supported with the vulkan backend"),
     };
 
     if (builtin.os.tag.isDarwin())
@@ -456,6 +459,7 @@ fn createSurface(vki: InstanceDispatch, instance: vk.Instance, window_handle: gp
             .wayland => |wl| vki.createWaylandSurfaceKHR(instance, &.{ .display = @ptrCast(wl.display), .surface = @ptrCast(wl.surface) }, null),
             .x11 => |x11| vki.createXlibSurfaceKHR(instance, &.{ .dpy = @ptrCast(x11.display), .window = @intCast(x11.window) }, null),
         },
+        .emscripten => @panic("emscripten not supported with the vulkan backend"),
     };
 }
 
@@ -499,7 +503,7 @@ fn createSwapchain(vki: InstanceDispatch, vkd: DeviceDispatch, physical_device: 
     _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, &formats_buf);
     var chosen_format = formats_buf[0];
     for (formats_buf[0..format_count]) |f| {
-        if (f.format == .b8g8r8a8_srgb and f.color_space == .srgb_nonlinear_khr) {
+        if (f.format == .b8g8r8a8_unorm and f.color_space == .srgb_nonlinear_khr) {
             chosen_format = f;
             break;
         }

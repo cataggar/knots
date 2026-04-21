@@ -43,6 +43,13 @@ fn mustFindIdx(slice: anytype, needle: anytype) usize {
     unreachable;
 }
 
+fn enumTagNames(comptime T: type, comptime values: []const T) [][]const u8 {
+    comptime var names: [values.len][]const u8 = undefined;
+    inline for (values, 0..) |v, i| names[i] = @tagName(v);
+    const fixed: [values.len][]const u8 = names;
+    return @constCast(&fixed);
+}
+
 pub fn init(allocator: std.mem.Allocator, gpu_backend: GPUBackend, present_mode: PresentMode) !RendererSettings {
     const state = try allocator.create(State);
     state.* = .{
@@ -71,6 +78,8 @@ pub fn render(self: *const RendererSettings, app: *knots.App) anyerror!void {
             .key = .src(@src()),
             .selected_idx = &self.state.backend_idx,
             .width = .fixed(100),
+            .labels = enumTagNames(GPUBackend, GPUBackend.availableSlice()),
+            .values = GPUBackend.availableSlice(),
         },
         Text{ .content = "Present mode", .size = 12, .key = .src(@src()) },
         SelectInput(PresentMode){

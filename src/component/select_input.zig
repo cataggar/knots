@@ -73,7 +73,7 @@ pub fn SelectInput(comptime T: type) type {
             const current_style = if (s.open) self.focused_style else self.style;
 
             var h = self.height;
-            h.min = try ui.font.getFace(null).lineHeight(self.size);
+            h.min = try ui.lineHeight(self.size, null);
 
             const decoration: Decoration = if (current_style.hasDecoration())
                 .{ .rect = current_style.toRect() }
@@ -121,7 +121,7 @@ pub fn SelectInput(comptime T: type) type {
                 const anchor = s.anchor_box;
                 const viewport = s.viewport_box;
 
-                const line_h = try ui.font.getFace(null).lineHeight(self.size);
+                const line_h = try ui.lineHeight(self.size, null);
                 const item_h = line_h + 12 + 2;
                 const dropdown_h = item_h * @as(f32, @floatFromInt(self.labels.len)) + 4;
 

@@ -25,6 +25,9 @@ pub const WindowHandle = union(enum) {
             surface: *anyopaque,
         },
     },
+    emscripten: struct {
+        selector: []const u8,
+    },
 };
 
 pub const PresentMode = enum {

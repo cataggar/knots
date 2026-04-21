@@ -35,7 +35,7 @@ pub fn open(self: *const TextInput, ui: *UI) !Element.Id {
     const current_style = if (is_focused) self.focused_style else self.style;
 
     var height = self.height;
-    height.min = try ui.font.getFace(null).lineHeight(self.size);
+    height.min = try ui.lineHeight(self.size, null);
 
     const decoration: Decoration = if (current_style.hasDecoration())
         .{ .rect = current_style.toRect() }
@@ -78,7 +78,7 @@ pub fn close(self: *const TextInput, ui: *UI) !void {
             const key = std.fmt.bufPrint(&buf, "__ti_cursor_{}", .{id}) catch buf[0..];
             _ = try ui.open(.str(key), .{
                 .width = .fixed(1),
-                .height = .fixed(try ui.font.getFace(null).lineHeight(self.size)),
+                .height = .fixed(try ui.lineHeight(self.size, null)),
             }, .{ .rect = .{ .color = resolved_color } });
             ui.close();
         }

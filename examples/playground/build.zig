@@ -5,7 +5,16 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
     const optimize = b.standardOptimizeOption(.{});
 
-    const knots = b.dependency("knots", .{ .target = target, .optimize = optimize, .gpu_backends = &[_]GPUBackend{ .wgpu, .vulkan } });
+    const backends: []const GPUBackend = if (target.result.os.tag == .emscripten)
+        &[_]GPUBackend{.wgpu}
+    else
+        &[_]GPUBackend{ .wgpu, .vulkan };
+
+    const knots = b.dependency("knots", .{
+        .target = target,
+        .optimize = optimize,
+        .gpu_backends = backends,
+    });
 
     const mod = b.addModule("playground", .{
         .root_source_file = b.path("src/root.zig"),
@@ -13,14 +22,24 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "knots", .module = knots.module("knots") }},
     });
 
+    const exe_mod = b.createModule(.{
+        .root_source_file = switch (target.result.os.tag) {
+            .emscripten => b.path("src/main_web.zig"),
+            else => b.path("src/main.zig"),
+        },
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "playground", .module = mod }},
+    });
+
+    if (target.result.os.tag == .emscripten) {
+        buildEmscripten(b, target, optimize, exe_mod);
+        return;
+    }
+
     const exe = b.addExecutable(.{
         .name = "playground",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{.{ .name = "playground", .module = mod }},
-        }),
+        .root_module = exe_mod,
     });
 
     if (optimize != .Debug) exe.subsystem = .windows;
@@ -53,4 +72,58 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+}
+
+fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, root_module: *std.Build.Module) void {
+    const emsdk = b.graph.environ_map.get("EMSDK") orelse {
+        std.debug.panic("EMSDK env var not set. Source $EMSDK/emsdk_env.sh before building for wasm32-emscripten.", .{});
+    };
+    const freetype_dep = b.dependency("freetype", .{ .target = target, .optimize = optimize });
+    const emcc_path = b.pathJoin(&.{ emsdk, "upstream", "emscripten", "emcc" });
+
+    const lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "playground",
+        .root_module = root_module,
+    });
+    lib.entry = .disabled;
+
+    const emcc = b.addSystemCommand(&.{emcc_path});
+    emcc.addArtifactArg(lib);
+    emcc.addArtifactArg(freetype_dep.artifact("freetype"));
+    emcc.addArg("-o");
+    const html_out = emcc.addOutputFileArg("playground.html");
+
+    var args = std.ArrayList([]const u8).initCapacity(b.allocator, 32) catch @panic("OOM");
+    defer args.deinit(b.allocator);
+    args.appendSliceAssumeCapacity(&.{
+        "--use-port=emdawnwebgpu",
+        "-sUSE_GLFW=3",
+        "-sALLOW_MEMORY_GROWTH=1",
+        "-sEXIT_RUNTIME=0",
+        "-sASYNCIFY",
+        "-sASYNCIFY_STACK_SIZE=65536",
+        "-sSTACK_SIZE=4194304",
+        "-sINITIAL_MEMORY=33554432",
+    });
+    if (optimize == .Debug) args.appendAssumeCapacity("-sASSERTIONS=2");
+    if (target.result.cpu.arch == .wasm64) args.appendAssumeCapacity("-sMEMORY64");
+    args.appendAssumeCapacity("--shell-file");
+
+    emcc.addArgs(args.items);
+    emcc.addFileArg(b.path("src/shell.html"));
+
+    const install_html = b.addInstallFileWithDir(html_out, .{ .custom = "web" }, "playground.html");
+    const install_js = b.addInstallFileWithDir(html_out.dirname().path(b, "playground.js"), .{ .custom = "web" }, "playground.js");
+    const install_wasm = b.addInstallFileWithDir(html_out.dirname().path(b, "playground.wasm"), .{ .custom = "web" }, "playground.wasm");
+
+    b.getInstallStep().dependOn(&install_html.step);
+    b.getInstallStep().dependOn(&install_js.step);
+    b.getInstallStep().dependOn(&install_wasm.step);
+
+    const serve_step = b.step("run", "Serve the playground on http://localhost:8000/triangle.html");
+    const serve = b.addSystemCommand(&.{ "python3", "-m", "http.server", "8000", "--directory" });
+    serve.addArg(b.getInstallPath(.{ .custom = "web" }, ""));
+    serve.step.dependOn(b.getInstallStep());
+    serve_step.dependOn(&serve.step);
 }

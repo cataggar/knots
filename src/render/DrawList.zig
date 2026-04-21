@@ -17,6 +17,7 @@ cmds: std.ArrayList(Command),
 layer_cmds: std.ArrayList(Command),
 layer_ranges: [256]LayerRange,
 current_layer: u8,
+content_scale: f32 = 1.0,
 
 const DrawList = @This();
 

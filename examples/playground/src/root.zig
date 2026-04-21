@@ -10,6 +10,20 @@ const Canvas = knots.component.Canvas;
 const If = knots.control.If;
 const For = knots.control.For;
 
+const is_emscripten = @import("builtin").os.tag == .emscripten;
+
+extern fn emscripten_console_log(utf8: [*:0]const u8) void;
+
+pub const std_options: std.Options = .{
+    .logFn = if (is_emscripten) webLog else std.log.defaultLog,
+};
+
+fn webLog(comptime _: std.log.Level, comptime _: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
+    const msg = std.fmt.allocPrintSentinel(std.heap.c_allocator, format, args, 0x00) catch return;
+    defer std.heap.c_allocator.free(msg);
+    emscripten_console_log(msg.ptr);
+}
+
 const Fruit = enum {
     apple,
     banana,
@@ -36,8 +50,9 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
             .width = 1280,
             .height = 720,
             .title = "Playground",
+            .canvas_selector = "#canvas",
         },
-        .renderer = .{ .present_mode = .immediate },
+        .renderer = .{ .present_mode = .fifo },
         .ui = .{
             .fonts = &.{
                 .{ "default", @embedFile("fonts/Manrope-Regular.ttf") },
@@ -68,7 +83,7 @@ pub fn start(self: *Self) !void {
     try self.app.start(frameCb);
 }
 
-fn frameCb(app: *knots.App) !void {
+pub fn frameCb(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     const arena = app.arena();
 
@@ -747,10 +762,15 @@ fn exit(app: *knots.App) !void {
     app.signal(.exit);
 }
 
-fn sleep(a: *knots.App) !void {
-    const self: *Self = @fieldParentPtr("app", a);
+fn sleep(app: *knots.App) !void {
+    if (is_emscripten) {
+        for (0..50) |_| try increment(app);
+        return;
+    }
+
+    const self: *Self = @fieldParentPtr("app", app);
     for (0..50) |i| {
-        try a.dispatch(
+        try app.dispatch(
             sleepHello,
             .{ self.io, try std.fmt.allocPrint(self.allocator, "Hello, World! ({d})", .{i}) },
             onWakeupHello,

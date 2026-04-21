@@ -3,12 +3,12 @@
     .version = "0.0.1",
     .dependencies = .{
         .glfw = .{
-            .url = "git+https://codeberg.org/shahwali/glfw-bindings.git#4b1a2147c360d7953cb0901af4f75c655c944cc3",
-            .hash = "glfw-0.0.3-TqMi_wRAAAA4bn1-0bI65CIeyIZ5wO7LP59YyJwLSw9u",
+            .url = "git+https://codeberg.org/shahwali/glfw-bindings.git#0c85f77bf9f2002650935411ddf68e3bad8d15dc",
+            .hash = "glfw-0.0.3-TqMi_9ZFAABGHCKBDqncWvrkxIM0gtant5BPj0nTUehQ",
         },
         .wgpu = .{
-            .url = "git+https://codeberg.org/shahwali/wgpu-bindings.git#c4637ee3412069e8a1a759b37465b392b2d83594",
-            .hash = "wgpu-0.0.2-Z1CB1g08AQBrArPVBAK9PkmxIAI9KUN_rdekrY419koC",
+            .url = "git+https://codeberg.org/shahwali/wgpu-bindings.git#d9ad2d5c8d1c8536cac356fec63cef7b0e998f1e",
+            .hash = "wgpu-0.0.2-Z1CB1rB0AQCUPzRbSz6n_gccDhDo57jGWHalqyEJiC1i",
         },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig#be16fc99f7f794cba90334978c6c5aadeda8094f",

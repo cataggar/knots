@@ -9,6 +9,8 @@ const CompletionQueue = @import("CompletionQueue.zig");
 const Timer = @import("Timer.zig");
 const ReturnType = @import("util.zig").ReturnType;
 
+const is_emscripten = builtin.target.os.tag == .emscripten;
+
 pub const Signal = enum {
     redraw,
     exit,
@@ -92,6 +94,7 @@ pub fn deinit(self: *App) void {
     self.window.deinit();
 }
 
+/// Start a frame-loop that runs until the window is closed.
 pub fn start(self: *App, frameCb: Callback) !void {
     self.window.startCapture();
     if (self.cfg.onDrop) |_| {
@@ -99,44 +102,73 @@ pub fn start(self: *App, frameCb: Callback) !void {
     }
     self.timer.start(self.io);
     self.window.pollEvents();
-    while (self.window.isOpen()) {
-        defer {
-            self.draw_list.reset();
-            _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
-        }
 
-        self.timer.tick(self.io);
-
-        if (self.window.consumeResize()) |size| {
-            if (size.width == 0 or size.height == 0) continue;
-            try self.renderer.resize(size.width, size.height);
-            if (self.cfg.onResize) |cb| try @call(.auto, cb, .{ self, size.width, size.height });
-        }
-
-        try self.handleRendererReconfigure();
-
-        try self.ui.collectInput(self.window.collectInput(), self.timer.ms());
-        self.ui.reset();
-
-        try self.completion_queue.consume(self, self.io);
-
-        try @call(.auto, frameCb, .{self});
-        while (self.signals.pop()) |s| switch (s) {
-            .redraw => self.window.postEmptyEvent(),
-            .exit => {
-                @branchHint(.cold);
-                self.window.close();
-                return;
-            },
-        };
-
-        try self.ui.resolve();
-        try self.ui.tessellate(self.frame_arena.allocator(), &self.draw_list);
-        self.ui.resolveHit();
-        try self.renderer.draw(&self.draw_list, self.ui.font.atlas);
-
-        self.window.waitEvents();
+    switch (builtin.os.tag) {
+        inline .emscripten => {
+            const ctx = try self.allocator.create(EmscriptenContext);
+            ctx.* = .{
+                .app = self,
+                .frameCb = frameCb,
+            };
+            std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(ctx), 0, 0);
+        },
+        inline else => while (self.window.isOpen()) try self.tickFrame(frameCb),
     }
+}
+
+fn tickFrame(self: *App, frameCb: Callback) !void {
+    if (is_emscripten)
+        self.window.pollEvents();
+
+    defer {
+        self.draw_list.reset();
+        _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
+    }
+
+    self.timer.tick(self.io);
+
+    if (self.window.consumeResize()) |ev| {
+        if (ev.physical.width == 0 or ev.physical.height == 0) return;
+        try self.renderer.resize(ev.physical.width, ev.physical.height);
+        self.ui.content_scale = ev.content_scale;
+        if (self.cfg.onResize) |cb| try @call(.auto, cb, .{ self, ev.logical.width, ev.logical.height });
+    }
+    try self.handleRendererReconfigure();
+
+    self.ui.content_scale = self.window.getContentScale();
+    try self.ui.collectInput(self.window.collectInput(), self.timer.ms());
+    self.ui.reset();
+
+    try self.completion_queue.consume(self, self.io);
+
+    try @call(.auto, frameCb, .{self});
+
+    while (self.signals.pop()) |s| switch (s) {
+        .redraw => self.window.postEmptyEvent(),
+        .exit => {
+            @branchHint(.cold);
+            self.window.close();
+            return;
+        },
+    };
+
+    try self.ui.resolve();
+    try self.ui.tessellate(self.frame_arena.allocator(), &self.draw_list);
+    self.ui.resolveHit();
+    try self.renderer.draw(&self.draw_list, self.ui.font.atlas);
+
+    if (!is_emscripten)
+        self.window.waitEvents();
+}
+
+const EmscriptenContext = struct {
+    app: *App,
+    frameCb: Callback,
+};
+
+fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
+    const ctx: *EmscriptenContext = @ptrCast(@alignCast(ud orelse return));
+    ctx.app.tickFrame(ctx.frameCb) catch {};
 }
 
 /// Queue a frame signal, `.redraw` or `.exit`.
@@ -224,10 +256,7 @@ fn handleRendererReconfigure(self: *App) !void {
     const new_cfg = self.pending_renderer_cfg orelse return;
     self.pending_renderer_cfg = null;
 
-    self.renderer.reconfigure(new_cfg) catch |err| {
-        std.log.err("Failed to reconfigure renderer: {s}", .{@errorName(err)});
-        return;
-    };
+    try self.renderer.reconfigure(new_cfg);
 
     self.ui.font.atlas.dirty = true;
     if (self.cfg.onReconfigure) |cb| try cb(self);

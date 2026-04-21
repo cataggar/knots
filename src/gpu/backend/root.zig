@@ -46,7 +46,10 @@ pub const Backend = enum {
                     if (available.vulkan) return .vulkan;
                     if (available.wgpu) return .wgpu;
                 },
-                else => @compileError("Unsupported OS: " ++ builtin.os.tag),
+                .emscripten => {
+                    if (available.wgpu) return .wgpu;
+                },
+                else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
             }
 
             @compileError("No gpu backends available.");

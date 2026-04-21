@@ -11,6 +11,24 @@ const GLFW_REPEAT = 2;
 const GLFW_MOD_SHIFT = 0x0001;
 const GLFW_MOD_CTRL = 0x0002;
 
+const EmscriptenUiEvent = extern struct {
+    detail: c_long,
+    documentBodyClientWidth: c_int,
+    documentBodyClientHeight: c_int,
+    windowInnerWidth: c_int,
+    windowInnerHeight: c_int,
+    windowOuterWidth: c_int,
+    windowOuterHeight: c_int,
+    scrollTop: c_int,
+    scrollLeft: c_int,
+};
+const EmscriptenUiCallback = *const fn (event_type: c_int, ui_event: *const EmscriptenUiEvent, user_data: ?*anyopaque) callconv(.c) c_int;
+extern fn emscripten_set_resize_callback_on_thread(target: [*:0]const u8, user_data: ?*anyopaque, use_capture: bool, cb: EmscriptenUiCallback, thread: c_int) c_int;
+extern fn emscripten_get_element_css_size(target: [*:0]const u8, w: *f64, h: *f64) c_int;
+extern fn emscripten_set_element_css_size(target: [*:0]const u8, w: f64, h: f64) c_int;
+extern fn emscripten_set_canvas_element_size(target: [*:0]const u8, w: c_int, h: c_int) c_int;
+const EMSCRIPTEN_EVENT_TARGET_WINDOW: [*:0]const u8 = "2";
+
 pub const Key = enum(i32) {
     space = 32,
     apostrophe = 39,
@@ -140,6 +158,7 @@ pub const Config = struct {
     width: u32,
     title: []const u8,
     resizable: bool = true,
+    canvas_selector: ?[:0]const u8 = null,
 };
 
 pub const Input = struct {
@@ -174,20 +193,50 @@ windowed_pos: [2]c_int = .{ 0, 0 },
 windowed_size: [2]c_int = .{ 0, 0 },
 drop_callback: ?DropCallback = null,
 drop_ctx: ?*anyopaque = null,
+canvas_selector: ?[:0]const u8,
+pending_resize: ?ResizeEvent = null,
+content_scale: f32 = 1.0,
 
 const Window = @This();
 
 pub fn init(cfg: Config) !Window {
+    const initial: ?ResizeEvent = if (builtin.os.tag == .emscripten)
+        applyCanvasSize(cfg.canvas_selector orelse @panic("canvas_selector must be set for emscripten windows"), cfg.width, cfg.height)
+    else
+        null;
+
+    const init_w: u32 = if (initial) |ev| ev.logical.width else cfg.width;
+    const init_h: u32 = if (initial) |ev| ev.logical.height else cfg.height;
+
     const window = try glfw.Window.init(.{
         .title = cfg.title,
-        .mode = .{ .windowed = .{ .width = cfg.width, .height = cfg.height } },
+        .mode = .{ .windowed = .{ .width = init_w, .height = init_h } },
         .resizeable = if (cfg.resizable) glfw.c.GLFW_TRUE else glfw.c.GLFW_FALSE,
     });
+
+    const scale: f32 = if (initial) |ev| ev.content_scale else computeNativeContentScale(window);
 
     return Window{
         .window = window,
         .scroll = [_]f64{0} ** 2,
+        .canvas_selector = cfg.canvas_selector,
+        .pending_resize = initial,
+        .content_scale = scale,
     };
+}
+
+fn computeNativeContentScale(w: glfw.Window) f32 {
+    if (comptime builtin.os.tag == .emscripten) return 1.0;
+    var fb_w: c_int = 0;
+    var fb_h: c_int = 0;
+    glfw.c.glfwGetFramebufferSize(w.window, &fb_w, &fb_h);
+    var win_w: c_int = 0;
+    var win_h: c_int = 0;
+    glfw.c.glfwGetWindowSize(w.window, &win_w, &win_h);
+    if (win_w <= 0 or win_h <= 0) return 1.0;
+    const sx: f32 = @as(f32, @floatFromInt(fb_w)) / @as(f32, @floatFromInt(win_w));
+    const sy: f32 = @as(f32, @floatFromInt(fb_h)) / @as(f32, @floatFromInt(win_h));
+    return @max(sx, sy);
 }
 
 pub fn deinit(self: *const Window) void {
@@ -199,8 +248,12 @@ pub fn startCapture(self: *Window) void {
     self.window.setScrollCallback(scrollCallback);
     self.window.setKeyCallback(keyCallback);
     self.window.setCharCallback(charCallback);
-    self.window.setFramebufferSizecallback(framebufferSizeCallback);
     self.window.setMouseButtonCallback(mouseButtonCallback);
+    if (builtin.os.tag == .emscripten) {
+        _ = emscripten_set_resize_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(self), false, resizeCallback, 0);
+    } else {
+        self.window.setFramebufferSizecallback(framebufferSizeCallback);
+    }
 }
 
 pub fn setDropCallback(self: *Window, ctx: *anyopaque, cb: DropCallback) void {
@@ -266,7 +319,8 @@ pub fn getWindowHandle(self: *const Window) gpu.Context.WindowHandle {
                 },
             }
         },
-        else => @compileError("Unsupported platform"),
+        .emscripten => .{ .emscripten = .{ .selector = self.canvas_selector orelse @panic("canvas_selector must be set for emscripten windows") } },
+        else => |os| @compileError("unsupported platform: " ++ @tagName(os)),
     };
 }
 
@@ -292,8 +346,23 @@ pub fn close(self: *const Window) void {
 
 pub const Size = struct { width: u32, height: u32 };
 
+pub const ResizeEvent = struct {
+    logical: Size,
+    physical: Size,
+    content_scale: f32,
+};
+
 pub fn getSize(self: *const Window) Size {
     return .{ .width = self.window.getWidth(), .height = self.window.getHeight() };
+}
+
+pub fn getFramebufferSize(self: *const Window) Size {
+    const fb = self.window.getFramebufferSize();
+    return .{ .width = @intCast(fb[0]), .height = @intCast(fb[1]) };
+}
+
+pub fn getContentScale(self: *const Window) f32 {
+    return self.content_scale;
 }
 
 pub const DisplayMode = union(enum) {
@@ -365,10 +434,49 @@ pub fn setCursorVisible(self: *const Window, visible: bool) void {
     );
 }
 
-pub fn consumeResize(self: *Window) ?Size {
+pub fn consumeResize(self: *Window) ?ResizeEvent {
+    if (comptime builtin.os.tag == .emscripten) {
+        const ev = self.pending_resize orelse return null;
+        self.pending_resize = null;
+        glfw.c.glfwSetWindowSize(self.window.window, @intCast(ev.logical.width), @intCast(ev.logical.height));
+        self.content_scale = ev.content_scale;
+        return ev;
+    }
     if (!self.resized) return null;
     self.resized = false;
-    return .{ .width = self.window.getWidth(), .height = self.window.getHeight() };
+    const logical = self.getSize();
+    const physical = self.getFramebufferSize();
+    self.content_scale = computeNativeContentScale(self.window);
+    return .{ .logical = logical, .physical = physical, .content_scale = self.content_scale };
+}
+
+fn applyCanvasSize(selector: [:0]const u8, fallback_w: u32, fallback_h: u32) ResizeEvent {
+    var css_w: f64 = 0;
+    var css_h: f64 = 0;
+    _ = emscripten_get_element_css_size(selector.ptr, &css_w, &css_h);
+    if (css_w <= 0 or css_h <= 0) {
+        css_w = @floatFromInt(fallback_w);
+        css_h = @floatFromInt(fallback_h);
+    }
+    const dpr = std.os.emscripten.emscripten_get_device_pixel_ratio();
+    const px_w: c_int = @intFromFloat(@round(css_w * dpr));
+    const px_h: c_int = @intFromFloat(@round(css_h * dpr));
+    _ = emscripten_set_canvas_element_size(selector.ptr, px_w, px_h);
+    // Re-assert CSS size: without this, the higher-resolution drawing buffer
+    // gets CSS-scaled by the DOM, producing a blurry result on HiDPI.
+    _ = emscripten_set_element_css_size(selector.ptr, css_w, css_h);
+    return .{
+        .logical = .{ .width = @intFromFloat(@round(css_w)), .height = @intFromFloat(@round(css_h)) },
+        .physical = .{ .width = @intCast(px_w), .height = @intCast(px_h) },
+        .content_scale = @floatCast(dpr),
+    };
+}
+
+fn resizeCallback(_: c_int, _: *const EmscriptenUiEvent, user_data: ?*anyopaque) callconv(.c) c_int {
+    const self: *Window = @ptrCast(@alignCast(user_data orelse return 0));
+    const selector = self.canvas_selector orelse return 0;
+    self.pending_resize = applyCanvasSize(selector, self.window.getWidth(), self.window.getHeight());
+    return 1;
 }
 
 fn scrollCallback(win: ?*glfw.c.GLFWwindow, xoffset: f64, yoffset: f64) callconv(.c) void {

@@ -39,6 +39,7 @@ state: State,
 input: Input,
 hit_records: std.ArrayList(HitRecord),
 hit_counter: u32,
+content_scale: f32 = 1.0,
 
 const UI = @This();
 
@@ -93,15 +94,22 @@ pub fn openRoot(self: *UI, key: Key, x: f32, y: f32, config: Element.Config, dec
     return id;
 }
 
+pub fn lineHeight(self: *UI, size: f32, font: ?[]const u8) !f32 {
+    const face = self.font.getFace(font);
+    const scale = self.content_scale;
+    return (try face.lineHeight(size * scale)) / scale;
+}
+
 pub fn textDecoration(self: *UI, content: []const u8, size: f32, font: ?[]const u8) !Decoration {
     const face = self.font.getFace(font);
-    const measured = try face.measure(self.allocator, content, size);
+    const scale = self.content_scale;
+    const measured = try face.measure(self.allocator, content, size * scale);
     return .{ .text = .{
         .content = content,
         .size = size,
         .font = font,
-        .intrinsic_w = measured.width,
-        .intrinsic_h = measured.height,
+        .intrinsic_w = measured.width / scale,
+        .intrinsic_h = measured.height / scale,
     } };
 }
 
@@ -253,6 +261,7 @@ fn routeScroll(self: *UI, elements: []Element, input: Window.Input) !void {
 }
 
 pub fn tessellate(self: *UI, allocator: Allocator, draw_list: *DrawList) !void {
+    draw_list.content_scale = self.content_scale;
     var it = self.layout_ctx.z_used.iterator(.{});
     while (it.next()) |z| {
         draw_list.setLayer(@intCast(z));
@@ -326,10 +335,11 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
             },
             .text => |t| {
                 const face = self.font.getFace(t.font);
-                const shaped = try face.shape(allocator, t.content, t.size);
+                const scale = self.content_scale;
+                const shaped = try face.shape(allocator, t.content, t.size * scale);
                 const glyphs = shaped.glyphs;
                 defer allocator.free(glyphs);
-                const ascender = @as(f32, @floatFromInt(face.ft_face.*.size.*.metrics.ascender)) / 64.0;
+                const ascender = @as(f32, @floatFromInt(face.ft_face.*.size.*.metrics.ascender)) / 64.0 / scale;
                 const baseline = el.box.y + ascender;
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
                 const zero2 = [2]f32{ 0, 0 };
@@ -337,10 +347,10 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                 for (glyphs) |gl| {
                     if (gl.metrics.rect.width == 0) continue;
 
-                    const gx = el.box.x + gl.x;
-                    const gy = baseline - gl.metrics.bearing_y;
-                    const gw = gl.metrics.rect.width;
-                    const gh = gl.metrics.rect.height;
+                    const gx = el.box.x + gl.x / scale;
+                    const gy = baseline - gl.metrics.bearing_y / scale;
+                    const gw = gl.metrics.rect.width / scale;
+                    const gh = gl.metrics.rect.height / scale;
 
                     if (clip) |c| {
                         if (gx >= c[0] + c[2] or

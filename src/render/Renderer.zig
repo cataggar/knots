@@ -29,6 +29,10 @@ pub const Config = struct {
                 .fifo_relaxed, .mailbox => return error.UnsupportedPresentMode,
                 .fifo, .immediate => {},
             },
+            .emscripten => switch (cfg.present_mode) {
+                .fifo => {},
+                else => return error.UnsupportedPresentMode,
+            },
             else => {},
         }
     }
@@ -58,9 +62,10 @@ const Renderer = @This();
 pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer {
     try cfg.validate();
 
+    const fb = window.getFramebufferSize();
     const ctx_cfg = gpu.Context.Config{
-        .window_width = window.window.getWidth(),
-        .window_height = window.window.getHeight(),
+        .window_width = fb.width,
+        .window_height = fb.height,
         .present_mode = cfg.present_mode,
     };
 
@@ -176,10 +181,16 @@ pub fn draw(self: *Renderer, dl: *const DrawList, atlas: *text.Atlas) !void {
     self.syncAtlas(atlas);
     if (!self.atlas_texture.isReady()) return;
 
-    if (self.ctx.cfg.window_width != self.cached_vp_width or self.ctx.cfg.window_height != self.cached_vp_height) {
-        self.pipeline.updateViewport(self.ctx.cfg.window_width, self.ctx.cfg.window_height);
-        self.cached_vp_width = self.ctx.cfg.window_width;
-        self.cached_vp_height = self.ctx.cfg.window_height;
+    // Vertex coords are in logical pixels; surface/scissor are in physical pixels.
+    // The GPU rasterizer stretches NDC to the physical surface, so we feed the
+    // shader the logical viewport size for correct pixel->NDC mapping.
+    const s = dl.content_scale;
+    const logical_w: u32 = @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_width)) / s);
+    const logical_h: u32 = @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_height)) / s);
+    if (logical_w != self.cached_vp_width or logical_h != self.cached_vp_height) {
+        self.pipeline.updateViewport(logical_w, logical_h);
+        self.cached_vp_width = logical_w;
+        self.cached_vp_height = logical_h;
     }
 
     const verts = dl.vertices.items;
@@ -213,9 +224,9 @@ pub fn draw(self: *Renderer, dl: *const DrawList, atlas: *text.Atlas) !void {
         }
         if (!std.meta.eql(current_clip, cmd.clip_rect)) {
             if (cmd.clip_rect) |clip| {
-                const cx = @max(0, clip[0]);
-                const cy = @max(0, clip[1]);
-                pass.setScissorRect(@intFromFloat(cx), @intFromFloat(cy), @intFromFloat(@max(0, @min(clip[2], vw - cx))), @intFromFloat(@max(0, @min(clip[3], vh - cy))));
+                const cx = @max(0, clip[0] * s);
+                const cy = @max(0, clip[1] * s);
+                pass.setScissorRect(@intFromFloat(cx), @intFromFloat(cy), @intFromFloat(@max(0, @min(clip[2] * s, vw - cx))), @intFromFloat(@max(0, @min(clip[3] * s, vh - cy))));
             } else {
                 pass.setScissorRect(0, 0, self.ctx.cfg.window_width, self.ctx.cfg.window_height);
             }

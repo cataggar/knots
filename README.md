@@ -4,7 +4,7 @@ Knots is a high performance cross-platform immediate-mode GUI library written in
 
 ## Requirements
 
-Zig 0.16.0-dev.2905+5d71e3051 and newer.
+Zig 0.16.0 and newer.
 
 ## Install
 
@@ -59,19 +59,20 @@ fn frameCb(app: *knots.App) !void {
 
 ## Supported platforms:
 
-| OS      | Supported GPU APIs         |
-| ------- | -------------------------- |
-| macOS   | WGPU and Vulkan (MoltenVK) |
-| Linux   | WGPU and Vulkan            |
-| Windows | WGPU and Vulkan            |
+| Platform         | Supported GPU APIs           |
+| ---------------- | ---------------------------- |
+| macOS            | WebGPU and Vulkan (MoltenVK) |
+| Linux            | WebGPU and Vulkan            |
+| Windows          | WebGPU and Vulkan            |
+| Web (emscripten) | WebGPU                       |
 
 ## Examples
 
-See [examples/playground](examples/playground).
+See [examples/playground](examples/playground), you can also try the web version [here](https://shahwali.dev/playground).
 
 ## Known limitations
 
 - Currently there is a hard dependency on GLFW for windowing.
 - Two C++ dependencies are currently used for text rendering, FreeType and HarfBuzz.
-- Only 1 font can be loaded at a time, in general, text rendering is in very early stages.
+- In general, text rendering is in very early stages.
 - No X11 support yet.

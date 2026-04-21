@@ -39,6 +39,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
                 .linux = .{ .wayland = .{ .display = wl.display, .surface = wl.surface } },
             },
         },
+        .emscripten => |em| .{ .emscripten = .{ .selector = em.selector } },
     };
 
     const instance = try wgpu.Instance.init();
@@ -156,8 +157,8 @@ fn chooseSurfaceFormat(capabilities: wgpu.Surface.Capabilities) !wgpu.Texture.Fo
     }
 
     for (capabilities.formats) |format|
-        if (format == .bgra8_unorm_srgb)
-            return .bgra8_unorm_srgb;
+        if (format == .bgra8_unorm)
+            return .bgra8_unorm;
 
     return capabilities.formats[0];
 }
