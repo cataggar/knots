@@ -130,12 +130,11 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     if (self.window.consumeResize()) |ev| {
         if (ev.physical.width == 0 or ev.physical.height == 0) return;
         try self.renderer.resize(ev.physical.width, ev.physical.height);
-        self.ui.content_scale = ev.content_scale;
         if (self.cfg.onResize) |cb| try @call(.auto, cb, .{ self, ev.logical.width, ev.logical.height });
     }
     try self.handleRendererReconfigure();
 
-    self.ui.content_scale = self.window.getContentScale();
+    self.ui.beginFrame(&self.window);
     try self.ui.collectInput(self.window.collectInput(), self.timer.ms());
     self.ui.reset();
 
@@ -155,7 +154,7 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     try self.ui.resolve();
     try self.ui.tessellate(self.frame_arena.allocator(), &self.draw_list);
     self.ui.resolveHit();
-    try self.renderer.draw(&self.draw_list, self.ui.font.atlas);
+    try self.renderer.draw(&self.draw_list, self.ui.font.atlas, self.ui.content_scale);
 
     if (!is_emscripten)
         self.window.waitEvents();
