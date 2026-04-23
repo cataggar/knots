@@ -268,7 +268,7 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
                 .height = .fixed(30),
                 .width = .fixed(65),
                 .style = .{
-                    .color = .{ .rgba = .{ 0.0, 0.0, 0.0, 0.0 } },
+                    .color = .{ .color = .rgba(0, 0, 0, 0) },
                     .corner_radius = .sm,
                     .border_width = 1,
                     .border_color = .dimmed,
@@ -791,6 +791,10 @@ fn onWakeupHello(app: *knots.App, res: std.Io.Cancelable![]const u8) !void {
     try increment(app);
 }
 
+fn srgbToLinear(c: f32) f32 {
+    return if (c <= 0.04045) c / 12.92 else std.math.pow(f32, (c + 0.055) / 1.055, 2.4);
+}
+
 fn hsvToRgb(h: f32, s: f32, v: f32) [4]f32 {
     const h6 = h * 6.0;
     const i = @as(u32, @intFromFloat(@floor(h6))) % 6;
@@ -798,12 +802,13 @@ fn hsvToRgb(h: f32, s: f32, v: f32) [4]f32 {
     const p = v * (1.0 - s);
     const q = v * (1.0 - s * f);
     const t = v * (1.0 - s * (1.0 - f));
-    return switch (i) {
-        0 => .{ v, t, p, 1.0 },
-        1 => .{ q, v, p, 1.0 },
-        2 => .{ p, v, t, 1.0 },
-        3 => .{ p, q, v, 1.0 },
-        4 => .{ t, p, v, 1.0 },
-        else => .{ v, p, q, 1.0 },
+    const srgb: [3]f32 = switch (i) {
+        0 => .{ v, t, p },
+        1 => .{ q, v, p },
+        2 => .{ p, v, t },
+        3 => .{ p, q, v },
+        4 => .{ t, p, v },
+        else => .{ v, p, q },
     };
+    return .{ srgbToLinear(srgb[0]), srgbToLinear(srgb[1]), srgbToLinear(srgb[2]), 1.0 };
 }

@@ -41,6 +41,7 @@ swapchain: vk.SwapchainKHR,
 swapchain_images: []vk.Image,
 swapchain_views: []vk.ImageView,
 swapchain_format: vk.Format,
+swapchain_is_srgb: bool,
 swapchain_extent: vk.Extent2D,
 render_pass: vk.RenderPass,
 framebuffers: []vk.Framebuffer,
@@ -192,6 +193,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .swapchain_images = images,
         .swapchain_views = views,
         .swapchain_format = sc.format,
+        .swapchain_is_srgb = sc.is_srgb,
         .swapchain_extent = sc.extent,
         .render_pass = render_pass,
         .framebuffers = framebuffers,
@@ -476,7 +478,7 @@ fn findGraphicsQueueFamily(vki: InstanceDispatch, device: vk.PhysicalDevice, sur
     return null;
 }
 
-const SwapchainInfo = struct { swapchain: vk.SwapchainKHR, format: vk.Format, extent: vk.Extent2D };
+const SwapchainInfo = struct { swapchain: vk.SwapchainKHR, format: vk.Format, extent: vk.Extent2D, is_srgb: bool };
 
 fn createSwapchain(vki: InstanceDispatch, vkd: DeviceDispatch, physical_device: vk.PhysicalDevice, device: vk.Device, surface: vk.SurfaceKHR, width: u32, height: u32, old_swapchain: vk.SwapchainKHR, cfg: gpu.Context.Config) !SwapchainInfo {
     const caps = try vki.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
@@ -487,11 +489,22 @@ fn createSwapchain(vki: InstanceDispatch, vkd: DeviceDispatch, physical_device: 
     _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, &formats_buf);
     var chosen_format = formats_buf[0];
     for (formats_buf[0..format_count]) |f| {
-        if (f.format == .b8g8r8a8_unorm and f.color_space == .srgb_nonlinear_khr) {
+        if (f.format == .b8g8r8a8_srgb and f.color_space == .srgb_nonlinear_khr) {
             chosen_format = f;
             break;
         }
+    } else {
+        for (formats_buf[0..format_count]) |f| {
+            if (f.format == .r8g8b8a8_srgb and f.color_space == .srgb_nonlinear_khr) {
+                chosen_format = f;
+                break;
+            }
+        }
     }
+    const is_srgb = switch (chosen_format.format) {
+        .b8g8r8a8_srgb, .r8g8b8a8_srgb => true,
+        else => false,
+    };
     const extent = if (caps.current_extent.width != 0xFFFFFFFF) caps.current_extent else vk.Extent2D{
         .width = std.math.clamp(width, caps.min_image_extent.width, caps.max_image_extent.width),
         .height = std.math.clamp(height, caps.min_image_extent.height, caps.max_image_extent.height),
@@ -518,7 +531,7 @@ fn createSwapchain(vki: InstanceDispatch, vkd: DeviceDispatch, physical_device: 
         .clipped = .true,
         .old_swapchain = old_swapchain,
     }, null);
-    return .{ .swapchain = swapchain, .format = chosen_format.format, .extent = extent };
+    return .{ .swapchain = swapchain, .format = chosen_format.format, .extent = extent, .is_srgb = is_srgb };
 }
 
 fn getSwapchainImages(allocator: std.mem.Allocator, vkd: DeviceDispatch, device: vk.Device, swapchain: vk.SwapchainKHR) ![]vk.Image {

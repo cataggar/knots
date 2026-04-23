@@ -81,7 +81,7 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
     const atlas_texture = try ctx.createTexture(.{
         .width = 1024,
         .height = 1024,
-        .format = .r8_unorm,
+        .format = .r8,
         .usage = .{ .texture_binding = true, .copy_dst = true },
     });
     errdefer atlas_texture.deinit();

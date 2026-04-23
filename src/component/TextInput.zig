@@ -4,6 +4,7 @@ const UI = @import("ui").UI;
 const State = @import("ui").State;
 const Style = @import("ui").Style;
 const Theme = @import("ui").Theme;
+const Color = @import("ui").Color;
 const Key = UI.Key;
 
 const Element = @import("layout").Element;
@@ -14,8 +15,8 @@ height: Element.sizing.Axis = .fit(),
 size: f32 = 14,
 buf: *std.ArrayList(u8),
 placeholder: []const u8 = "",
-color: Theme.Color = .text,
-placeholder_color: Theme.Color = .dimmed,
+color: Color.Input = .text,
+placeholder_color: Color.Input = .dimmed,
 style: Style = .{ .color = .muted },
 focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
 key: Key,
@@ -66,7 +67,7 @@ pub fn close(self: *const TextInput, ui: *UI) !void {
 
         if (has_sel) {
             const sel_color = comptime blk: {
-                const base: Theme.Color = .primary;
+                const base: Color.Input = .primary;
                 var c = base.resolve();
                 c[3] = 0.4;
                 break :blk c;

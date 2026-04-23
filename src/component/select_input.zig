@@ -3,6 +3,7 @@ const UI = @import("ui").UI;
 const State = @import("ui").State;
 const Style = @import("ui").Style;
 const Theme = @import("ui").Theme;
+const Color = @import("ui").Color;
 const App = @import("knots").App;
 const Key = UI.Key;
 
@@ -34,12 +35,12 @@ pub fn SelectInput(comptime T: type) type {
         width: Element.sizing.Axis = .grow(),
         height: Element.sizing.Axis = .fit(),
         size: f32 = 14,
-        color: Theme.Color = .text,
-        placeholder_color: Theme.Color = .dimmed,
+        color: Color.Input = .text,
+        placeholder_color: Color.Input = .dimmed,
         style: Style = .{ .color = .muted },
         focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
         option_style: Style = .{ .color = .elevated },
-        option_hover_color: Theme.Color = .toned,
+        option_hover_color: Color.Input = .toned,
         onSelect: ?*const fn (*App, T, usize) anyerror!void = null,
 
         const Self = @This();

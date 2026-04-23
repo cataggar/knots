@@ -2,6 +2,8 @@ const UI = @import("ui").UI;
 const Style = @import("ui").Style;
 const Element = @import("layout").Element;
 const App = @import("knots").App;
+const Theme = @import("ui").Theme;
+const Color = @import("ui").Color;
 const Decoration = UI.Decoration;
 const std = @import("std");
 
@@ -10,7 +12,7 @@ min: f32 = 0,
 max: f32 = 1,
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .fixed(4),
-track_color: [4]f32 = .{ 0.3, 0.3, 0.3, 1.0 },
+track_color: [4]f32 = Color.hex("#4d4d4d").value,
 fill_color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 corner_radius: f32 = 2,
 onChange: ?*const fn (*App) anyerror!void = null,

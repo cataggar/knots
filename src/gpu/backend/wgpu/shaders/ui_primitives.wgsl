@@ -54,12 +54,10 @@ fn sdRoundedBox(p: vec2f, half_size: vec2f, radius: f32) -> f32 {
     return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+fn shadeLinear(in: VertexOutput) -> vec4f {
     let sampled = textureSample(atlas_texture, atlas_sampler, in.uv);
 
     if in.prim_type < 0.5 {
-        // Rect path: SDF rounded rectangle
         let d = sdRoundedBox(in.uv, in.half_size, in.corner_radius);
 
         let fill_alpha = 1.0 - smoothstep(-0.5, 0.5, d);
@@ -70,11 +68,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let col = mix(in.color, in.border_color, border_alpha * fill_alpha);
         return vec4f(col.rgb, col.a * fill_alpha);
     } else if in.prim_type < 1.5 {
-        // Text path: texture sample from atlas
         let coverage = sampled.r;
         return vec4f(in.color.rgb, in.color.a * coverage);
     } else {
-        // Image path: full RGB texture sample
         return vec4f(sampled.rgb * in.color.rgb, in.color.a);
     }
+}
+
+fn linearToSrgb(c: vec3f) -> vec3f {
+    let cutoff = c <= vec3f(0.0031308);
+    let lo = 12.92 * c;
+    let hi = 1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055;
+    return select(hi, lo, cutoff);
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    return shadeLinear(in);
+}
+
+@fragment
+fn fs_main_srgb_encode(in: VertexOutput) -> @location(0) vec4f {
+    let c = shadeLinear(in);
+    return vec4f(linearToSrgb(c.rgb), c.a);
 }

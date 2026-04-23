@@ -75,7 +75,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Pipeline.De
         },
         .fragment = .{
             .module = shader_module,
-            .entry_point = "fs_main",
+            .entry_point = if (ctx.surface_is_srgb) "fs_main" else "fs_main_srgb_encode",
             .targets = &.{
                 .{
                     .format = ctx.surface_format,

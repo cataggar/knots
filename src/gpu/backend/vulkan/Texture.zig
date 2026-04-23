@@ -208,18 +208,18 @@ fn isReady(ptr: *anyopaque) bool {
 
 fn bytesPerPixel(format: gpu.Texture.Format) u32 {
     return switch (format) {
-        .rgba8_unorm, .rgba8_unorm_srgb, .bgra8_unorm, .bgra8_unorm_srgb => 4,
-        .r8_unorm => 1,
+        .rgba8, .rgba8_srgb, .bgra8, .bgra8_srgb => 4,
+        .r8 => 1,
     };
 }
 
 fn toVkFormat(format: gpu.Texture.Format) vk.Format {
     return switch (format) {
-        .rgba8_unorm => .r8g8b8a8_unorm,
-        .rgba8_unorm_srgb => .r8g8b8a8_srgb,
-        .bgra8_unorm => .b8g8r8a8_unorm,
-        .bgra8_unorm_srgb => .b8g8r8a8_srgb,
-        .r8_unorm => .r8_unorm,
+        .rgba8 => .r8g8b8a8_unorm,
+        .rgba8_srgb => .r8g8b8a8_srgb,
+        .bgra8 => .b8g8r8a8_unorm,
+        .bgra8_srgb => .b8g8r8a8_srgb,
+        .r8 => .r8_unorm,
     };
 }
 

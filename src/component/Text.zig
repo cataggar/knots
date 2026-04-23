@@ -1,4 +1,5 @@
 const UI = @import("ui").UI;
+const Color = @import("ui").Color;
 const Theme = @import("ui").Theme;
 const Element = @import("layout").Element;
 
@@ -6,7 +7,7 @@ width: Element.sizing.Axis = .fit(),
 height: Element.sizing.Axis = .fit(),
 size: f32 = 14,
 content: []const u8,
-color: Theme.Color = .text,
+color: Color.Input = .text,
 font: ?[]const u8 = null,
 key: UI.Key,
 

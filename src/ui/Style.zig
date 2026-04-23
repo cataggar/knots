@@ -1,21 +1,21 @@
 const Decoration = @import("Decoration.zig").Decoration;
 const Theme = @import("Theme.zig");
-const Color = Theme.Color;
+const Color = @import("Color.zig");
 const Radius = Theme.Radius;
 
-color: Color = Color.transparent,
+color: Color.Input = .{ .color = Color.transparent },
 corner_radius: Radius = .md,
 border_width: f32 = 0,
-border_color: Color = Color.transparent,
+border_color: Color.Input = .{ .color = Color.transparent },
 
 const Style = @This();
 
 /// All-optional variant for state overrides. Null fields fall back to base.
 pub const Override = struct {
-    color: ?Color = null,
+    color: ?Color.Input = null,
     corner_radius: ?Radius = null,
     border_width: ?f32 = null,
-    border_color: ?Color = null,
+    border_color: ?Color.Input = null,
 };
 
 /// Merge base style with an override (non-null fields win).

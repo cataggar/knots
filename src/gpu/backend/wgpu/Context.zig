@@ -21,6 +21,7 @@ device: wgpu.Device,
 queue: wgpu.Queue,
 surface: wgpu.Surface,
 surface_format: wgpu.Texture.Format,
+surface_is_srgb: bool,
 present_mode: wgpu.types.PresentMode,
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle, cfg: gpu.Context.Config) !gpu.Context {
@@ -57,6 +58,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
     const q = try dev.getQueue();
 
     const surface_format = try chooseSurfaceFormat(capabilities);
+    const surface_is_srgb = isSrgbFormat(surface_format);
 
     const chosen_present_mode = try choosePresentMode(capabilities, cfg.present_mode);
 
@@ -77,6 +79,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .queue = q,
         .surface = surface,
         .surface_format = surface_format,
+        .surface_is_srgb = surface_is_srgb,
         .present_mode = chosen_present_mode,
     };
 
@@ -146,10 +149,21 @@ fn chooseSurfaceFormat(capabilities: wgpu.Surface.Capabilities) !wgpu.Texture.Fo
     }
 
     for (capabilities.formats) |format|
-        if (format == .bgra8_unorm)
-            return .bgra8_unorm;
+        if (format == .bgra8_unorm_srgb)
+            return .bgra8_unorm_srgb;
+
+    for (capabilities.formats) |format|
+        if (format == .rgba8_unorm_srgb)
+            return .rgba8_unorm_srgb;
 
     return capabilities.formats[0];
+}
+
+fn isSrgbFormat(format: wgpu.Texture.Format) bool {
+    return switch (format) {
+        .bgra8_unorm_srgb, .rgba8_unorm_srgb => true,
+        else => false,
+    };
 }
 
 fn choosePresentMode(capabilities: wgpu.Surface.Capabilities, pm: gpu.Context.PresentMode) !wgpu.types.PresentMode {

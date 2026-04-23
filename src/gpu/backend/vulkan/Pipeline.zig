@@ -118,12 +118,25 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, _: gpu.Pipeline.Desc)
     }, null);
     defer vkd.destroyShaderModule(device, frag_module, null);
 
+    const apply_srgb_encode: u32 = if (ctx.swapchain_is_srgb) 0 else 1;
+    const spec_map = [_]vk.SpecializationMapEntry{.{
+        .constant_id = 0,
+        .offset = 0,
+        .size = @sizeOf(u32),
+    }};
+    const frag_spec_info = vk.SpecializationInfo{
+        .map_entry_count = spec_map.len,
+        .p_map_entries = &spec_map,
+        .data_size = @sizeOf(u32),
+        .p_data = &apply_srgb_encode,
+    };
+
     var vk_pipeline: [1]vk.Pipeline = undefined;
     _ = try vkd.createGraphicsPipelines(device, .null_handle, &.{.{
         .stage_count = 2,
         .p_stages = &[_]vk.PipelineShaderStageCreateInfo{
             .{ .stage = .{ .vertex_bit = true }, .module = vert_module, .p_name = "main" },
-            .{ .stage = .{ .fragment_bit = true }, .module = frag_module, .p_name = "main" },
+            .{ .stage = .{ .fragment_bit = true }, .module = frag_module, .p_name = "main", .p_specialization_info = &frag_spec_info },
         },
         .p_vertex_input_state = &.{
             .vertex_binding_description_count = 1,
