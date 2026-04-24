@@ -156,6 +156,15 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/control/root.zig"),
     });
 
+    const animation_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/animation/root.zig"),
+        .imports = &.{
+            .{ .name = "layout", .module = layout_mod },
+        },
+    });
+
     const debug_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -177,6 +186,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "ui", .module = ui_mod },
             .{ .name = "component", .module = component_mod },
             .{ .name = "control", .module = control_mod },
+            .{ .name = "animation", .module = animation_mod },
             .{ .name = "window", .module = window_mod },
             .{ .name = "debug", .module = debug_mod },
         },
@@ -184,6 +194,7 @@ pub fn build(b: *std.Build) void {
 
     component_mod.addImport("knots", mod);
     control_mod.addImport("knots", mod);
+    animation_mod.addImport("knots", mod);
     debug_mod.addImport("knots", mod);
 
     const mod_tests = b.addTest(.{ .root_module = mod });

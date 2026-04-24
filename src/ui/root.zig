@@ -6,6 +6,7 @@ pub const Key = @import("Key.zig");
 pub const State = @import("State.zig");
 pub const Theme = @import("Theme.zig");
 pub const Color = @import("Color.zig");
+pub const animation = @import("animation.zig");
 
 test {
     _ = State;

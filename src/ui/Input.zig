@@ -4,6 +4,7 @@ const Window = @import("window").Window;
 mouse_pos: [2]f64 = .{ 0, 0 },
 mouse_moved: bool = false,
 mouse_idle_ms: i64 = 0,
+now_ms: i64 = 0,
 mouse_down: bool = false,
 mouse_pressed: bool = false,
 mouse_released: bool = false,
@@ -33,6 +34,7 @@ pub fn collect(self: *Input, raw: Window.Input, now_ms: i64) void {
     self._prev_mouse_down = raw.mouse_down_now;
     if (self.mouse_moved) self._last_move_ms = now_ms;
     self.mouse_idle_ms = now_ms - self._last_move_ms;
+    self.now_ms = now_ms;
     self.scroll_delta = raw.scroll_delta;
     self.shift_held = raw.shift_held;
     self.ctrl_held = raw.ctrl_held;

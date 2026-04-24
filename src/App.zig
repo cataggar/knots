@@ -142,6 +142,8 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
 
     try @call(.auto, frameCb, .{self});
 
+    if (self.ui.anim_active) self.signal(.redraw);
+
     while (self.signals.pop()) |s| switch (s) {
         .redraw => self.window.postEmptyEvent(),
         .exit => {

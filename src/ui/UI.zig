@@ -9,10 +9,16 @@ const DrawList = @import("render").DrawList;
 
 const State = @import("State.zig");
 const Input = @import("Input.zig");
+const animation = @import("animation.zig");
 
 pub const Decoration = @import("Decoration.zig").Decoration;
 pub const Key = @import("Key.zig");
 pub const Style = @import("Style.zig");
+
+pub const AnimOpts = struct {
+    duration_ms: u32 = 150,
+    ease: animation.Ease = .smooth_step,
+};
 
 const Allocator = std.mem.Allocator;
 
@@ -23,10 +29,6 @@ pub const HitRecord = struct {
     layer: u8,
     insertion_order: u32,
 };
-
-pub fn queryId(key: Key) Element.Id {
-    return key.hash();
-}
 
 pub const Config = struct {
     fonts: []const text.Font.FontKey = &.{.{ "default", @embedFile("fonts/default.ttf") }},
@@ -41,6 +43,7 @@ input: Input,
 hit_records: std.ArrayList(HitRecord),
 hit_counter: u32,
 content_scale: f32,
+anim_active: bool,
 
 const UI = @This();
 
@@ -55,6 +58,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .hit_records = .empty,
         .hit_counter = 0,
         .content_scale = 1.0,
+        .anim_active = false,
     };
 }
 
@@ -132,6 +136,52 @@ pub fn reset(self: *UI) void {
     self.decorations.clearRetainingCapacity();
     self.hit_records.clearRetainingCapacity();
     self.hit_counter = 0;
+    self.anim_active = false;
+}
+
+/// Drive a time-based animation toward `target` for the given (element_id, channel)
+/// pair. Returns the current eased value. On target change, snapshots the current
+/// value as the new start_value so interrupted animations continue smoothly from
+/// wherever they were rather than restarting.
+///
+/// Marks the UI dirty while in flight so the host app can keep ticking frames.
+pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32, opts: AnimOpts) f32 {
+    const id = animation.channelId(element_id, channel);
+    const s: *State.Anim = self.state.getOrCreate(.anim, self.allocator, id) catch return target;
+    const now = self.input.now_ms;
+
+    if (!s.initialized) {
+        s.* = .{
+            .current = target,
+            .start_value = target,
+            .target = target,
+            .t0_ms = now,
+            .duration_ms = opts.duration_ms,
+            .ease = opts.ease,
+            .initialized = true,
+        };
+        return target;
+    }
+
+    if (s.target != target) {
+        s.start_value = s.current;
+        s.target = target;
+        s.t0_ms = now;
+        s.duration_ms = opts.duration_ms;
+        s.ease = opts.ease;
+    }
+
+    if (s.duration_ms == 0) {
+        s.current = target;
+        return s.current;
+    }
+
+    const elapsed: i64 = now - s.t0_ms;
+    const raw_t: f32 = @as(f32, @floatFromInt(elapsed)) / @as(f32, @floatFromInt(s.duration_ms));
+    const t = std.math.clamp(raw_t, 0.0, 1.0);
+    s.current = animation.lerp(s.start_value, s.target, s.ease.eval(t));
+    if (t < 1.0) self.anim_active = true;
+    return s.current;
 }
 
 pub fn resolve(self: *UI) !void {
@@ -143,12 +193,22 @@ pub fn resolve(self: *UI) !void {
     try self.layout_ctx.buildZOrder();
     self.syncSelectAnchors();
     self.syncSliderBounds();
+    self.syncMeasuredBounds();
 }
 
 fn syncSliderBounds(self: *UI) void {
     for (self.layout_ctx.pool.elements.items) |el| {
         if (self.state.get(.slider, el.id)) |s| {
             s.bounds = el.box;
+        }
+    }
+}
+
+fn syncMeasuredBounds(self: *UI) void {
+    for (self.layout_ctx.pool.elements.items) |el| {
+        if (self.state.get(.measured, el.id)) |s| {
+            s.width = el.box.w;
+            s.height = el.box.h;
         }
     }
 }
@@ -630,4 +690,58 @@ test "scroll routing uses previous frame elements" {
 
     const box = child_box.?;
     try std.testing.expectApproxEqAbs(box.y, -50.0, 0.001);
+}
+
+test "anim returns target immediately on first touch" {
+    const allocator = std.testing.allocator;
+    var ui = try UI.init(allocator, .{});
+    defer ui.deinit();
+
+    ui.input.now_ms = 1000;
+    const v = ui.anim(1, "hover", 1.0, .{ .duration_ms = 200 });
+    try std.testing.expectApproxEqAbs(v, 1.0, 1e-6);
+    try std.testing.expect(!ui.anim_active);
+}
+
+test "anim snapshots start_value mid-interruption" {
+    const allocator = std.testing.allocator;
+    var ui = try UI.init(allocator, .{});
+    defer ui.deinit();
+
+    ui.input.now_ms = 0;
+    _ = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
+
+    ui.input.now_ms = 0;
+    _ = ui.anim(1, "hover", 1.0, .{ .duration_ms = 200 });
+
+    ui.input.now_ms = 100;
+    const midway = ui.anim(1, "hover", 1.0, .{ .duration_ms = 200 });
+    try std.testing.expect(midway > 0.0 and midway < 1.0);
+    try std.testing.expect(ui.anim_active);
+
+    ui.input.now_ms = 100;
+    const reversed_start = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
+    try std.testing.expectApproxEqAbs(reversed_start, midway, 1e-6);
+
+    ui.input.now_ms = 150;
+    const reversing = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
+    try std.testing.expect(reversing < midway);
+    try std.testing.expect(reversing > 0.0);
+}
+
+test "anim settles and clears dirty flag" {
+    const allocator = std.testing.allocator;
+    var ui = try UI.init(allocator, .{});
+    defer ui.deinit();
+
+    ui.input.now_ms = 0;
+    _ = ui.anim(1, "hover", 0.0, .{ .duration_ms = 100 });
+    ui.input.now_ms = 0;
+    _ = ui.anim(1, "hover", 1.0, .{ .duration_ms = 100 });
+
+    ui.anim_active = false;
+    ui.input.now_ms = 500;
+    const done = ui.anim(1, "hover", 1.0, .{ .duration_ms = 100 });
+    try std.testing.expectApproxEqAbs(done, 1.0, 1e-6);
+    try std.testing.expect(!ui.anim_active);
 }

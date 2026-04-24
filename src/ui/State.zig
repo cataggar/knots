@@ -1,5 +1,6 @@
 const std = @import("std");
 const Element = @import("layout").Element;
+const animation = @import("animation.zig");
 
 pub const TextInput = struct {
     cursor: u32 = 0,
@@ -19,6 +20,21 @@ pub const SelectInput = struct {
 
 pub const Slider = struct {
     bounds: Element.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+};
+
+pub const Measured = struct {
+    width: f32 = 0,
+    height: f32 = 0,
+};
+
+pub const Anim = struct {
+    current: f32 = 0,
+    start_value: f32 = 0,
+    target: f32 = 0,
+    t0_ms: i64 = 0,
+    duration_ms: u32 = 0,
+    ease: animation.Ease = .smooth_step,
+    initialized: bool = false,
 };
 
 /// Double-buffered flat array of (id, T) pairs.
@@ -99,6 +115,8 @@ pub const Storage = struct {
         scroll: Pool(Scroll) = .{},
         select_input: Pool(SelectInput) = .{},
         slider: Pool(Slider) = .{},
+        measured: Pool(Measured) = .{},
+        anim: Pool(Anim) = .{},
     };
 
     pools: StoragePools = .{},
