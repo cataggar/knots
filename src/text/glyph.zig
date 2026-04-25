@@ -14,6 +14,7 @@ pub const Shaped = struct {
     metrics: Metrics,
     x: f32, // pen position
     y: f32,
+    cluster: u32, // byte offset into source UTF-8 text
 };
 
 pub const ShapedText = struct {

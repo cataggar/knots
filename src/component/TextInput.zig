@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const UI = @import("ui").UI;
 const State = @import("ui").State;
@@ -9,6 +10,8 @@ const Key = UI.Key;
 
 const Element = @import("layout").Element;
 const Decoration = UI.Decoration;
+const glyph = @import("text").glyph;
+const xAtByte = @import("util.zig").xAtByte;
 
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .fit(),
@@ -48,6 +51,7 @@ pub fn open(self: *const TextInput, ui: *UI) !Element.Id {
         .overflow = .scroll_x,
         .interactive = true,
         .alignment = .center,
+        .padding = .init(0, 0, 0, 6),
     }, decoration);
 }
 
@@ -57,13 +61,22 @@ pub fn close(self: *const TextInput, ui: *UI) !void {
     const items = self.buf.items;
     const resolved_color = self.color.resolve();
 
+    const display, const color = if (!is_focused and items.len == 0)
+        .{ self.placeholder, self.placeholder_color.resolve() }
+    else
+        .{ items, resolved_color };
+
     if (is_focused) {
         const s = ui.state.get(.text_input, id).?;
         const sel_lo = @min(s.cursor, s.sel_anchor);
         const sel_hi = @max(s.cursor, s.sel_anchor);
         const has_sel = sel_lo != sel_hi;
+        const scale = ui.content_scale;
 
-        try renderSpan(ui, id, "a", items[0..sel_lo], self.size, resolved_color, .none);
+        const face = ui.font.getFace(null);
+        const shaped = try face.shape(ui.allocator, items, self.size * scale);
+        defer ui.allocator.free(shaped.glyphs);
+        const line_h = (try face.lineHeight(self.size * scale)) / scale;
 
         if (has_sel) {
             const sel_color = comptime blk: {
@@ -72,53 +85,59 @@ pub fn close(self: *const TextInput, ui: *UI) !void {
                 c[3] = 0.4;
                 break :blk c;
             };
-            const highlight: Decoration = .{ .rect = .{ .color = sel_color } };
-            try renderSpan(ui, id, "b", items[sel_lo..sel_hi], self.size, resolved_color, highlight);
+            const x_lo = xAtByte(shaped.glyphs, sel_lo, scale);
+            const x_hi = xAtByte(shaped.glyphs, sel_hi, scale);
+            try emitOverlayRect(ui, id, "hl", x_lo, x_hi - x_lo, line_h, sel_color);
         } else {
-            var buf: [256]u8 = undefined;
-            const key = std.fmt.bufPrint(&buf, "__ti_cursor_{}", .{id}) catch buf[0..];
-            _ = try ui.open(.str(key), .{
-                .width = .fixed(1),
-                .height = .fixed(try ui.lineHeight(self.size, null)),
-            }, .{ .rect = .{ .color = resolved_color } });
-            ui.close();
+            const cx = xAtByte(shaped.glyphs, s.cursor, scale);
+            try emitOverlayRect(ui, id, "cur", cx, 1, line_h, resolved_color);
         }
+    }
 
-        try renderSpan(ui, id, "c", items[sel_hi..], self.size, resolved_color, .none);
-    } else {
-        const display, const color = if (items.len == 0)
-            .{ self.placeholder, self.placeholder_color.resolve() }
-        else
-            .{ items, resolved_color };
-        try renderSpan(ui, id, "d", display, self.size, color, .none);
+    var buf: [64]u8 = undefined;
+    const text_key = std.fmt.bufPrint(&buf, "__ti_body_{}", .{id}) catch buf[0..];
+    if (display.len > 0) {
+        var deco = try ui.textDecoration(display, self.size, null);
+        deco.text.color = color;
+        _ = try ui.open(.str(text_key), .{ .width = .fit(), .height = .fit() }, deco);
+        ui.close();
     }
 
     ui.close();
 }
 
-fn renderSpan(
+fn emitOverlayRect(
     ui: *UI,
     id: u64,
     comptime tag: []const u8,
-    text: []const u8,
-    size: f32,
+    x: f32,
+    w: f32,
+    h: f32,
     color: [4]f32,
-    wrap: Decoration,
 ) !void {
-    if (text.len == 0 and wrap == .none) return;
+    var buf: [64]u8 = undefined;
+    var buf2: [64]u8 = undefined;
+    var buf3: [64]u8 = undefined;
+    const overlay_key = std.fmt.bufPrint(&buf, "__ti_" ++ tag ++ "_{}", .{id}) catch buf[0..];
+    const spacer_key = std.fmt.bufPrint(&buf2, "__ti_" ++ tag ++ "_sp_{}", .{id}) catch buf2[0..];
+    const rect_key = std.fmt.bufPrint(&buf3, "__ti_" ++ tag ++ "_r_{}", .{id}) catch buf3[0..];
 
-    var buf: [256]u8 = undefined;
-    var buf2: [256]u8 = undefined;
-    const key = std.fmt.bufPrint(&buf, "__ti_" ++ tag ++ "_{}", .{id}) catch buf[0..];
-    const key_t = std.fmt.bufPrint(&buf2, "__ti_" ++ tag ++ "_t_{}", .{id}) catch buf2[0..];
-
-    _ = try ui.open(.str(key), .{ .width = .fit(), .height = .fit() }, wrap);
-    if (text.len > 0) {
-        var deco = try ui.textDecoration(text, size, null);
-        deco.text.color = color;
-        _ = try ui.open(.str(key_t), .{ .width = .fit(), .height = .fit() }, deco);
-        ui.close();
-    }
+    _ = try ui.open(.str(overlay_key), .{
+        .width = .grow(),
+        .height = .grow(),
+        .position = .absolute,
+        .direction = .row,
+    }, .none);
+    _ = try ui.open(.str(spacer_key), .{
+        .width = .fixed(x),
+        .height = .fixed(0),
+    }, .none);
+    ui.close();
+    _ = try ui.open(.str(rect_key), .{
+        .width = .fixed(w),
+        .height = .fixed(h),
+    }, .{ .rect = .{ .color = color } });
+    ui.close();
     ui.close();
 }
 
@@ -140,6 +159,11 @@ fn processInput(self: *const TextInput, ui: *UI, s: *State.TextInput) !void {
         s.cursor += n;
         s.sel_anchor = s.cursor;
     }
+
+    const super_ctrl_held = switch (builtin.os.tag) {
+        .macos => ui.input.super_held,
+        else => ui.input.ctrl_held,
+    };
 
     for (ui.input.keys) |key| {
         switch (key) {
@@ -193,7 +217,7 @@ fn processInput(self: *const TextInput, ui: *UI, s: *State.TextInput) !void {
                 s.cursor = len;
                 if (!ui.input.shift_held) s.sel_anchor = s.cursor;
             },
-            .a => if (ui.input.ctrl_held) {
+            .a => if (super_ctrl_held) {
                 s.sel_anchor = 0;
                 s.cursor = len;
             },

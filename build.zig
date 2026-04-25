@@ -147,6 +147,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "layout", .module = layout_mod },
             .{ .name = "ui", .module = ui_mod },
+            .{ .name = "text", .module = text_mod },
         },
     });
 

@@ -13,6 +13,7 @@ chars: []const u21 = &.{},
 keys: []const Window.Key = &.{},
 shift_held: bool = false,
 ctrl_held: bool = false,
+super_held: bool = false,
 
 _char_buf: [32]u21 = undefined,
 _char_len: usize = 0,
@@ -38,6 +39,7 @@ pub fn collect(self: *Input, raw: Window.Input, now_ms: i64) void {
     self.scroll_delta = raw.scroll_delta;
     self.shift_held = raw.shift_held;
     self.ctrl_held = raw.ctrl_held;
+    self.super_held = raw.super_held;
 
     const nc = @min(raw.chars.len, self._char_buf.len);
     @memcpy(self._char_buf[0..nc], raw.chars[0..nc]);

@@ -101,8 +101,8 @@ pub fn render(self: *const RendererSettings, app: *knots.App) anyerror!void {
             .justify = .center,
             .@"align" = .center,
             .onClick = self.onClick,
+            .text = .{ .content = "Apply", .size = 12 },
         },
-        .{Text{ .content = "Apply", .size = 12, .key = .src(@src()) }},
     });
 
     if (app.ui.clicked(apply_key.hash())) {

@@ -99,6 +99,7 @@ pub fn shape(self: *Face, allocator: std.mem.Allocator, text: []const u8, size_p
             .metrics = metrics,
             .x = @round(pen_x + x_offset + metrics.bearing_x),
             .y = y_offset,
+            .cluster = glyph_infos[i].cluster,
         });
 
         pen_x += @as(f32, @floatFromInt(glyph_positions[i].x_advance)) / 64.0;

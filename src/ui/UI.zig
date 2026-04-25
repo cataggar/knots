@@ -194,6 +194,15 @@ pub fn resolve(self: *UI) !void {
     self.syncSelectAnchors();
     self.syncSliderBounds();
     self.syncMeasuredBounds();
+    self.syncTextSelectBounds();
+}
+
+fn syncTextSelectBounds(self: *UI) void {
+    for (self.layout_ctx.pool.elements.items) |el| {
+        if (self.state.get(.text_select, el.id)) |s| {
+            s.box = el.box;
+        }
+    }
 }
 
 fn syncSliderBounds(self: *UI) void {
@@ -241,17 +250,28 @@ pub fn focused(self: *UI, id: Element.Id) bool {
 }
 
 pub fn isHoveredWithin(self: *UI, ancestor_id: Element.Id) bool {
-    if (self.state.hovered == Element.INVALID_ID) return false;
-    if (self.state.hovered == ancestor_id) return true;
+    return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
+}
+
+pub fn clickedWithin(self: *UI, ancestor_id: Element.Id) bool {
+    if (!self.input.mouse_released) return false;
+    if (self.state.press_drag) return false;
+    if (!self.isDescendantOrSelf(self.state.press_origin, ancestor_id)) return false;
+    return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
+}
+
+fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element.Id) bool {
+    if (descendant_id == Element.INVALID_ID) return false;
+    if (descendant_id == ancestor_id) return true;
     var ancestor_slot: ?Element.Slot = null;
-    var hovered_slot: ?Element.Slot = null;
+    var descendant_slot: ?Element.Slot = null;
     for (self.layout_ctx.pool.elements.items, 0..) |el, i| {
         if (el.id == ancestor_id) ancestor_slot = @intCast(i);
-        if (el.id == self.state.hovered) hovered_slot = @intCast(i);
-        if (ancestor_slot != null and hovered_slot != null) break;
+        if (el.id == descendant_id) descendant_slot = @intCast(i);
+        if (ancestor_slot != null and descendant_slot != null) break;
     }
-    if (ancestor_slot == null or hovered_slot == null) return false;
-    return self.layout_ctx.isDescendantOf(hovered_slot.?, ancestor_slot.?);
+    if (ancestor_slot == null or descendant_slot == null) return false;
+    return self.layout_ctx.isDescendantOf(descendant_slot.?, ancestor_slot.?);
 }
 
 pub fn collectInput(self: *UI, input: Window.Input, now_ms: i64) !void {
@@ -260,6 +280,16 @@ pub fn collectInput(self: *UI, input: Window.Input, now_ms: i64) !void {
     if (self.input.mouse_pressed) {
         self.state.active = self.state.hovered;
         self.state.focused = self.state.hovered;
+        self.state.press_origin = self.state.hovered;
+        self.state.press_pos = self.input.mouse_pos;
+        self.state.press_drag = false;
+
+        self.state.forEach(.text_select, self.state.hovered, clearOtherTextSelect);
+    }
+    if (self.input.mouse_down and !self.state.press_drag) {
+        const dx = self.input.mouse_pos[0] - self.state.press_pos[0];
+        const dy = self.input.mouse_pos[1] - self.state.press_pos[1];
+        if (dx * dx + dy * dy > press_drag_threshold_sq) self.state.press_drag = true;
     }
     if (self.input.mouse_released) self.state.active = Element.INVALID_ID;
 
@@ -268,6 +298,15 @@ pub fn collectInput(self: *UI, input: Window.Input, now_ms: i64) !void {
     }
 
     self.state.endFrame();
+}
+
+const press_drag_threshold_sq: f64 = 9.0;
+
+fn clearOtherTextSelect(hovered: Element.Id, id: Element.Id, s: *State.TextSelect) void {
+    if (id == hovered) return;
+    s.anchor_byte = 0;
+    s.cursor_byte = 0;
+    s.dragging = false;
 }
 
 pub fn resolveHit(self: *UI) void {

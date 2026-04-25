@@ -8,6 +8,13 @@ pub const TextInput = struct {
     scroll_x: f32 = 0,
 };
 
+pub const TextSelect = struct {
+    anchor_byte: u32 = 0,
+    cursor_byte: u32 = 0,
+    dragging: bool = false,
+    box: Element.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+};
+
 pub const Scroll = struct {
     offset: [2]f32 = .{ 0, 0 },
 };
@@ -112,6 +119,7 @@ fn PoolValueType(comptime PoolT: type) type {
 pub const Storage = struct {
     const StoragePools = struct {
         text_input: Pool(TextInput) = .{},
+        text_select: Pool(TextSelect) = .{},
         scroll: Pool(Scroll) = .{},
         select_input: Pool(SelectInput) = .{},
         slider: Pool(Slider) = .{},
@@ -148,12 +156,26 @@ pub const Storage = struct {
             @field(self.pools, f.name).swap();
         }
     }
+
+    pub fn forEach(
+        self: *Storage,
+        comptime name: std.meta.FieldEnum(StoragePools),
+        ctx: anytype,
+        comptime f: fn (@TypeOf(ctx), Element.Id, *PoolValueType(@FieldType(StoragePools, @tagName(name)))) void,
+    ) void {
+        const pool = self.poolFor(name);
+        for (pool.current.items) |*e| f(ctx, e.id, &e.value);
+        for (pool.next.items) |*e| f(ctx, e.id, &e.value);
+    }
 };
 
 allocator: std.mem.Allocator,
 hovered: Element.Id = Element.INVALID_ID,
 active: Element.Id = Element.INVALID_ID,
 focused: Element.Id = Element.INVALID_ID,
+press_origin: Element.Id = Element.INVALID_ID,
+press_pos: [2]f64 = .{ 0, 0 },
+press_drag: bool = false,
 storage: Storage = .{},
 
 const State = @This();
@@ -181,6 +203,15 @@ pub fn getOrCreate(self: *State, comptime name: @EnumLiteral(), allocator: std.m
 
 pub fn remove(self: *State, comptime name: @EnumLiteral(), id: Element.Id) void {
     self.storage.remove(name, id);
+}
+
+pub fn forEach(
+    self: *State,
+    comptime name: @EnumLiteral(),
+    ctx: anytype,
+    comptime f: fn (@TypeOf(ctx), Element.Id, *PoolValueType(@FieldType(Storage.StoragePools, @tagName(name)))) void,
+) void {
+    self.storage.forEach(name, ctx, f);
 }
 
 /// Call at the end of each frame. Swaps double-buffered pools so that

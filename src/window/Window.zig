@@ -6,10 +6,11 @@ const std = @import("std");
 
 const SCROLL_SPEED: comptime_float = 10;
 
-const GLFW_PRESS = 1;
-const GLFW_REPEAT = 2;
-const GLFW_MOD_SHIFT = 0x0001;
-const GLFW_MOD_CTRL = 0x0002;
+const GLFW_PRESS = glfw.c.GLFW_PRESS;
+const GLFW_REPEAT = glfw.c.GLFW_REPEAT;
+const GLFW_MOD_SHIFT = glfw.c.GLFW_MOD_SHIFT;
+const GLFW_MOD_CTRL = glfw.c.GLFW_MOD_CONTROL;
+const GLFW_MOD_SUPER = glfw.c.GLFW_MOD_SUPER;
 
 const EmscriptenUiEvent = extern struct {
     detail: c_long,
@@ -169,6 +170,7 @@ pub const Input = struct {
     keys: []const Key,
     shift_held: bool,
     ctrl_held: bool,
+    super_held: bool,
 };
 
 pub const DropCallback = *const fn (ctx: *anyopaque, paths: []const []const u8) anyerror!void;
@@ -274,10 +276,12 @@ pub fn collectInput(self: *Window) Input {
     var translated_count: u8 = 0;
     var shift_held = false;
     var ctrl_held = false;
+    var super_held = false;
 
     for (self.key_events[0..self.key_count]) |ev| {
         if (ev.mods & GLFW_MOD_SHIFT != 0) shift_held = true;
         if (ev.mods & GLFW_MOD_CTRL != 0) ctrl_held = true;
+        if (ev.mods & GLFW_MOD_SUPER != 0) super_held = true;
         if (ev.action != GLFW_PRESS and ev.action != GLFW_REPEAT) continue;
         if (translated_count >= self.key_buf.len) break;
 
@@ -297,6 +301,7 @@ pub fn collectInput(self: *Window) Input {
         .keys = self.key_buf[0..translated_count],
         .shift_held = shift_held,
         .ctrl_held = ctrl_held,
+        .super_held = super_held,
     };
 }
 
