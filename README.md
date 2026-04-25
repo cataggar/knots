@@ -69,7 +69,7 @@ fn frameCb(app: *knots.App) !void {
 
 ## Examples
 
-See [examples/playground](examples/playground), you can also try the web version [here](https://shahwali.dev/playground).
+See [examples](examples), you can also try the web version of the playground [here](https://shahwali.dev/playground).
 
 ## Known limitations
 

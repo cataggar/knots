@@ -1,0 +1,14 @@
+.{
+    .name = .triangle,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.17.0-dev.56+a8226cd53",
+    .dependencies = .{
+        .knots = .{ .path = "../../" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .fingerprint = 0xdf976d879eb85848,
+}
