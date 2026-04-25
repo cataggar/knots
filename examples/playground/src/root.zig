@@ -7,8 +7,8 @@ const SelectInput = knots.component.SelectInput;
 const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 const Canvas = knots.component.Canvas;
-const If = knots.control.If;
 const For = knots.control.For;
+const animation = knots.animation;
 
 const is_emscripten = @import("builtin").os.tag == .emscripten;
 
@@ -38,6 +38,7 @@ renderer_settings: knots.debug.RendererSettings,
 cntr: isize = 0,
 counter_items: std.ArrayList(isize) = .empty,
 show_details: bool = true,
+details_tween_h: f32 = 0,
 name_buf: std.ArrayList(u8),
 selected_idx: usize = 0,
 grid_cmds: std.ArrayList(Canvas.DrawCmd),
@@ -239,8 +240,9 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
                 .onClick = increment,
                 .justify = .center,
                 .@"align" = .center,
+                .hover_anim = .{},
+                .text = .{ .content = "+1" },
             },
-            .{Text{ .content = "+1", .size = 12, .key = .src(@src()) }},
             Spacer{ .width = .fixed(6), .key = .src(@src()) },
             Button{
                 .height = .fixed(30),
@@ -250,8 +252,8 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
                 .onClick = decrement,
                 .justify = .center,
                 .@"align" = .center,
+                .text = .{ .content = "-1" },
             },
-            .{Text{ .content = "-1", .size = 12, .key = .src(@src()) }},
             Spacer{ .width = .fixed(6), .key = .src(@src()) },
             Button{
                 .height = .fixed(30),
@@ -261,8 +263,8 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
                 .onClick = exit,
                 .justify = .center,
                 .@"align" = .center,
+                .text = .{ .content = "exit" },
             },
-            .{Text{ .content = "exit", .size = 12, .key = .src(@src()) }},
             Spacer{ .width = .fixed(6), .key = .src(@src()) },
             Button{
                 .height = .fixed(30),
@@ -277,8 +279,8 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
                 .onClick = sleep,
                 .justify = .center,
                 .@"align" = .center,
+                .text = .{ .content = "sleep +50", .size = 9 },
             },
-            .{Text{ .content = "sleep (+50)", .size = 9, .key = .src(@src()) }},
         },
     });
 }
@@ -624,34 +626,20 @@ fn renderSectionControlFlow(app: *knots.App) !void {
                     .onClick = toggleDetails,
                     .justify = .center,
                     .@"align" = .center,
+                    .text = .{ .content = if (self.show_details) "hide" else "show" },
                 },
-                .{Text{ .content = if (self.show_details) "hide" else "show", .size = 12, .key = .src(@src()) }},
             },
-            If{
-                .when = self.show_details,
-                .then = renderDetails,
-            },
+            renderDetailsAnimated,
         },
     });
 }
 
-fn renderSectionInputs(app: *knots.App) !void {
-    const self: *Self = @fieldParentPtr("app", app);
-    try app.e(.{
-        Text{ .content = "Input", .size = 16, .key = .src(@src()) },
-        Spacer{ .height = .fixed(8), .key = .src(@src()) },
-        TextInput{
-            .key = .src(@src()),
-            .buf = &self.name_buf,
-            .placeholder = "Start typing...",
-        },
-        Spacer{ .height = .fixed(8), .key = .src(@src()) },
-        SelectInput(Fruit){ .key = .src(@src()), .selected_idx = &self.selected_idx },
-    });
-}
+const details_measure_key: knots.ui.Key = .str("details.measure");
+const details_tween_key: knots.ui.Key = .str("details.tween");
+const details_visible_clip_key: knots.ui.Key = .str("details.visible");
 
 fn renderDetails(app: *knots.App) !void {
-    const self: *const Self = @fieldParentPtr("app", app);
+    const self: *Self = @fieldParentPtr("app", app);
     try app.e(.{
         Rect{
             .width = .grow(),
@@ -668,6 +656,73 @@ fn renderDetails(app: *knots.App) !void {
                 .each = renderCounterItem,
             },
         },
+    });
+}
+
+fn renderDetailsMeasured(app: *knots.App) !void {
+    try app.e(animation.Measure{
+        .key = details_measure_key,
+        .width = .grow(),
+        .height = .fit(),
+        .child = renderDetails,
+    });
+}
+
+fn isPositive(v: f32) bool {
+    return v > 0.5;
+}
+
+fn renderDetailsAnimated(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+
+    const measure = animation.Measure{
+        .key = details_measure_key,
+        .width = .grow(),
+        .height = .fit(),
+        .child = renderDetails,
+    };
+
+    const target: f32 = if (self.show_details) measure.readHeight(app) else 0.0;
+
+    const tween = animation.Animated(f32){
+        .key = details_tween_key,
+        .target = target,
+        .duration_ms = 250,
+        .ease = .ease_out_cubic,
+    };
+    const h = tween.read(app);
+    self.details_tween_h = h;
+
+    try app.e(animation.Clip{
+        .key = details_visible_clip_key,
+        .width = .grow(),
+        .height = .fixed(h),
+        .child = renderDetailsGated,
+    });
+}
+
+fn renderDetailsGated(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    try app.e(animation.When{
+        .active = self.show_details,
+        .value = self.details_tween_h,
+        .visible = isPositive,
+        .then = renderDetailsMeasured,
+    });
+}
+
+fn renderSectionInputs(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    try app.e(.{
+        Text{ .content = "Input", .size = 16, .key = .src(@src()) },
+        Spacer{ .height = .fixed(8), .key = .src(@src()) },
+        TextInput{
+            .key = .src(@src()),
+            .buf = &self.name_buf,
+            .placeholder = "Start typing...",
+        },
+        Spacer{ .height = .fixed(8), .key = .src(@src()) },
+        SelectInput(Fruit){ .key = .src(@src()), .selected_idx = &self.selected_idx },
     });
 }
 
