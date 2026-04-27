@@ -25,7 +25,6 @@ pub const Config = struct {
     arena_reset_mode: std.heap.ArenaAllocator.ResetMode = .retain_capacity,
     max_completions_recv: usize = 64,
     timer_clock: std.Io.Clock = .real,
-    signals_buffer_size: usize = 256,
     onResize: ?*const fn (app: *App, width: u32, height: u32) anyerror!void = null,
     onDrop: ?*const fn (app: *App, paths: []const []const u8) anyerror!void = null,
     onReconfigure: ?*const fn (app: *App) anyerror!void = null,
@@ -52,7 +51,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
     const window = try Window.init(cfg.window);
     errdefer window.deinit();
 
-    var signals = try std.ArrayList(Signal).initCapacity(allocator, cfg.signals_buffer_size);
+    var signals: std.ArrayList(Signal) = .empty;
     errdefer signals.deinit(allocator);
 
     var completion_queue = try CompletionQueue.init(allocator, cfg.max_completions_recv);
@@ -79,9 +78,9 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
     };
 }
 
-pub fn reconfigureRenderer(self: *App, new_cfg: render.Renderer.Config) void {
+pub fn reconfigureRenderer(self: *App, new_cfg: render.Renderer.Config) !void {
     self.pending_renderer_cfg = new_cfg;
-    self.signal(.redraw);
+    try self.signal(.redraw);
 }
 
 pub fn deinit(self: *App) void {
@@ -142,7 +141,7 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
 
     try @call(.auto, frameCb, .{self});
 
-    if (self.ui.anim_active) self.signal(.redraw);
+    if (self.ui.anim_active) try self.signal(.redraw);
 
     while (self.signals.pop()) |s| switch (s) {
         .redraw => self.window.postEmptyEvent(),
@@ -169,13 +168,14 @@ const EmscriptenContext = struct {
 
 fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
     const ctx: *EmscriptenContext = @ptrCast(@alignCast(ud orelse return));
-    ctx.app.tickFrame(ctx.frameCb) catch {};
+    ctx.app.tickFrame(ctx.frameCb) catch |err| {
+        std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr);
+    };
 }
 
-/// Queue a frame signal, `.redraw` or `.exit`.
-/// The max queued signals can be configured with `signals_buffer_size`.
-pub inline fn signal(self: *App, s: Signal) void {
-    self.signals.appendBounded(s) catch {};
+/// Queue a frame signal, `.redraw` or `.exit`. May allocate.
+pub inline fn signal(self: *App, s: Signal) !void {
+    try self.signals.append(self.allocator, s);
 }
 
 /// Returns an arena allocator that is safe to use during the frame callback.
@@ -203,8 +203,8 @@ pub fn e(self: *App, tree: anytype) !void {
     if (comptime isControlFlow(T)) {
         try tree.eval(self);
     } else if (comptime isComponent(T)) {
-        _ = try tree.open(&self.ui);
-        try tree.close(&self.ui);
+        _ = try tree.open(self);
+        try tree.close(self);
     } else switch (@typeInfo(T)) {
         inline .@"fn" => try @call(.always_inline, tree, .{self}),
         inline .@"struct" => |s| if (comptime isRenderable(T))
@@ -214,9 +214,9 @@ pub fn e(self: *App, tree: anytype) !void {
             inline while (i < s.fields.len) : (i += 1) {
                 const val = @field(tree, s.fields[i].name);
                 if (comptime isComponent(@TypeOf(val)) and i + 1 < s.fields.len and isChildren(s.fields[i + 1].type)) {
-                    _ = try val.open(&self.ui);
+                    _ = try val.open(self);
                     try self.e(@field(tree, s.fields[i + 1].name));
-                    try val.close(&self.ui);
+                    try val.close(self);
                     i += 1;
                 } else try self.e(val);
             }
