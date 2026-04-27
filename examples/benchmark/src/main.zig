@@ -1,5 +1,6 @@
 const std = @import("std");
 const knots = @import("knots");
+const tracy = @import("tracy.zig");
 
 const Rect = knots.component.Rect;
 const Text = knots.component.Text;
@@ -53,6 +54,9 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn frameCb(app: *knots.App) !void {
+    const zone = tracy.zoneBegin("frameCb", @src());
+    defer tracy.zoneEnd(zone);
+
     const size = app.window.getSize();
     const w: f32 = @floatFromInt(size.width);
     const h: f32 = @floatFromInt(size.height);
@@ -73,10 +77,13 @@ fn frameCb(app: *knots.App) !void {
         },
     });
 
-    try app.signal(.redraw);
+    tracy.frameMark();
 }
 
 fn renderHeader(app: *knots.App) !void {
+    const zone = tracy.zoneBegin("renderHeader", @src());
+    defer tracy.zoneEnd(zone);
+
     const self: *Context = @fieldParentPtr("app", app);
 
     try app.e(.{
@@ -104,6 +111,7 @@ fn renderHeader(app: *knots.App) !void {
                 .dir = .row,
                 .@"align" = .center,
                 .gap = 8,
+                .padding = .init(0, 16, 0, 0),
             },
             .{self.renderer_settings},
         },
@@ -127,6 +135,8 @@ fn renderBody(app: *knots.App) !void {
 }
 
 fn renderSidebar(app: *knots.App) !void {
+    const zone = tracy.zoneBegin("renderSidebarItems", @src());
+    defer tracy.zoneEnd(zone);
     try app.e(.{
         Rect{
             .key = .src(@src()),
@@ -180,6 +190,9 @@ fn renderGrid(app: *knots.App) !void {
 }
 
 fn renderGridRows(app: *knots.App) !void {
+    const zone = tracy.zoneBegin("renderGridRows", @src());
+    defer tracy.zoneEnd(zone);
+
     var r: usize = 0;
     while (r < grid_rows) : (r += 1) {
         try renderGridRow(app, r);
@@ -207,6 +220,9 @@ const GridCells = struct {
     row: usize,
 
     pub fn render(self: *const GridCells, app: *knots.App) anyerror!void {
+        const zone = tracy.zoneBegin("GridCells.render", @src());
+        defer tracy.zoneEnd(zone);
+
         var c: usize = 0;
         while (c < grid_cols) : (c += 1) {
             const idx = self.row * grid_cols + c;
@@ -254,6 +270,9 @@ fn renderCanvasStrip(app: *knots.App) !void {
 }
 
 fn drawCanvas(app: *knots.App, painter: *Canvas.Painter) !void {
+    const zone = tracy.zoneBegin("drawCanvas", @src());
+    defer tracy.zoneEnd(zone);
+
     const t = @as(f32, @floatFromInt(@mod(app.timer.ms(), 4000))) / 4000.0;
     const bands: usize = 256;
     const bw: f32 = 2500.0 / @as(f32, @floatFromInt(bands));
@@ -274,6 +293,8 @@ fn drawCanvas(app: *knots.App, painter: *Canvas.Painter) !void {
             },
         });
     }
+
+    try app.signal(.redraw);
 }
 
 fn srgbToLinear(c: f32) f32 {

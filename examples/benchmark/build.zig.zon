@@ -5,6 +5,10 @@
     .minimum_zig_version = "0.17.0-dev.56+a8226cd53",
     .dependencies = .{
         .knots = .{ .path = "../../" },
+        .tracy = .{
+            .url = "https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.tar.gz",
+            .hash = "N-V-__8AAOncKwEm1F9c5LrT7HMNmRMYX8-fAoqpc6YyTu9X",
+        },
     },
     .paths = .{
         "build.zig",

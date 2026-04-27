@@ -3,10 +3,44 @@ const GPUBackend = @import("knots").GPUBackend;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const tracy_dep = b.dependency("tracy", .{});
+
+    const tracy_lib = b.addLibrary(.{
+        .name = "tracy",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    tracy_lib.root_module.addCSourceFile(.{
+        .file = tracy_dep.path("public/TracyClient.cpp"),
+        .flags = &.{
+            "-DTRACY_ENABLE",
+            "-std=c++17",
+            "-fno-sanitize=all",
+        },
+    });
+    switch (target.result.os.tag) {
+        .windows => {
+            tracy_lib.root_module.linkSystemLibrary("dbghelp", .{});
+        },
+        else => {},
+    }
+    tracy_lib.root_module.link_libcpp = true;
+
+    const tracy_c = b.addTranslateC(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = tracy_dep.path("public/tracy/TracyC.h"),
+    });
+    tracy_c.defineCMacro("TRACY_ENABLE", null);
+    const tracy_mod = tracy_c.createModule();
 
     const knots = b.dependency("knots", .{
         .target = target,
-        .optimize = .ReleaseSafe,
+        .optimize = optimize,
         .gpu_backends = &[_]GPUBackend{ .wgpu, .vulkan },
     });
 
@@ -14,11 +48,15 @@ pub fn build(b: *std.Build) void {
         .name = "benchmark",
         .root_module = b.createModule(.{
             .target = target,
-            .optimize = .ReleaseSafe,
+            .optimize = optimize,
             .root_source_file = b.path("src/main.zig"),
-            .imports = &.{.{ .name = "knots", .module = knots.module("knots") }},
+            .imports = &.{
+                .{ .name = "knots", .module = knots.module("knots") },
+                .{ .name = "tracy", .module = tracy_mod },
+            },
         }),
     });
+    exe.root_module.linkLibrary(tracy_lib);
 
     if (target.result.os.tag == .windows) exe.subsystem = .windows;
 
