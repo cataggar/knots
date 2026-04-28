@@ -31,6 +31,7 @@ pub const HitRecord = struct {
 };
 
 pub const Config = struct {
+    /// Default is Roboto regular + Material icons regular.
     fonts: []const text.Font.FontKey = &.{.{ "default", @embedFile("fonts/default.ttf") }},
 };
 

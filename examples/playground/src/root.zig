@@ -53,12 +53,6 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
             .canvas_selector = "#canvas",
         },
         .renderer = .{ .present_mode = .fifo },
-        .ui = .{
-            .fonts = &.{
-                .{ "default", @embedFile("fonts/Manrope-Regular.ttf") },
-                .{ "icons", @embedFile("fonts/MaterialIcons-Regular.ttf") },
-            },
-        },
     });
 
     return Self{
@@ -113,26 +107,10 @@ pub fn frameCb(app: *knots.App) !void {
                     },
                 },
                 .{
-                    Rect{
-                        .width = .fit(),
-                        .height = .fit(),
-                        .dir = .row,
-                        .@"align" = .center,
-                        .gap = 2,
+                    Text{
+                        .content = try std.fmt.allocPrint(arena, "\u{e88a} knots playground - {s}", .{@tagName(app.renderer.cfg.gpu_backend)}),
+                        .size = 18,
                         .key = .src(@src()),
-                    },
-                    .{
-                        Text{
-                            .content = "\u{e88a}",
-                            .font = "icons",
-                            .size = 24,
-                            .key = .src(@src()),
-                        },
-                        Text{
-                            .content = try std.fmt.allocPrint(arena, "knots playground - {s}", .{@tagName(app.renderer.cfg.gpu_backend)}),
-                            .size = 24,
-                            .key = .src(@src()),
-                        },
                     },
                     Rect{
                         .width = .fit(),
