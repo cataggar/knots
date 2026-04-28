@@ -17,11 +17,13 @@ pub const Backend = struct {
     windowed_pos: [2]c_int = .{ 0, 0 },
     windowed_size: [2]c_int = .{ 0, 0 },
 
-    pub fn deinit(self: *const Backend) void {
+    const Self = @This();
+
+    pub fn deinit(self: *const Self) void {
         self.window.deinit();
     }
 
-    pub fn startCapture(self: *Backend, owner: *window.Window) void {
+    pub fn startCapture(self: *Self, owner: *window.Window) void {
         self.window.setUserPointer(@ptrCast(owner));
         self.window.setScrollCallback(scrollCallback);
         self.window.setKeyCallback(keyCallback);
@@ -34,43 +36,43 @@ pub const Backend = struct {
         }
     }
 
-    pub fn setDropCallback(self: *Backend, _: *window.Window) void {
+    pub fn setDropCallback(self: *Self, _: *window.Window) void {
         self.window.setDropCallback(dropCallback);
     }
 
-    pub fn pollEvents(self: *const Backend) void {
+    pub fn pollEvents(self: *const Self) void {
         _ = self;
         glfw.c.glfwPollEvents();
     }
 
-    pub fn waitEvents(self: *const Backend) void {
+    pub fn waitEvents(self: *const Self) void {
         _ = self;
         glfw.c.glfwWaitEvents();
     }
 
-    pub fn postEmptyEvent(self: *const Backend) void {
+    pub fn postEmptyEvent(self: *const Self) void {
         _ = self;
         glfw.c.glfwPostEmptyEvent();
     }
 
-    pub fn isOpen(self: *const Backend) bool {
+    pub fn isOpen(self: *const Self) bool {
         return !self.window.shouldClose();
     }
 
-    pub fn close(self: *const Backend) void {
+    pub fn close(self: *const Self) void {
         self.window.close();
     }
 
-    pub fn getSize(self: *const Backend) window.Size {
+    pub fn getSize(self: *const Self) window.Size {
         return .{ .width = self.window.getWidth(), .height = self.window.getHeight() };
     }
 
-    pub fn getFramebufferSize(self: *const Backend) window.Size {
+    pub fn getFramebufferSize(self: *const Self) window.Size {
         const fb = self.window.getFramebufferSize();
         return .{ .width = @intCast(fb[0]), .height = @intCast(fb[1]) };
     }
 
-    pub fn computeContentScale(self: *const Backend) f32 {
+    pub fn computeContentScale(self: *const Self) f32 {
         if (comptime builtin.os.tag == .emscripten) return 1.0;
         var fb_w: c_int = 0;
         var fb_h: c_int = 0;
@@ -84,12 +86,12 @@ pub const Backend = struct {
         return @max(sx, sy);
     }
 
-    pub fn getCursorPos(self: *const Backend) [2]f64 {
+    pub fn getCursorPos(self: *const Self) [2]f64 {
         const pos = self.window.getCursorPos();
         return .{ pos.x, pos.y };
     }
 
-    pub fn getNativeHandle(self: *const Backend, canvas_selector: ?[:0]const u8) gpu.Context.WindowHandle {
+    pub fn getNativeHandle(self: *const Self, canvas_selector: ?[:0]const u8) gpu.Context.WindowHandle {
         return switch (builtin.os.tag) {
             .macos => .{ .macos = .{ .ns_window = self.window.getCocoaWindow() } },
             .windows => blk: {
@@ -113,14 +115,14 @@ pub const Backend = struct {
         };
     }
 
-    pub fn setCursorVisible(self: *const Backend, visible: bool) void {
+    pub fn setCursorVisible(self: *const Self, visible: bool) void {
         self.window.setInputMode(
             glfw.c.GLFW_CURSOR,
             if (visible) glfw.c.GLFW_CURSOR_NORMAL else glfw.c.GLFW_CURSOR_HIDDEN,
         );
     }
 
-    pub fn setDisplayMode(self: *Backend, mode: window.DisplayMode) void {
+    pub fn setDisplayMode(self: *Self, mode: window.DisplayMode) void {
         const win = self.window.window;
         switch (mode) {
             .windowed => {
@@ -159,19 +161,19 @@ pub const Backend = struct {
         }
     }
 
-    fn saveWindowedGeometry(self: *Backend, win: *glfw.c.GLFWwindow) void {
+    fn saveWindowedGeometry(self: *Self, win: *glfw.c.GLFWwindow) void {
         if (!self.is_fullscreen) {
             glfw.c.glfwGetWindowPos(win, &self.windowed_pos[0], &self.windowed_pos[1]);
             glfw.c.glfwGetWindowSize(win, &self.windowed_size[0], &self.windowed_size[1]);
         }
     }
 
-    pub fn applyEmscriptenSize(self: *Backend, ev: window.ResizeEvent) void {
+    pub fn applyEmscriptenSize(self: *Self, ev: window.ResizeEvent) void {
         glfw.c.glfwSetWindowSize(self.window.window, @intCast(ev.logical.width), @intCast(ev.logical.height));
     }
 };
 
-pub fn init(cfg: window.Config, _: *window.Window) anyerror!Backend {
+pub fn init(cfg: window.Config, _: *window.Window) !Backend {
     const w = try glfw.Window.init(.{
         .title = cfg.title,
         .mode = .{ .windowed = .{ .width = cfg.width, .height = cfg.height } },
