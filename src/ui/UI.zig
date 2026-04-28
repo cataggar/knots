@@ -63,10 +63,6 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
     };
 }
 
-pub fn beginFrame(self: *UI, window: *const Window) void {
-    self.content_scale = window.getContentScale();
-}
-
 pub fn deinit(self: *UI) void {
     self.layout_ctx.deinit();
     self.decorations.deinit(self.allocator);
@@ -249,7 +245,8 @@ fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element
     return self.layout_ctx.isDescendantOf(descendant_slot, ancestor_slot);
 }
 
-pub fn collectInput(self: *UI, input: Window.Input, now_ms: i64) !void {
+pub fn collectInput(self: *UI, input: Window.Input, now_ms: i64, content_scale: f32) !void {
+    self.content_scale = content_scale;
     self.input.collect(input, now_ms);
 
     if (self.input.mouse_pressed) {

@@ -133,8 +133,7 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     }
     try self.handleRendererReconfigure();
 
-    self.ui.beginFrame(&self.window);
-    try self.ui.collectInput(self.window.collectInput(), self.timer.ms());
+    try self.ui.collectInput(self.window.collectInput(), self.timer.ms(), self.window.getContentScale());
     self.ui.reset();
 
     try self.completion_queue.consume(self, self.io);
