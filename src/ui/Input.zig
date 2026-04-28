@@ -1,5 +1,5 @@
 const std = @import("std");
-const Window = @import("window").Window;
+const window = @import("window");
 
 mouse_pos: [2]f64 = .{ 0, 0 },
 mouse_moved: bool = false,
@@ -10,14 +10,14 @@ mouse_pressed: bool = false,
 mouse_released: bool = false,
 scroll_delta: [2]f32 = .{ 0, 0 },
 chars: []const u21 = &.{},
-keys: []const Window.Key = &.{},
+keys: []const window.Key = &.{},
 shift_held: bool = false,
 ctrl_held: bool = false,
 super_held: bool = false,
 
 _char_buf: [32]u21 = undefined,
 _char_len: usize = 0,
-_key_buf: [32]Window.Key = undefined,
+_key_buf: [32]window.Key = undefined,
 _key_len: usize = 0,
 _prev_mouse_down: bool = false,
 _prev_mouse_pos: [2]f64 = .{ 0, 0 },
@@ -25,7 +25,7 @@ _last_move_ms: i64 = 0,
 
 const Input = @This();
 
-pub fn collect(self: *Input, raw: Window.Input, now_ms: i64) void {
+pub fn collect(self: *Input, raw: window.Input, now_ms: i64) void {
     self.mouse_pos = raw.pos;
     self.mouse_moved = raw.pos[0] != self._prev_mouse_pos[0] or raw.pos[1] != self._prev_mouse_pos[1];
     self._prev_mouse_pos = raw.pos;
@@ -57,7 +57,7 @@ pub fn consumeKeyboard(self: *Input) void {
     self.keys = self._key_buf[0..0];
 }
 
-pub fn containsKey(self: *const Input, key: Window.Key) bool {
+pub fn containsKey(self: *const Input, key: window.Key) bool {
     for (self.keys) |k| if (k == key) return true;
     return false;
 }

@@ -1,6 +1,6 @@
 const layout = @import("layout");
 const text = @import("text");
-const Window = @import("window").Window;
+const window = @import("window");
 
 const Element = layout.Element;
 const std = @import("std");
@@ -245,7 +245,7 @@ fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element
     return self.layout_ctx.isDescendantOf(descendant_slot, ancestor_slot);
 }
 
-pub fn collectInput(self: *UI, input: Window.Input, now_ms: i64, content_scale: f32) !void {
+pub fn collectInput(self: *UI, input: window.Input, now_ms: i64, content_scale: f32) !void {
     self.content_scale = content_scale;
     self.input.collect(input, now_ms);
 
@@ -315,7 +315,7 @@ pub fn resolveHit(self: *UI) void {
     self.state.hovered = best_id;
 }
 
-fn routeScroll(self: *UI, elements: []Element, input: Window.Input) !void {
+fn routeScroll(self: *UI, elements: []Element, input: window.Input) !void {
     var j: Element.Slot = @intCast(elements.len);
     while (j > 0) {
         j -= 1;

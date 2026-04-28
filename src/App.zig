@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const render = @import("render");
+const WindowConfig = @import("window").Config;
 const Window = @import("window").Window;
 const UI = @import("ui").UI;
 const Input = @import("ui").Input;
@@ -19,7 +20,7 @@ pub const Signal = enum {
 pub const Callback = *const fn (*App) anyerror!void;
 
 pub const Config = struct {
-    window: Window.Config,
+    window: WindowConfig,
     renderer: render.Renderer.Config = .{},
     ui: UI.Config = .{},
     arena_reset_mode: std.heap.ArenaAllocator.ResetMode = .retain_capacity,

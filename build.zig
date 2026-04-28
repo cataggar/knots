@@ -86,19 +86,35 @@ pub fn build(b: *std.Build) void {
         gpu_backend_mod.addImport(b.fmt("gpu_{s}", .{@tagName(gpu_backend)}), backend_mod);
     }
 
+    const window_impl_mod = blk: switch (target.result.os.tag) {
+        .windows, .linux, .emscripten, .macos => {
+            const m = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/window/backend/glfw/root.zig"),
+                .imports = &.{
+                    .{ .name = "glfw", .module = glfw_dep.module("glfw") },
+                    .{ .name = "gpu", .module = gpu_mod },
+                },
+            });
+            var glfw_opts = b.addOptions();
+            glfw_opts.addOption(glfw.LinuxBackend, "linux_display_server", linux_display_server);
+            m.addOptions("window_config", glfw_opts);
+            break :blk m;
+        },
+        else => |os| std.debug.panic("windowing implementation for {s} is not yet implemented", .{@tagName(os)}),
+    };
+
     const window_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/window/root.zig"),
         .imports = &.{
-            .{ .name = "glfw", .module = glfw_dep.module("glfw") },
             .{ .name = "gpu", .module = gpu_mod },
+            .{ .name = "window_impl", .module = window_impl_mod },
         },
     });
-
-    var window_opts = b.addOptions();
-    window_opts.addOption(glfw.LinuxBackend, "linux_display_server", linux_display_server);
-    window_mod.addOptions("window_config", window_opts);
+    window_impl_mod.addImport("window", window_mod);
 
     const text_mod = b.createModule(.{
         .target = target,
