@@ -688,7 +688,7 @@ test "scroll routing uses previous frame elements" {
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
-    }, 0);
+    }, 0, 0);
     ui.reset();
 
     {
