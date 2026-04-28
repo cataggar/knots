@@ -2,6 +2,8 @@
     .name = .knots,
     .version = "0.0.1",
     .dependencies = .{
+        .harfbuzz = .{ .path = "lib/harfbuzz" },
+        .freetype = .{ .path = "lib/freetype" },
         .glfw = .{
             .url = "git+https://codeberg.org/shahwali/glfw-bindings.git#0c85f77bf9f2002650935411ddf68e3bad8d15dc",
             .hash = "glfw-0.0.3-TqMi_9ZFAABGHCKBDqncWvrkxIM0gtant5BPj0nTUehQ",
@@ -18,8 +20,11 @@
             .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.346.tar.gz",
             .hash = "N-V-__8AALm8ZgLElx_aOhj1o0gXqnPjftwC69uF2mw6rXNA",
         },
-        .harfbuzz = .{ .path = "lib/harfbuzz" },
-        .freetype = .{ .path = "lib/freetype" },
+        .zig_objc = .{
+            .url = "git+https://github.com/mitchellh/zig-objc#c8de82ff80281215ad92900866dab7103a8efa8b",
+            .hash = "zig_objc-0.0.0-Ir_Sp9gsAQCPAJc0oF5xoWePHWP6Y6tCphDeyNUThJoi",
+            .lazy = true,
+        },
     },
     .minimum_zig_version = "0.16.0",
     .paths = .{

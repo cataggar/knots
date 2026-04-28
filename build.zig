@@ -87,7 +87,24 @@ pub fn build(b: *std.Build) void {
     }
 
     const window_impl_mod = blk: switch (target.result.os.tag) {
-        .windows, .linux, .emscripten, .macos => {
+        .macos => {
+            if (b.lazyDependency("zig_objc", .{ .target = target, .optimize = optimize })) |objc_dep| {
+                const m = b.createModule(.{
+                    .target = target,
+                    .optimize = optimize,
+                    .root_source_file = b.path("src/window/backend/cocoa/root.zig"),
+                    .imports = &.{
+                        .{ .name = "objc", .module = objc_dep.module("objc") },
+                        .{ .name = "gpu", .module = gpu_mod },
+                    },
+                });
+                m.linkFramework("Cocoa", .{});
+                m.linkFramework("QuartzCore", .{});
+                break :blk m;
+            }
+            unreachable;
+        },
+        .windows, .linux, .emscripten => {
             const m = b.createModule(.{
                 .target = target,
                 .optimize = optimize,
