@@ -27,48 +27,37 @@ pub fn build(b: *std.Build) void {
     if (emsdk_sysroot_include) |p| c.addSystemIncludePath(.{ .cwd_relative = p });
 
     const freetype_bindings = c.createModule();
-    const lib_mod = b.createModule(.{
-        .target = target,
-        .optimize = optimize,
-    });
-    lib_mod.link_libc = true;
-    lib_mod.addCMacro("FT2_BUILD_LIBRARY", "1");
-    lib_mod.addCMacro("HAVE_UNISTD_H", "1");
-    lib_mod.addIncludePath(freetype.path("include"));
 
-    if (is_emscripten) {
-        lib_mod.sanitize_c = .off;
-        lib_mod.addSystemIncludePath(.{ .cwd_relative = emsdk_sysroot_include.? });
-        lib_mod.addIncludePath(b.path("src"));
-        lib_mod.addCMacro("FT_CONFIG_OPTIONS_H", "\"ftoption.h\"");
-
-        const compat_header = b.path("src/emscripten_compat.h").getPath(b);
-        lib_mod.addCSourceFiles(.{
-            .files = &emscripten_sources,
-            .language = .c,
-            .root = freetype.path("src"),
-            .flags = &.{ "-include", compat_header, "-fno-sanitize=undefined" },
-        });
-    } else lib_mod.addCSourceFiles(.{ .files = &sources, .language = .c, .root = freetype.path("src") });
-
-    if (target.result.os.tag == .macos)
-        lib_mod.addCSourceFile(.{ .file = freetype.path("src/base/ftmac.c"), .language = .c });
-
-    const lib = b.addLibrary(.{
-        .name = "freetype",
-        .root_module = lib_mod,
-    });
-    lib.installHeadersDirectory(freetype.path("include/freetype"), "freetype", .{});
-    lib.installHeader(freetype.path("include/ft2build.h"), "ft2build.h");
-    b.installArtifact(lib);
+    b.addNamedLazyPath("include", freetype.path("include"));
 
     const mod = b.addModule("freetype", .{
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/root.zig"),
     });
+    mod.link_libc = true;
+    mod.addCMacro("FT2_BUILD_LIBRARY", "1");
+    mod.addCMacro("HAVE_UNISTD_H", "1");
+    mod.addIncludePath(freetype.path("include"));
     mod.addImport("freetype", freetype_bindings);
-    mod.linkLibrary(lib);
+
+    if (is_emscripten) {
+        mod.sanitize_c = .off;
+        mod.addSystemIncludePath(.{ .cwd_relative = emsdk_sysroot_include.? });
+        mod.addIncludePath(b.path("src"));
+        mod.addCMacro("FT_CONFIG_OPTIONS_H", "\"ftoption.h\"");
+
+        const compat_header = b.path("src/emscripten_compat.h").getPath(b);
+        mod.addCSourceFiles(.{
+            .files = &emscripten_sources,
+            .language = .c,
+            .root = freetype.path("src"),
+            .flags = &.{ "-include", compat_header, "-fno-sanitize=undefined" },
+        });
+    } else mod.addCSourceFiles(.{ .files = &sources, .language = .c, .root = freetype.path("src") });
+
+    if (target.result.os.tag == .macos)
+        mod.addCSourceFile(.{ .file = freetype.path("src/base/ftmac.c"), .language = .c });
 
     if (!is_emscripten) {
         const mod_tests = b.addTest(.{ .root_module = mod });

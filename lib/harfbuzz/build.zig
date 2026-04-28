@@ -4,7 +4,6 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const harfbuzz = b.dependency("harfbuzz", .{});
     const freetype = b.dependency("freetype", .{});
-    const freetype_art = freetype.artifact("freetype");
     const is_emscripten = target.result.os.tag == .emscripten;
 
     const c = b.addTranslateC(.{
@@ -12,7 +11,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .root_source_file = harfbuzz.path("src/hb-ft.h"),
     });
-    c.addIncludePath(freetype_art.getEmittedIncludeTree());
+    c.addIncludePath(freetype.namedLazyPath("include"));
 
     if (target.result.isMinGW() or target.result.isGnuLibC()) {
         c.defineCMacro("_FORTIFY_VA_ARG", "0");
@@ -36,8 +35,8 @@ pub fn build(b: *std.Build) void {
         .flags = if (is_emscripten) &.{"-fno-sanitize=undefined"} else &.{},
     });
     harfbuzz_mod.addIncludePath(harfbuzz.path("src"));
+    harfbuzz_mod.addIncludePath(freetype.namedLazyPath("include"));
     harfbuzz_mod.addCMacro("HAVE_FREETYPE", "1");
-    harfbuzz_mod.linkLibrary(freetype_art);
 
     if (is_emscripten) {
         harfbuzz_mod.addCMacro("HAVE_PTHREAD", "0");

@@ -78,7 +78,6 @@ fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
     const emsdk = b.graph.environ_map.get("EMSDK") orelse {
         std.debug.panic("EMSDK env var not set. Source $EMSDK/emsdk_env.sh before building for wasm32-emscripten.", .{});
     };
-    const freetype_dep = b.dependency("freetype", .{ .target = target, .optimize = optimize });
     const emcc_path = b.pathJoin(&.{ emsdk, "upstream", "emscripten", "emcc" });
 
     const lib = b.addLibrary(.{
@@ -90,7 +89,6 @@ fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
 
     const emcc = b.addSystemCommand(&.{emcc_path});
     emcc.addArtifactArg(lib);
-    emcc.addArtifactArg(freetype_dep.artifact("freetype"));
     emcc.addArg("-o");
     const html_out = emcc.addOutputFileArg("playground.html");
 

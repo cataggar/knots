@@ -5,7 +5,6 @@
     .minimum_zig_version = "0.17.0-dev.56+a8226cd53",
     .dependencies = .{
         .knots = .{ .path = "../../" },
-        .freetype = .{ .path = "../../lib/freetype" },
     },
     .paths = .{
         "build.zig",
