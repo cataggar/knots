@@ -117,9 +117,6 @@ pub fn start(self: *App, frameCb: Callback) !void {
 }
 
 fn tickFrame(self: *App, frameCb: Callback) !void {
-    if (is_emscripten)
-        self.window.pollEvents();
-
     defer {
         self.draw_list.reset();
         _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
@@ -157,8 +154,7 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     self.ui.resolveHit();
     try self.renderer.draw(&self.draw_list, self.ui.font.atlas, self.ui.content_scale);
 
-    if (!is_emscripten)
-        self.window.waitEvents();
+    self.window.waitEvents();
 }
 
 const EmscriptenContext = struct {

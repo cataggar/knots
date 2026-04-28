@@ -119,7 +119,13 @@ pub fn build(b: *std.Build) void {
             }
             unreachable;
         },
-        .linux, .emscripten => {
+        .emscripten => b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/window/backend/emscripten/root.zig"),
+            .imports = &.{.{ .name = "gpu", .module = gpu_mod }},
+        }),
+        .linux => {
             const m = b.createModule(.{
                 .target = target,
                 .optimize = optimize,
