@@ -29,7 +29,6 @@ pub fn build(b: *std.Build) void {
     }
 
     const glfw_dep = b.dependency("glfw", .{ .target = target, .optimize = optimize, .linux_backend = .wayland });
-    const harfbuzz = b.dependency("harfbuzz", .{ .target = target, .optimize = optimize });
     const freetype = b.dependency("freetype", .{ .target = target, .optimize = optimize });
 
     const gpu_mod = b.createModule(.{
@@ -79,6 +78,8 @@ pub fn build(b: *std.Build) void {
                 embedSpirV(b, vk_backend, "ui_primitives_vertex_shader", b.path("src/gpu/backend/vulkan/shaders/ui_primitives.vert"));
                 embedSpirV(b, vk_backend, "ui_primitives_instance_vertex_shader", b.path("src/gpu/backend/vulkan/shaders/ui_primitives_instance.vert"));
                 embedSpirV(b, vk_backend, "ui_primitives_fragment_shader", b.path("src/gpu/backend/vulkan/shaders/ui_primitives.frag"));
+                embedSpirV(b, vk_backend, "slug_vertex_shader", b.path("src/gpu/backend/vulkan/shaders/slug.vert"));
+                embedSpirV(b, vk_backend, "slug_fragment_shader", b.path("src/gpu/backend/vulkan/shaders/slug.frag"));
 
                 break :blk vk_backend;
             },
@@ -159,7 +160,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .root_source_file = b.path("src/text/root.zig"),
         .imports = &.{
-            .{ .name = "harfbuzz", .module = harfbuzz.module("harfbuzz") },
             .{ .name = "freetype", .module = freetype.module("freetype") },
         },
     });
@@ -256,15 +256,18 @@ pub fn build(b: *std.Build) void {
     const mod_tests = b.addTest(.{ .root_module = mod });
     const layout_tests = b.addTest(.{ .root_module = layout_mod });
     const ui_tests = b.addTest(.{ .root_module = ui_mod });
+    const text_tests = b.addTest(.{ .root_module = text_mod });
 
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const run_layout_tests = b.addRunArtifact(layout_tests);
     const run_ui_tests = b.addRunArtifact(ui_tests);
+    const run_text_tests = b.addRunArtifact(text_tests);
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_layout_tests.step);
     test_step.dependOn(&run_ui_tests.step);
+    test_step.dependOn(&run_text_tests.step);
 }
 
 fn embedSpirV(b: *std.Build, mod: *std.Build.Module, comptime name: []const u8, path: std.Build.LazyPath) void {
