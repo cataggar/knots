@@ -9,6 +9,11 @@ const Curve = curve_mod.Curve;
 pub const TEXTURE_WIDTH: u32 = 4096;
 const LOG_TEXTURE_WIDTH: u5 = 12;
 
+comptime {
+    std.debug.assert(TEXTURE_WIDTH & (TEXTURE_WIDTH - 1) == 0);
+    std.debug.assert(@as(u32, 1) << LOG_TEXTURE_WIDTH == TEXTURE_WIDTH);
+}
+
 pub const CurveTexel = extern struct {
     x: f32,
     y: f32,
@@ -205,13 +210,11 @@ pub fn addOutline(
         .glyph_loc_y = @intCast(glyph_loc_idx >> LOG_TEXTURE_WIDTH),
         .band_max_x = part.band_max[0],
         .band_max_y = part.band_max[1],
-        .flags = 0,
         .em_min = part.bbox_min,
         .em_max = part.bbox_max,
         .band_scale = part.band_scale,
         .band_offset = part.band_offset,
         .advance_em = 0,
-        .bearing_em = .{ 0, 0 },
         .is_empty = false,
     };
 }
@@ -222,13 +225,11 @@ fn makeEmptyRecord(_: *GlyphBuilder) glyph.GlyphRecord {
         .glyph_loc_y = 0,
         .band_max_x = 0,
         .band_max_y = 0,
-        .flags = 0,
         .em_min = .{ 0, 0 },
         .em_max = .{ 0, 0 },
         .band_scale = .{ 0, 0 },
         .band_offset = .{ 0, 0 },
         .advance_em = 0,
-        .bearing_em = .{ 0, 0 },
         .is_empty = true,
     };
 }

@@ -3,13 +3,11 @@ pub const GlyphRecord = struct {
     glyph_loc_y: u16,
     band_max_x: u8,
     band_max_y: u8,
-    flags: u8,
     em_min: [2]f32,
     em_max: [2]f32,
     band_scale: [2]f32,
     band_offset: [2]f32,
     advance_em: f32,
-    bearing_em: [2]f32,
     is_empty: bool,
 };
 

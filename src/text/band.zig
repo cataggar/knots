@@ -1,8 +1,14 @@
 const std = @import("std");
 const Curve = @import("curve.zig").Curve;
 
-const BAND_EPSILON: f32 = 1.0 / 65536.0;
-const MAX_BANDS: u32 = 16;
+pub const BAND_EPSILON: f32 = 1.0 / 65536.0;
+pub const MAX_BANDS: u32 = 16;
+// Slug paper heuristic: aim for ~4 curves per band on each axis.
+const CURVES_PER_BAND_TARGET: f32 = 4.0;
+
+comptime {
+    std.debug.assert(MAX_BANDS - 1 <= std.math.maxInt(u8));
+}
 
 pub const PartitionResult = struct {
     band_max: [2]u8,
@@ -68,7 +74,7 @@ pub fn partition(curves: []const Curve, allocator: std.mem.Allocator) !Partition
     }
 
     const cnt_f: f32 = @floatFromInt(curves.len);
-    const raw_count: u32 = @intFromFloat(@round(cnt_f / 4.0));
+    const raw_count: u32 = @intFromFloat(@round(cnt_f / CURVES_PER_BAND_TARGET));
     const band_count_x: u32 = @max(1, @min(raw_count, MAX_BANDS));
     const band_count_y: u32 = band_count_x;
 

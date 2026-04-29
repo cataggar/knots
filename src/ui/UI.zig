@@ -22,6 +22,14 @@ pub const AnimOpts = struct {
 
 const Allocator = std.mem.Allocator;
 
+const INV_SQRT2: f32 = 0.70710677;
+const TEXT_QUAD_NORMALS = [4][2]f32{
+    .{ -INV_SQRT2, -INV_SQRT2 }, // tl
+    .{ INV_SQRT2, -INV_SQRT2 }, // tr
+    .{ INV_SQRT2, INV_SQRT2 }, // br
+    .{ -INV_SQRT2, INV_SQRT2 }, // bl
+};
+
 pub const HitRecord = struct {
     id: Element.Id,
     bounds: [4]f32,
@@ -422,16 +430,10 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     const jac = [4]f32{ inv_size, 0, 0, -inv_size };
 
                     const verts_buf = try allocator.alloc(gpu.SlugVertex, glyphs.len * 4);
+                    defer allocator.free(verts_buf);
                     const idx_buf = try allocator.alloc(u32, glyphs.len * 6);
+                    defer allocator.free(idx_buf);
                     var quad_count: u32 = 0;
-
-                    const inv_sqrt2: f32 = 0.70710677;
-                    const NORMALS = [4][2]f32{
-                        .{ -inv_sqrt2, -inv_sqrt2 }, // tl
-                        .{ inv_sqrt2, -inv_sqrt2 }, // tr
-                        .{ inv_sqrt2, inv_sqrt2 }, // br
-                        .{ -inv_sqrt2, inv_sqrt2 }, // bl
-                    };
 
                     for (glyphs) |gl| {
                         const rec = gl.record;
@@ -472,9 +474,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                         const tex_z_bits: u32 =
                             @as(u32, rec.glyph_loc_x) | (@as(u32, rec.glyph_loc_y) << 16);
                         const tex_w_bits: u32 =
-                            @as(u32, rec.band_max_x) |
-                            (@as(u32, rec.band_max_y) << 16) |
-                            (@as(u32, rec.flags) << 24);
+                            @as(u32, rec.band_max_x) | (@as(u32, rec.band_max_y) << 16);
                         const tex_z: f32 = @bitCast(tex_z_bits);
                         const tex_w: f32 = @bitCast(tex_w_bits);
 
@@ -489,8 +489,8 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .pos = .{
                                     screen_corners[ci][0],
                                     screen_corners[ci][1],
-                                    NORMALS[ci][0],
-                                    NORMALS[ci][1],
+                                    TEXT_QUAD_NORMALS[ci][0],
+                                    TEXT_QUAD_NORMALS[ci][1],
                                 },
                                 .tex = .{ em_corners[ci][0], em_corners[ci][1], tex_z, tex_w },
                                 .jac = jac,

@@ -99,12 +99,9 @@ pub fn getGlyph(self: *Face, codepoint: u32) !glyph.GlyphRecord {
 
     const g = self.ft_face.*.glyph;
     const advance_em: f32 = @as(f32, @floatFromInt(g.*.metrics.horiAdvance)) / self.units_per_em;
-    const bearing_x_em: f32 = @as(f32, @floatFromInt(g.*.metrics.horiBearingX)) / self.units_per_em;
-    const bearing_y_em: f32 = @as(f32, @floatFromInt(g.*.metrics.horiBearingY)) / self.units_per_em;
 
     var rec = try self.glyph_builder.addOutline(&g.*.outline, self.units_per_em);
     rec.advance_em = advance_em;
-    rec.bearing_em = .{ bearing_x_em, bearing_y_em };
 
     try self.cache.put(codepoint, rec);
     return rec;
