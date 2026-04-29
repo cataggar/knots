@@ -8,7 +8,7 @@ const util = @import("util.zig");
 
 width: Element.sizing.Axis = .fit(),
 height: Element.sizing.Axis = .fit(),
-size: f32 = 14,
+size: f32 = 16,
 content: []const u8,
 color: Color.Input = .text,
 font: ?[]const u8 = null,

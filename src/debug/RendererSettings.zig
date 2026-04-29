@@ -83,7 +83,7 @@ pub fn render(self: *const RendererSettings, app: *knots.App) anyerror!void {
     }
 
     try app.e(.{
-        Text{ .content = "GPU API", .size = 12, .key = .src(@src()) },
+        Text{ .content = "GPU API", .size = 14, .key = .src(@src()) },
         SelectInput(GPUBackend){
             .key = backend_key,
             .initial_selected = self.state.backend_idx,
@@ -91,13 +91,13 @@ pub fn render(self: *const RendererSettings, app: *knots.App) anyerror!void {
             .labels = enumTagNames(GPUBackend, GPUBackend.availableSlice()),
             .values = GPUBackend.availableSlice(),
         },
-        Text{ .content = "Present mode", .size = 12, .key = .src(@src()) },
+        Text{ .content = "Present mode", .size = 14, .key = .src(@src()) },
         SelectInput(PresentMode){
             .key = present_mode_key,
             .initial_selected = self.state.present_mode_idx,
             .width = .fixed(120),
         },
-        Text{ .content = "FPS", .size = 12, .key = .src(@src()) },
+        Text{ .content = "FPS", .size = 14, .key = .src(@src()) },
         SelectInput(FpsToggle){
             .key = fps_key,
             .initial_selected = self.state.show_fps_idx,
@@ -111,7 +111,7 @@ pub fn render(self: *const RendererSettings, app: *knots.App) anyerror!void {
             .justify = .center,
             .@"align" = .center,
             .onClick = self.onClick,
-            .text = .{ .content = "Apply", .size = 12 },
+            .text = .{ .content = "Apply", .size = 14 },
         },
     });
 

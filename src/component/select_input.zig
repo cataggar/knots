@@ -34,7 +34,7 @@ pub fn SelectInput(comptime T: type) type {
         placeholder: []const u8 = "Select...",
         width: Element.sizing.Axis = .grow(),
         height: Element.sizing.Axis = .fit(),
-        size: f32 = 14,
+        size: f32 = 16,
         color: Color.Input = .text,
         placeholder_color: Color.Input = .dimmed,
         style: Style = .{ .color = .muted },

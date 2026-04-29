@@ -109,7 +109,7 @@ pub fn frameCb(app: *knots.App) !void {
                 .{
                     Text{
                         .content = try std.fmt.allocPrint(arena, "\u{e88a} knots playground - {s}", .{@tagName(app.renderer.cfg.gpu_backend)}),
-                        .size = 18,
+                        .size = 20,
                         .key = .src(@src()),
                     },
                     Rect{
@@ -122,7 +122,6 @@ pub fn frameCb(app: *knots.App) !void {
                     .{
                         Text{
                             .content = try std.fmt.allocPrint(arena, "counter: {d}", .{self.cntr}),
-                            .size = 14,
                             .color = .dimmed,
                             .key = .src(@src()),
                         },
@@ -431,7 +430,7 @@ fn renderSectionAlignment(app: *knots.App) !void {
                     },
                     Text{
                         .content = "start",
-                        .size = 9,
+                        .size = 12,
                         .color = .dimmed,
                         .key = .src(@src()),
                     },
@@ -465,7 +464,7 @@ fn renderSectionAlignment(app: *knots.App) !void {
                     },
                     Text{
                         .content = "center",
-                        .size = 9,
+                        .size = 12,
                         .color = .dimmed,
                         .key = .src(@src()),
                     },
@@ -499,7 +498,7 @@ fn renderSectionAlignment(app: *knots.App) !void {
                     },
                     Text{
                         .content = "end",
-                        .size = 9,
+                        .size = 12,
                         .color = .dimmed,
                         .key = .src(@src()),
                     },
@@ -715,7 +714,7 @@ fn renderCounterItem(app: *knots.App, item: isize, i: usize) !void {
         },
         .{Text{
             .content = try std.fmt.allocPrint(arena, "item {d}", .{item}),
-            .size = 11,
+            .size = 14,
             .key = knots.ui.Key.src(@src()).indexed(i),
         }},
     });

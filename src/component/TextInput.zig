@@ -16,7 +16,7 @@ const xAtByte = @import("util.zig").xAtByte;
 
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .fit(),
-size: f32 = 14,
+size: f32 = 16,
 buf: *std.ArrayList(u8),
 placeholder: []const u8 = "",
 color: Color.Input = .text,

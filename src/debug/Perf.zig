@@ -11,7 +11,7 @@ fps_buf: []u8,
 const Perf = @This();
 
 pub fn open(self: *const Perf, app: *App) !u32 {
-    var deco = try app.ui.textDecoration(self.fps_label, 8, null);
+    var deco = try app.ui.textDecoration(self.fps_label, 10, null);
     deco.text.color = .{ 1.0, 0.0, 0.0, 1.0 };
     return try app.ui.openRoot(.src(@src()), 0, 0, .{ .z_index = 255 }, deco);
 }

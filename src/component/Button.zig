@@ -32,7 +32,7 @@ text: ?ButtonText = null,
 pub const ButtonText = struct {
     content: []const u8,
     font: ?[]const u8 = null,
-    size: f32 = 12,
+    size: f32 = 14,
 };
 
 const Button = @This();
