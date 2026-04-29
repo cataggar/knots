@@ -71,9 +71,17 @@ fn frameCb(app: *knots.App) !void {
 
 See [examples](examples), you can also try the web version of the playground [here](https://shahwali.dev/playground).
 
+## Goals
+
+Below goals are listed in order of importance.
+
+1. Provide a way to build highly performant cross-platform desktop applications.
+2. UI code should get out of the way, letting the developer spend more time on actual problems.
+3. Minimal lean builds, fast compile times.
+4. Highly configurable, with sane defaults.
+
 ## Known limitations
 
-- Currently there is a hard dependency on GLFW for windowing.
+- Currently there is a hard dependency on GLFW for windowing on linux, additonally, only wayland builds are supported.
 - One C dependency is currently used for text rendering, FreeType.
 - In general, text rendering is in very early stages.
-- No X11 support yet.
