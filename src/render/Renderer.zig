@@ -269,14 +269,17 @@ pub fn draw(self: *Renderer, dl: *const DrawList, atlas: *text.Atlas, content_sc
         }
         if (!std.meta.eql(current_clip, cmd.clip_rect)) {
             if (cmd.clip_rect) |clip| {
-                const cx = @max(0, clip[0] * content_scale);
-                const cy = @max(0, clip[1] * content_scale);
-                pass.setScissorRect(@intFromFloat(cx), @intFromFloat(cy), @intFromFloat(@max(0, @min(clip[2] * content_scale, vw - cx))), @intFromFloat(@max(0, @min(clip[3] * content_scale, vh - cy))));
+                const cx = @min(vw, @max(0, clip[0] * content_scale));
+                const cy = @min(vh, @max(0, clip[1] * content_scale));
+                const cw = @max(0, @min(clip[2] * content_scale, vw - cx));
+                const ch = @max(0, @min(clip[3] * content_scale, vh - cy));
+                current_clip = cmd.clip_rect;
+                if (cw == 0 or ch == 0) continue;
+                pass.setScissorRect(@intFromFloat(cx), @intFromFloat(cy), @intFromFloat(cw), @intFromFloat(ch));
             } else {
                 pass.setScissorRect(0, 0, self.ctx.cfg.window_width, self.ctx.cfg.window_height);
+                current_clip = cmd.clip_rect;
             }
-
-            current_clip = cmd.clip_rect;
         }
         switch (cmd.kind) {
             .vertex => pass.drawIndexed(cmd.count, 1, cmd.offset, 0, 0),
