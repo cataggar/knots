@@ -246,7 +246,6 @@ pub fn refreshEmscriptenCanvas(self: *Window) void {
 
 const EmscriptenExterns = struct {
     extern fn emscripten_get_element_css_size(target: [*:0]const u8, w: *f64, h: *f64) c_int;
-    extern fn emscripten_set_element_css_size(target: [*:0]const u8, w: f64, h: f64) c_int;
     extern fn emscripten_set_canvas_element_size(target: [*:0]const u8, w: c_int, h: c_int) c_int;
 };
 
@@ -262,9 +261,6 @@ fn applyCanvasSize(selector: [:0]const u8, fallback_w: u32, fallback_h: u32) Res
     const px_w: c_int = @intFromFloat(@round(css_w * dpr));
     const px_h: c_int = @intFromFloat(@round(css_h * dpr));
     _ = EmscriptenExterns.emscripten_set_canvas_element_size(selector.ptr, px_w, px_h);
-    // Re-assert CSS size: without this, the higher-resolution drawing buffer
-    // gets CSS-scaled by the DOM, producing a blurry result on HiDPI.
-    _ = EmscriptenExterns.emscripten_set_element_css_size(selector.ptr, css_w, css_h);
     return .{
         .logical = .{ .width = @intFromFloat(@round(css_w)), .height = @intFromFloat(@round(css_h)) },
         .physical = .{ .width = @intCast(px_w), .height = @intCast(px_h) },
