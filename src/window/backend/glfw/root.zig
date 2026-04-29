@@ -33,6 +33,7 @@ pub const Backend = struct {
             _ = emscripten_set_resize_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), false, emscriptenResizeCallback, 0);
         } else {
             self.window.setFramebufferSizecallback(framebufferSizeCallback);
+            _ = glfw.c.glfwSetWindowRefreshCallback(self.window.window, refreshCallback);
         }
     }
 
@@ -222,6 +223,12 @@ fn mouseButtonCallback(win: ?*glfw.c.GLFWwindow, button: c_int, action: c_int, _
 fn framebufferSizeCallback(win: ?*glfw.c.GLFWwindow, _: c_int, _: c_int) callconv(.c) void {
     const owner = ownerOf(win) orelse return;
     owner.markResized();
+}
+
+fn refreshCallback(win: ?*glfw.c.GLFWwindow) callconv(.c) void {
+    const owner = ownerOf(win) orelse return;
+    owner.markResized();
+    owner.dispatchRefresh();
 }
 
 fn charCallback(win: ?*glfw.c.GLFWwindow, codepoint: c_uint) callconv(.c) void {

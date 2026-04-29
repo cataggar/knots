@@ -111,6 +111,7 @@ fn windowShouldClose(self: c.id, _: c.SEL, _: c.id) callconv(.c) c.BOOL {
 fn windowDidResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
     owner.markResized();
+    owner.dispatchRefresh();
 }
 
 fn modsFromFlags(flags: c_ulong) window.Mods {

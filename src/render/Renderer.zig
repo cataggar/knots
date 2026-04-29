@@ -177,6 +177,7 @@ pub fn destroyTexture(self: *Renderer, id: u32) !void {
 }
 
 pub fn resize(self: *Renderer, width: u32, height: u32) !void {
+    if (width == self.ctx.cfg.window_width and height == self.ctx.cfg.window_height) return;
     try self.frame.prepareResize();
     try self.ctx.resize(width, height);
 }

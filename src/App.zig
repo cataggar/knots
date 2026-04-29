@@ -43,6 +43,7 @@ ui: UI,
 timer: Timer,
 cfg: Config,
 pending_renderer_cfg: ?render.Renderer.Config = null,
+frame_cb: ?Callback = null,
 
 const App = @This();
 
@@ -100,6 +101,8 @@ pub fn start(self: *App, frameCb: Callback) !void {
     if (self.cfg.onDrop) |_| {
         self.window.setDropCallback(@ptrCast(self), dropCallback);
     }
+    self.frame_cb = frameCb;
+    self.window.setRefreshCallback(@ptrCast(self), refreshCallback);
     self.timer.start(self.io);
     self.window.pollEvents();
 
@@ -153,8 +156,13 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     try self.ui.tessellate(self.frame_arena.allocator(), &self.draw_list);
     self.ui.resolveHit();
     try self.renderer.draw(&self.draw_list, self.ui.font.atlas, self.ui.content_scale);
-
     self.window.waitEvents();
+}
+
+fn refreshCallback(ctx: *anyopaque) void {
+    const self: *App = @ptrCast(@alignCast(ctx));
+    const cb = self.frame_cb orelse return;
+    self.tickFrame(cb) catch |err| std.debug.panic("failed to tick frame for refresh: {s}", .{@errorName(err)});
 }
 
 const EmscriptenContext = struct {

@@ -13,6 +13,7 @@ const Size = @import("root.zig").Size;
 const ResizeEvent = @import("root.zig").ResizeEvent;
 const DisplayMode = @import("root.zig").DisplayMode;
 const DropCallback = @import("root.zig").DropCallback;
+const RefreshCallback = @import("root.zig").RefreshCallback;
 
 const SCROLL_SPEED: comptime_float = 10;
 
@@ -28,6 +29,9 @@ key_count: u8 = 0,
 resized: bool = false,
 drop_callback: ?DropCallback = null,
 drop_ctx: ?*anyopaque = null,
+refresh_callback: ?RefreshCallback = null,
+refresh_ctx: ?*anyopaque = null,
+in_refresh: bool = false,
 canvas_selector: ?[:0]const u8,
 pending_resize: ?ResizeEvent = null,
 content_scale: f32 = 1.0,
@@ -69,6 +73,11 @@ pub fn setDropCallback(self: *Window, ctx: *anyopaque, cb: DropCallback) void {
     self.drop_callback = cb;
     self.drop_ctx = ctx;
     self.backend.setDropCallback(self);
+}
+
+pub fn setRefreshCallback(self: *Window, ctx: *anyopaque, cb: RefreshCallback) void {
+    self.refresh_callback = cb;
+    self.refresh_ctx = ctx;
 }
 
 pub fn pollEvents(self: *const Window) void {
@@ -219,6 +228,15 @@ pub fn dispatchDrop(self: *Window, paths: []const []const u8) void {
     const cb = self.drop_callback orelse return;
     const ctx = self.drop_ctx orelse return;
     cb(ctx, paths) catch {};
+}
+
+pub fn dispatchRefresh(self: *Window) void {
+    if (self.in_refresh) return;
+    const cb = self.refresh_callback orelse return;
+    const ctx = self.refresh_ctx orelse return;
+    self.in_refresh = true;
+    defer self.in_refresh = false;
+    cb(ctx);
 }
 
 pub fn refreshEmscriptenCanvas(self: *Window) void {

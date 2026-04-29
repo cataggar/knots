@@ -244,7 +244,10 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
         },
         win32.WM_DESTROY => return 0,
         win32.WM_SIZE => {
-            if (ownerOf(hwnd)) |o| o.markResized();
+            if (ownerOf(hwnd)) |o| {
+                o.markResized();
+                o.dispatchRefresh();
+            }
             return 0;
         },
         win32.WM_LBUTTONDOWN => {
@@ -306,7 +309,10 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
                 suggested.bottom - suggested.top,
                 .{ .NOZORDER = 1, .NOACTIVATE = 1 },
             );
-            if (ownerOf(hwnd)) |o| o.markResized();
+            if (ownerOf(hwnd)) |o| {
+                o.markResized();
+                o.dispatchRefresh();
+            }
             return 0;
         },
         else => return win32.DefWindowProcW(hwnd, msg, wparam, lparam),

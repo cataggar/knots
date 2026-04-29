@@ -177,3 +177,5 @@ pub const DisplayMode = union(enum) {
 };
 
 pub const DropCallback = *const fn (ctx: *anyopaque, paths: []const []const u8) anyerror!void;
+
+pub const RefreshCallback = *const fn (ctx: *anyopaque) void;
