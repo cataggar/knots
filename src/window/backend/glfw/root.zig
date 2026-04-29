@@ -174,7 +174,7 @@ pub const Backend = struct {
     }
 };
 
-pub fn init(cfg: window.Config, _: *window.Window) !Backend {
+pub fn init(cfg: window.Config) !Backend {
     const w = try glfw.Window.init(.{
         .title = cfg.title,
         .mode = .{ .windowed = .{ .width = cfg.width, .height = cfg.height } },

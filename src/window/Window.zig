@@ -44,21 +44,20 @@ pub fn init(cfg: Config) !Window {
     else
         null;
 
-    var self: Window = .{
-        .backend = undefined,
-        .canvas_selector = cfg.canvas_selector,
-        .pending_resize = initial,
-    };
-
     const init_w: u32 = if (initial) |ev| ev.logical.width else cfg.width;
     const init_h: u32 = if (initial) |ev| ev.logical.height else cfg.height;
     var sized_cfg = cfg;
     sized_cfg.width = init_w;
     sized_cfg.height = init_h;
 
-    self.backend = try impl.init(sized_cfg, &self);
-    self.content_scale = if (initial) |ev| ev.content_scale else self.backend.computeContentScale();
-    return self;
+    var be: impl.Backend = try impl.init(sized_cfg);
+
+    return Window{
+        .backend = be,
+        .canvas_selector = cfg.canvas_selector,
+        .pending_resize = initial,
+        .content_scale = if (initial) |ev| ev.content_scale else be.computeContentScale(),
+    };
 }
 
 pub fn deinit(self: *const Window) void {

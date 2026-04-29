@@ -162,7 +162,7 @@ pub const Backend = struct {
     }
 };
 
-pub fn init(cfg: window.Config, _: *window.Window) !Backend {
+pub fn init(cfg: window.Config) !Backend {
     _ = win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     const hinstance = win32.GetModuleHandleW(null) orelse return error.NoModuleHandle;

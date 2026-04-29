@@ -185,7 +185,7 @@ pub const Backend = struct {
     }
 };
 
-pub fn init(cfg: window.Config, _: *window.Window) !Backend {
+pub fn init(cfg: window.Config) !Backend {
     const selector = cfg.canvas_selector orelse @panic("canvas_selector must be set for emscripten windows");
     const dpr = std.os.emscripten.emscripten_get_device_pixel_ratio();
     const logical: window.Size = .{ .width = cfg.width, .height = cfg.height };

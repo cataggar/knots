@@ -125,7 +125,7 @@ pub const Backend = struct {
     }
 };
 
-pub fn init(cfg: window.Config, _: *window.Window) !Backend {
+pub fn init(cfg: window.Config) !Backend {
     if (!classes_registered) {
         const registered = try classes.registerClasses();
         KnotsView = registered.view;
