@@ -38,7 +38,6 @@
         "build.zig",
         "build.zig.zon",
         "src",
-        "lib",
     },
     .fingerprint = 0x32ed2118ddf54283,
 }
