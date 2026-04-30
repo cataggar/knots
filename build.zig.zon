@@ -2,7 +2,6 @@
     .name = .knots,
     .version = "0.0.1",
     .dependencies = .{
-        .freetype = .{ .path = "lib/freetype" },
         .glfw = .{
             .url = "git+https://codeberg.org/shahwali/glfw-bindings.git#0c85f77bf9f2002650935411ddf68e3bad8d15dc",
             .hash = "glfw-0.0.3-TqMi_9ZFAABGHCKBDqncWvrkxIM0gtant5BPj0nTUehQ",
@@ -28,6 +27,10 @@
             .url = "git+https://github.com/marlersoft/zigwin32.git#ec98bb4d9eea532320a8551720a9e3ec6de64994",
             .hash = "win32-25.0.28-preview-mX5pFWMt5QPTVIGh3r2-OpPunpcCCjApyRbA6Zn6WALH",
             .lazy = true,
+        },
+        .TrueType = .{
+            .url = "git+https://codeberg.org/andrewrk/TrueType.git#b0f9867671a14ce4ed75a05a7e52c927623095e5",
+            .hash = "TrueType-0.0.0-Ne-mWMxxAQDit1oHfxlK2lkZAX8P7Wsa2SBPaR_xSpc8",
         },
     },
     .minimum_zig_version = "0.16.0",
