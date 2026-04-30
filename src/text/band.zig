@@ -159,7 +159,7 @@ test "partition single horizontal line yields one band" {
     const curves = &[_]Curve{
         .{ .p1 = .{ 0, 0.5 }, .p2 = .{ 0.5, 0.5 }, .p3 = .{ 1, 0.5 } },
     };
-    var res = try partition(curves, allocator);
+    var res = try partition(allocator, curves);
     defer res.deinit(allocator);
 
     try std.testing.expectEqual(0, res.band_max[0]);
@@ -176,7 +176,7 @@ test "partition sorts within band by descending max-x" {
         .{ .p1 = .{ 0.0, 0.0 }, .p2 = .{ 0.45, 0.0 }, .p3 = .{ 0.9, 0.0 } },
         .{ .p1 = .{ 0.0, 0.0 }, .p2 = .{ 0.25, 0.0 }, .p3 = .{ 0.5, 0.0 } },
     };
-    var res = try partition(curves, allocator);
+    var res = try partition(allocator, curves);
     defer res.deinit(allocator);
 
     var found_band: ?[]u32 = null;
@@ -191,7 +191,7 @@ test "partition sorts within band by descending max-x" {
 
 test "partition empty curves returns sentinel band" {
     const allocator = std.testing.allocator;
-    var res = try partition(&[_]Curve{}, allocator);
+    var res = try partition(allocator, &[_]Curve{});
     defer res.deinit(allocator);
     try std.testing.expectEqual(0, res.band_max[0]);
     try std.testing.expectEqual(1, res.h_bands.len);
