@@ -48,12 +48,7 @@ const ShapedMap = std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 );
 
-pub fn init(
-    allocator: std.mem.Allocator,
-    ft_lib: ft.FT_Library,
-    font_data: []const u8,
-    glyph_builder: *GlyphBuilder,
-) !Face {
+pub fn init(allocator: std.mem.Allocator, ft_lib: ft.FT_Library, font_data: []const u8, glyph_builder: *GlyphBuilder) !Face {
     var ft_face: ft.FT_Face = undefined;
     if (ft.FT_New_Memory_Face(ft_lib, font_data.ptr, @intCast(font_data.len), 0, &ft_face) != 0)
         return error.FontLoadFailed;

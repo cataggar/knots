@@ -45,7 +45,7 @@ const SortCtx = struct {
     }
 };
 
-pub fn partition(curves: []const Curve, allocator: std.mem.Allocator) !PartitionResult {
+pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !PartitionResult {
     if (curves.len == 0) {
         const empty_h = try allocator.alloc([]u32, 1);
         empty_h[0] = try allocator.alloc(u32, 0);

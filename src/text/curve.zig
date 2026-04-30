@@ -1,11 +1,7 @@
 const std = @import("std");
 const ft = @import("freetype").c;
 
-extern fn FT_Outline_Decompose(
-    outline: *ft.FT_Outline,
-    func_interface: *const ft.FT_Outline_Funcs,
-    user: ?*anyopaque,
-) c_int;
+extern fn FT_Outline_Decompose(*ft.FT_Outline, *const ft.FT_Outline_Funcs, ?*anyopaque) c_int;
 
 pub const Curve = struct {
     p1: [2]f32,
@@ -102,11 +98,7 @@ fn subdivideCubic(b: *Builder, p0: [2]f32, p1: [2]f32, p2: [2]f32, p3: [2]f32, d
     try subdivideCubic(b, p0123, p123, p23, p3, depth - 1);
 }
 
-pub fn decomposeOutline(
-    outline: *const ft.FT_Outline,
-    units_per_em: f32,
-    allocator: std.mem.Allocator,
-) ![]Curve {
+pub fn decomposeOutline(allocator: std.mem.Allocator, outline: *const ft.FT_Outline, units_per_em: f32) ![]Curve {
     const inv_units = 1.0 / units_per_em;
     var b = Builder{
         .curves = .empty,

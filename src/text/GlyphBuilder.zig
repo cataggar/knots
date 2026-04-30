@@ -109,19 +109,15 @@ fn markBandDirty(self: *GlyphBuilder, y0: u32, y1_excl: u32) void {
     self.band_dirty_max_y_excl = @max(self.band_dirty_max_y_excl, y1_excl);
 }
 
-pub fn addOutline(
-    self: *GlyphBuilder,
-    outline: *const ft.FT_Outline,
-    units_per_em: f32,
-) anyerror!glyph.GlyphRecord {
-    const curves = try curve_mod.decomposeOutline(outline, units_per_em, self.allocator);
+pub fn addOutline(self: *GlyphBuilder, outline: *const ft.FT_Outline, units_per_em: f32) !glyph.GlyphRecord {
+    const curves = try curve_mod.decomposeOutline(self.allocator, outline, units_per_em);
     defer self.allocator.free(curves);
 
     if (curves.len == 0) {
         return self.makeEmptyRecord();
     }
 
-    var part = try band_mod.partition(curves, self.allocator);
+    var part = try band_mod.partition(self.allocator, curves);
     defer part.deinit(self.allocator);
 
     const band_count_x: u32 = @as(u32, part.band_max[0]) + 1;
