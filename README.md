@@ -83,5 +83,4 @@ Below goals are listed in order of importance.
 ## Known limitations
 
 - Currently there is a hard dependency on GLFW for windowing on linux, additonally, only wayland builds are supported.
-- One C dependency is currently used for text rendering, FreeType.
 - In general, text rendering is in very early stages.
