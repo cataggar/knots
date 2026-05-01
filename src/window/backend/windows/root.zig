@@ -15,6 +15,7 @@ pub const Backend = struct {
     high_surrogate: u16 = 0,
     cursor_visible: bool = true,
     is_fullscreen: bool = false,
+    should_close: bool = false,
     saved_placement: win32.WINDOWPLACEMENT = std.mem.zeroes(win32.WINDOWPLACEMENT),
     saved_style: win32.WINDOW_STYLE = .{},
     drop_paths_buf: [64][260]u8 = undefined,
@@ -56,11 +57,13 @@ pub const Backend = struct {
         _ = win32.PostMessageW(self.hwnd, win32.WM_NULL, 0, 0);
     }
 
-    pub fn isOpen(_: *const Self) bool {
-        return true;
+    pub fn isOpen(self: *const Self) bool {
+        return !self.should_close;
     }
 
-    pub fn close(_: *Self) void {}
+    pub fn close(self: *Self) void {
+        self.should_close = true;
+    }
 
     pub fn getSize(self: *const Self) window.Size {
         var rect: win32.RECT = undefined;
@@ -157,8 +160,14 @@ pub const Backend = struct {
         }
     }
 
-    pub fn applyEmscriptenSize(_: *Self, _: window.ResizeEvent) void {
-        @compileError("emscripten not supported with windows backend");
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+        if (!owner.resized) return null;
+        owner.resized = false;
+        return .{
+            .logical = self.getSize(),
+            .physical = self.getFramebufferSize(),
+            .content_scale = self.computeContentScale(),
+        };
     }
 };
 
@@ -239,7 +248,10 @@ fn ownerOf(hwnd: win32.HWND) ?*window.Window {
 fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARAM) callconv(.winapi) win32.LRESULT {
     switch (msg) {
         win32.WM_CLOSE => {
-            if (ownerOf(hwnd)) |o| o.markClosed();
+            if (ownerOf(hwnd)) |o| {
+                o.markClosed();
+                o.backend.should_close = true;
+            }
             return 0;
         },
         win32.WM_DESTROY => return 0,

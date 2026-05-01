@@ -276,39 +276,26 @@ pub fn draw(
     }
 
     const verts = dl.vertices.items;
-    const verts_bytes = verts.len * @sizeOf(gpu.Vertex);
-    if (verts.len > 0) {
-        try ensureBufferCapacity(&self.vertex_buf, verts_bytes);
-        self.vertex_buf.load(gpu.Vertex, verts);
-    }
     const insts = dl.instances.items;
-    const insts_bytes = insts.len * @sizeOf(gpu.Instance);
-    if (insts.len > 0) {
-        try ensureBufferCapacity(&self.instance_buf, insts_bytes);
-        self.instance_buf.load(gpu.Instance, insts);
-    }
-    if (dl.indices.items.len > 0) {
-        try ensureBufferCapacity(&self.index_buf, dl.indices.items.len * @sizeOf(u32));
-        self.index_buf.load(u32, dl.indices.items);
-    }
     const tverts = dl.text_vertices.items;
+    const verts_bytes = verts.len * @sizeOf(gpu.Vertex);
+    const insts_bytes = insts.len * @sizeOf(gpu.Instance);
     const tverts_bytes = tverts.len * @sizeOf(gpu.SlugVertex);
-    if (tverts.len > 0) {
-        try ensureBufferCapacity(&self.text_vertex_buf, tverts_bytes);
-        self.text_vertex_buf.load(gpu.SlugVertex, tverts);
-    }
-    if (dl.text_indices.items.len > 0) {
-        try ensureBufferCapacity(&self.text_index_buf, dl.text_indices.items.len * @sizeOf(u32));
-        self.text_index_buf.load(u32, dl.text_indices.items);
-    }
+
+    try ensureAndLoad(&self.vertex_buf, gpu.Vertex, verts);
+    try ensureAndLoad(&self.instance_buf, gpu.Instance, insts);
+    try ensureAndLoad(&self.index_buf, u32, dl.indices.items);
+    try ensureAndLoad(&self.text_vertex_buf, gpu.SlugVertex, tverts);
+    try ensureAndLoad(&self.text_index_buf, u32, dl.text_indices.items);
 
     var pass = try self.frame.beginRenderPass(.{ .color_attachment = .{} });
 
     const vw: f32 = @floatFromInt(self.ctx.cfg.window_width);
     const vh: f32 = @floatFromInt(self.ctx.cfg.window_height);
-    var current_clip: ?[4]f32 = .{ 0, 0, 0, 0 };
+    var current_clip: ?[4]f32 = null;
     var current_texture: ?u32 = null;
     var current_kind: ?DrawList.CommandKind = null;
+    var clip_initialized = false;
     for (dl.cmds.items) |cmd| {
         if (current_kind != cmd.kind) {
             switch (cmd.kind) {
@@ -344,19 +331,18 @@ pub fn draw(
             pass.rebindTextureSet();
             current_texture = cmd.texture;
         }
-        if (!std.meta.eql(current_clip, cmd.clip_rect)) {
+        if (!clip_initialized or !std.meta.eql(current_clip, cmd.clip_rect)) {
             if (cmd.clip_rect) |clip| {
                 const cx = @min(vw, @max(0, clip[0] * content_scale));
                 const cy = @min(vh, @max(0, clip[1] * content_scale));
                 const cw = @max(0, @min(clip[2] * content_scale, vw - cx));
                 const ch = @max(0, @min(clip[3] * content_scale, vh - cy));
-                current_clip = cmd.clip_rect;
-                if (cw == 0 or ch == 0) continue;
                 pass.setScissorRect(@intFromFloat(cx), @intFromFloat(cy), @intFromFloat(cw), @intFromFloat(ch));
             } else {
                 pass.setScissorRect(0, 0, self.ctx.cfg.window_width, self.ctx.cfg.window_height);
-                current_clip = cmd.clip_rect;
             }
+            current_clip = cmd.clip_rect;
+            clip_initialized = true;
         }
         switch (cmd.kind) {
             .vertex => pass.drawIndexed(cmd.count, 1, cmd.offset, 0, 0),
@@ -464,4 +450,10 @@ fn ensureBufferCapacity(buf: *gpu.Buffer, required: usize) !void {
     if (required <= current_size) return;
     const new_size = @max(required, current_size + current_size / 2);
     try buf.resize(new_size);
+}
+
+fn ensureAndLoad(buf: *gpu.Buffer, comptime T: type, items: []const T) !void {
+    if (items.len == 0) return;
+    try ensureBufferCapacity(buf, items.len * @sizeOf(T));
+    buf.load(T, items);
 }

@@ -115,7 +115,7 @@ pub fn getGlyph(self: *Face, codepoint: u21) !glyph.GlyphRecord {
 /// Shape `text` as a single line at `size_px`. Result is cached for the
 /// frame; slice is stable until `endFrame` evicts unused entries.
 pub fn shape(self: *Face, text: []const u8, size_px: f32) !glyph.ShapedView {
-    const size_q: u32 = @intFromFloat(size_px * 64);
+    const size_q: u32 = @intFromFloat(@round(size_px * 64));
     const probe = ShapedKey{ .text = text, .size_q = size_q };
 
     const gop = try self.shaped_cache.getOrPutContext(self.allocator, probe, .{});

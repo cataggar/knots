@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const gpu = @import("gpu");
 const impl = @import("window_impl");
 
@@ -33,31 +32,17 @@ refresh_callback: ?RefreshCallback = null,
 refresh_ctx: ?*anyopaque = null,
 in_refresh: bool = false,
 canvas_selector: ?[:0]const u8,
-pending_resize: ?ResizeEvent = null,
 content_scale: f32 = 1.0,
 display_mode: DisplayMode = .windowed,
 
 const Window = @This();
 
 pub fn init(cfg: Config) !Window {
-    const initial: ?ResizeEvent = if (builtin.os.tag == .emscripten)
-        applyCanvasSize(cfg.canvas_selector orelse @panic("canvas_selector must be set for emscripten windows"), cfg.width, cfg.height)
-    else
-        null;
-
-    const init_w: u32 = if (initial) |ev| ev.logical.width else cfg.width;
-    const init_h: u32 = if (initial) |ev| ev.logical.height else cfg.height;
-    var sized_cfg = cfg;
-    sized_cfg.width = init_w;
-    sized_cfg.height = init_h;
-
-    var be: impl.Backend = try impl.init(sized_cfg);
-
+    var be: impl.Backend = try impl.init(cfg);
     return Window{
         .backend = be,
         .canvas_selector = cfg.canvas_selector,
-        .pending_resize = initial,
-        .content_scale = if (initial) |ev| ev.content_scale else be.computeContentScale(),
+        .content_scale = be.computeContentScale(),
     };
 }
 
@@ -169,19 +154,9 @@ pub fn collectInput(self: *Window) Input {
 }
 
 pub fn consumeResize(self: *Window) ?ResizeEvent {
-    if (comptime builtin.os.tag == .emscripten) {
-        const ev = self.pending_resize orelse return null;
-        self.pending_resize = null;
-        self.backend.applyEmscriptenSize(ev);
-        self.content_scale = ev.content_scale;
-        return ev;
-    }
-    if (!self.resized) return null;
-    self.resized = false;
-    const logical = self.getSize();
-    const physical = self.getFramebufferSize();
-    self.content_scale = self.backend.computeContentScale();
-    return .{ .logical = logical, .physical = physical, .content_scale = self.content_scale };
+    const ev = self.backend.consumeResize(self) orelse return null;
+    self.content_scale = ev.content_scale;
+    return ev;
 }
 
 pub fn pushChar(self: *Window, codepoint: u21) void {
@@ -215,10 +190,6 @@ pub fn markClosed(self: *Window) void {
     self.should_close = true;
 }
 
-pub fn setPendingResize(self: *Window, ev: ResizeEvent) void {
-    self.pending_resize = ev;
-}
-
 pub fn dispatchDrop(self: *Window, paths: []const []const u8) void {
     const cb = self.drop_callback orelse return;
     const ctx = self.drop_ctx orelse return;
@@ -234,32 +205,3 @@ pub fn dispatchRefresh(self: *Window) void {
     cb(ctx);
 }
 
-pub fn refreshEmscriptenCanvas(self: *Window) void {
-    if (comptime builtin.os.tag != .emscripten) return;
-    const selector = self.canvas_selector orelse return;
-    self.pending_resize = applyCanvasSize(selector, self.backend.getSize().width, self.backend.getSize().height);
-}
-
-const EmscriptenExterns = struct {
-    extern fn emscripten_get_element_css_size(target: [*:0]const u8, w: *f64, h: *f64) c_int;
-    extern fn emscripten_set_canvas_element_size(target: [*:0]const u8, w: c_int, h: c_int) c_int;
-};
-
-fn applyCanvasSize(selector: [:0]const u8, fallback_w: u32, fallback_h: u32) ResizeEvent {
-    var css_w: f64 = 0;
-    var css_h: f64 = 0;
-    _ = EmscriptenExterns.emscripten_get_element_css_size(selector.ptr, &css_w, &css_h);
-    if (css_w <= 0 or css_h <= 0) {
-        css_w = @floatFromInt(fallback_w);
-        css_h = @floatFromInt(fallback_h);
-    }
-    const dpr = std.os.emscripten.emscripten_get_device_pixel_ratio();
-    const px_w: c_int = @intFromFloat(@round(css_w * dpr));
-    const px_h: c_int = @intFromFloat(@round(css_h * dpr));
-    _ = EmscriptenExterns.emscripten_set_canvas_element_size(selector.ptr, px_w, px_h);
-    return .{
-        .logical = .{ .width = @intFromFloat(@round(css_w)), .height = @intFromFloat(@round(css_h)) },
-        .physical = .{ .width = @intCast(px_w), .height = @intCast(px_h) },
-        .content_scale = @floatCast(dpr),
-    };
-}

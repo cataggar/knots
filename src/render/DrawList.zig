@@ -1,6 +1,8 @@
 const std = @import("std");
 const gpu = @import("gpu");
 
+pub const MAX_LAYERS = 256;
+
 pub const CommandKind = enum { vertex, instance, text };
 
 pub const Command = struct {
@@ -24,8 +26,8 @@ text_vertices: std.ArrayList(gpu.SlugVertex),
 text_indices: std.ArrayList(u32),
 cmds: std.ArrayList(Command),
 layer_cmds: std.ArrayList(Command),
-layer_ranges: [256]LayerRange,
-layers_dirty: std.StaticBitSet(256),
+layer_ranges: [MAX_LAYERS]LayerRange,
+layers_dirty: std.StaticBitSet(MAX_LAYERS),
 current_layer: u8,
 
 const DrawList = @This();
@@ -40,7 +42,7 @@ pub fn init(allocator: std.mem.Allocator) DrawList {
         .text_vertices = .empty,
         .text_indices = .empty,
         .layer_cmds = .empty,
-        .layer_ranges = [_]LayerRange{.{}} ** 256,
+        .layer_ranges = [_]LayerRange{.{}} ** MAX_LAYERS,
         .layers_dirty = .initEmpty(),
         .current_layer = 0,
     };
@@ -80,9 +82,7 @@ fn lastCmdMatches(self: *const DrawList, kind: CommandKind, texture: ?u32, clip:
     const last = &self.layer_cmds.items[range.start + range.len - 1];
     if (last.kind != kind) return false;
     if (last.texture != texture) return false;
-    const a = last.clip_rect orelse return clip == null;
-    const c = clip orelse return false;
-    return std.mem.eql(f32, &a, &c);
+    return std.meta.eql(last.clip_rect, clip);
 }
 
 fn beginCommand(self: *DrawList, kind: CommandKind, texture: ?u32, clip: ?[4]f32, offset: u32) !void {
@@ -148,7 +148,7 @@ pub fn pushText(self: *DrawList, verts: []const gpu.SlugVertex, indices: []const
 pub fn finalize(self: *DrawList) !void {
     self.cmds.clearRetainingCapacity();
     try self.cmds.ensureTotalCapacity(self.allocator, self.layer_cmds.items.len);
-    for (0..256) |z| {
+    for (0..MAX_LAYERS) |z| {
         const range = self.layer_ranges[z];
         if (range.len == 0) continue;
         self.cmds.appendSliceAssumeCapacity(self.layer_cmds.items[range.start .. range.start + range.len]);

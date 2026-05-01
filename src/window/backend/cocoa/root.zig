@@ -15,7 +15,6 @@ pub const Backend = struct {
     ns_window: objc.Object,
     ns_view: objc.Object,
     delegate: objc.Object,
-    backing_scale: f32 = 1.0,
     should_close: bool = false,
     cursor_visible: bool = true,
     display_mode: window.DisplayMode = .windowed,
@@ -172,8 +171,14 @@ pub const Backend = struct {
         self.display_mode = mode;
     }
 
-    pub fn applyEmscriptenSize(_: *Self, _: window.ResizeEvent) void {
-        @compileError("emscripten not supported with cocoa backend");
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+        if (!owner.resized) return null;
+        owner.resized = false;
+        return .{
+            .logical = self.getSize(),
+            .physical = self.getFramebufferSize(),
+            .content_scale = self.computeContentScale(),
+        };
     }
 };
 
@@ -226,7 +231,6 @@ pub fn init(cfg: window.Config) !Backend {
         .ns_window = ns_window,
         .ns_view = view,
         .delegate = delegate,
-        .backing_scale = @floatCast(ns_window.msgSend(f64, "backingScaleFactor", .{})),
     };
 }
 

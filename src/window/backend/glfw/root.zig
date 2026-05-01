@@ -29,12 +29,8 @@ pub const Backend = struct {
         self.window.setKeyCallback(keyCallback);
         self.window.setCharCallback(charCallback);
         self.window.setMouseButtonCallback(mouseButtonCallback);
-        if (builtin.os.tag == .emscripten) {
-            _ = emscripten_set_resize_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), false, emscriptenResizeCallback, 0);
-        } else {
-            self.window.setFramebufferSizecallback(framebufferSizeCallback);
-            _ = glfw.c.glfwSetWindowRefreshCallback(self.window.window, refreshCallback);
-        }
+        self.window.setFramebufferSizecallback(framebufferSizeCallback);
+        _ = glfw.c.glfwSetWindowRefreshCallback(self.window.window, refreshCallback);
     }
 
     pub fn setDropCallback(self: *Self, _: *window.Window) void {
@@ -74,7 +70,6 @@ pub const Backend = struct {
     }
 
     pub fn computeContentScale(self: *const Self) f32 {
-        if (comptime builtin.os.tag == .emscripten) return 1.0;
         var fb_w: c_int = 0;
         var fb_h: c_int = 0;
         glfw.c.glfwGetFramebufferSize(self.window.window, &fb_w, &fb_h);
@@ -92,13 +87,8 @@ pub const Backend = struct {
         return .{ pos.x, pos.y };
     }
 
-    pub fn getNativeHandle(self: *const Self, canvas_selector: ?[:0]const u8) gpu.Context.WindowHandle {
+    pub fn getNativeHandle(self: *const Self, _: ?[:0]const u8) gpu.Context.WindowHandle {
         return switch (builtin.os.tag) {
-            .macos => .{ .macos = .{ .ns_window = self.window.getCocoaWindow() } },
-            .windows => blk: {
-                const handles = self.window.getWin32Window();
-                break :blk .{ .windows = .{ .hwnd = handles[0], .hinstance = handles[1] } };
-            },
             .linux => blk: {
                 switch (config.linux_display_server) {
                     .wayland => {
@@ -111,7 +101,6 @@ pub const Backend = struct {
                     },
                 }
             },
-            .emscripten => .{ .emscripten = .{ .selector = canvas_selector orelse @panic("canvas_selector must be set for emscripten windows") } },
             else => |os| @compileError("unsupported platform: " ++ @tagName(os)),
         };
     }
@@ -169,8 +158,14 @@ pub const Backend = struct {
         }
     }
 
-    pub fn applyEmscriptenSize(self: *Self, ev: window.ResizeEvent) void {
-        glfw.c.glfwSetWindowSize(self.window.window, @intCast(ev.logical.width), @intCast(ev.logical.height));
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+        if (!owner.resized) return null;
+        owner.resized = false;
+        return .{
+            .logical = self.getSize(),
+            .physical = self.getFramebufferSize(),
+            .content_scale = self.computeContentScale(),
+        };
     }
 };
 
@@ -246,25 +241,4 @@ fn dropCallback(win: ?*glfw.c.GLFWwindow, count: c_int, raw_paths: [*c]const [*c
         slices[i] = std.mem.sliceTo(paths[i], 0);
     }
     owner.dispatchDrop(slices[0..clamped]);
-}
-
-const EmscriptenUiEvent = extern struct {
-    detail: c_long,
-    documentBodyClientWidth: c_int,
-    documentBodyClientHeight: c_int,
-    windowInnerWidth: c_int,
-    windowInnerHeight: c_int,
-    windowOuterWidth: c_int,
-    windowOuterHeight: c_int,
-    scrollTop: c_int,
-    scrollLeft: c_int,
-};
-const EmscriptenUiCallback = *const fn (event_type: c_int, ui_event: *const EmscriptenUiEvent, user_data: ?*anyopaque) callconv(.c) c_int;
-extern fn emscripten_set_resize_callback_on_thread(target: [*:0]const u8, user_data: ?*anyopaque, use_capture: bool, cb: EmscriptenUiCallback, thread: c_int) c_int;
-const EMSCRIPTEN_EVENT_TARGET_WINDOW: [*:0]const u8 = "2";
-
-fn emscriptenResizeCallback(_: c_int, _: *const EmscriptenUiEvent, user_data: ?*anyopaque) callconv(.c) c_int {
-    const owner: *window.Window = @ptrCast(@alignCast(user_data orelse return 0));
-    owner.refreshEmscriptenCanvas();
-    return 1;
 }

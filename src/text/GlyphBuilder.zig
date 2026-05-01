@@ -112,6 +112,11 @@ pub fn addCurves(self: *GlyphBuilder, curves: []const Curve) !glyph.GlyphRecord 
     var part = try band.partition(self.allocator, curves);
     defer part.deinit(self.allocator);
 
+    const projected_band_y: u32 = @as(u32, @intCast(self.band_data.items.len)) >> LOG_TEXTURE_WIDTH;
+    if (projected_band_y >= TEXTURE_WIDTH) return error.GlyphBuilderFull;
+    const projected_curve_end: u32 = @as(u32, @intCast(self.curve_data.items.len)) + @as(u32, @intCast(curves.len)) * 2;
+    if ((projected_curve_end - 1) >> LOG_TEXTURE_WIDTH >= TEXTURE_WIDTH) return error.GlyphBuilderFull;
+
     const band_count_x: u32 = @as(u32, part.band_max[0]) + 1;
     const band_count_y: u32 = @as(u32, part.band_max[1]) + 1;
 
@@ -130,10 +135,8 @@ pub fn addCurves(self: *GlyphBuilder, curves: []const Curve) !glyph.GlyphRecord 
         self.curve_data.appendAssumeCapacity(.{ .x = c.p3[0], .y = c.p3[1], .z = 0, .w = 0 });
     }
 
-    if (curve_start_idx != self.curve_data.items.len) {
-        const curve_y1 = self.curveTextureHeight();
-        self.markCurveDirty(curve_y0, curve_y1);
-    }
+    const curve_y1 = self.curveTextureHeight();
+    self.markCurveDirty(curve_y0, curve_y1);
 
     const band_start_idx: u32 = @intCast(self.band_data.items.len);
     const band_y0: u32 = band_start_idx >> LOG_TEXTURE_WIDTH;
@@ -187,11 +190,6 @@ pub fn addCurves(self: *GlyphBuilder, curves: []const Curve) !glyph.GlyphRecord 
 
     const band_y1 = self.bandTextureHeight();
     self.markBandDirty(band_y0, band_y1);
-
-    if ((glyph_loc_idx >> LOG_TEXTURE_WIDTH) >= TEXTURE_WIDTH) return error.GlyphBuilderFull;
-    if (curve_start_idx != self.curve_data.items.len and
-        ((curve_start_idx >> LOG_TEXTURE_WIDTH) >= TEXTURE_WIDTH))
-        return error.GlyphBuilderFull;
 
     return .{
         .glyph_loc_x = @intCast(glyph_loc_idx & (TEXTURE_WIDTH - 1)),

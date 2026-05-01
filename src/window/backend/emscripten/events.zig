@@ -73,10 +73,11 @@ pub fn onWheel(_: c_int, ev: *const root.EmscriptenWheelEvent, user_data: ?*anyo
     return true;
 }
 
-pub fn onResize(_: c_int, _: *const root.EmscriptenUiEvent, user_data: ?*anyopaque) callconv(.c) bool {
-    const owner = ownerOf(user_data) orelse return false;
-    owner.refreshEmscriptenCanvas();
-    return true;
+pub fn onResize(_: c_int, _: *const root.EmscriptenUiEvent, user_data: ?*anyopaque) callconv(.c) c_int {
+    const owner = ownerOf(user_data) orelse return 0;
+    owner.backend.refreshCanvas();
+    owner.markResized();
+    return 1;
 }
 
 pub fn onBlur(_: c_int, _: *const root.EmscriptenFocusEvent, user_data: ?*anyopaque) callconv(.c) bool {
