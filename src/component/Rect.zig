@@ -1,5 +1,4 @@
 const App = @import("knots").App;
-const UI = @import("ui").UI;
 const Style = @import("ui").Style;
 const Key = @import("ui").Key;
 const Decoration = @import("ui").Decoration;

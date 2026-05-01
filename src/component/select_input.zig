@@ -1,5 +1,5 @@
 const std = @import("std");
-const UI = @import("ui").UI;
+
 const State = @import("ui").State;
 const Style = @import("ui").Style;
 const Theme = @import("ui").Theme;

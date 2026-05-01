@@ -1,5 +1,5 @@
 const App = @import("knots").App;
-const UI = @import("ui").UI;
+const Key = @import("ui").Key;
 const Element = @import("layout").Element;
 
 texture_id: u32,
@@ -7,7 +7,7 @@ width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .grow(),
 position: Element.Position = .static,
 tint: [4]f32 = .{ 1, 1, 1, 1 },
-key: UI.Key,
+key: Key,
 
 const Image = @This();
 

@@ -1,11 +1,12 @@
-const UI = @import("ui").UI;
-const Style = @import("ui").Style;
+const std = @import("std");
+
 const Element = @import("layout").Element;
 const App = @import("knots").App;
+const Style = @import("ui").Style;
 const Theme = @import("ui").Theme;
 const Color = @import("ui").Color;
-const Decoration = UI.Decoration;
-const std = @import("std");
+const Key = @import("ui").Key;
+const Decoration = @import("ui").Decoration;
 
 value: *f32,
 min: f32 = 0,
@@ -16,7 +17,7 @@ track_color: [4]f32 = Color.hex("#4d4d4d").value,
 fill_color: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
 corner_radius: f32 = 2,
 onChange: ?*const fn (*App) anyerror!void = null,
-key: UI.Key,
+key: Key,
 
 const SliderInput = @This();
 

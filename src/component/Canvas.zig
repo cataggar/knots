@@ -1,10 +1,9 @@
 const std = @import("std");
 
 const App = @import("knots").App;
-const UI = @import("ui").UI;
-const Style = @import("ui").Style;
 const Element = @import("layout").Element;
 const Decoration = @import("ui").Decoration;
+const Style = @import("ui").Style;
 const Key = @import("ui").Key;
 
 pub const DrawCmd = Decoration.DrawCmd;
