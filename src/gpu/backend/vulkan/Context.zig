@@ -51,7 +51,6 @@ descriptor_pools: std.ArrayList(DescriptorPoolEntry),
 texture_descriptor_set_layout: vk.DescriptorSetLayout,
 gpu_cfg: gpu.Context.Config,
 _current_image_index: u32 = 0,
-_get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
 
 fn loadVulkan() !vk.PfnGetInstanceProcAddr {
     switch (builtin.os.tag) {
@@ -202,7 +201,6 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .descriptor_pools = descriptor_pools,
         .texture_descriptor_set_layout = texture_descriptor_set_layout,
         .gpu_cfg = cfg,
-        ._get_instance_proc_addr = vkGetInstanceProcAddr,
     };
     return .{ .ptr = self, .vtable = &vtable, .cfg = cfg };
 }
@@ -392,26 +390,38 @@ fn getMetalLayer(ns_window: *anyopaque) ?*anyopaque {
     const msgSend = @as(*const fn (*anyopaque, *anyopaque) callconv(.c) ?*anyopaque, @ptrCast(&sel.objc_msgSend));
     const msgSendBool = @as(*const fn (*anyopaque, *anyopaque, bool) callconv(.c) void, @ptrCast(&sel.objc_msgSend));
     const msgSendObj = @as(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) void, @ptrCast(&sel.objc_msgSend));
+    const msgSendF64 = @as(*const fn (*anyopaque, *anyopaque) callconv(.c) f64, @ptrCast(&sel.objc_msgSend));
+    const msgSendCGFloat = @as(*const fn (*anyopaque, *anyopaque, f64) callconv(.c) void, @ptrCast(&sel.objc_msgSend));
     const content_view_sel = sel.sel_registerName("contentView") orelse return null;
     const set_wants_layer_sel = sel.sel_registerName("setWantsLayer:") orelse return null;
     const layer_sel = sel.sel_registerName("layer") orelse return null;
     const set_layer_sel = sel.sel_registerName("setLayer:") orelse return null;
+    const backing_scale_sel = sel.sel_registerName("backingScaleFactor") orelse return null;
+    const set_contents_scale_sel = sel.sel_registerName("setContentsScale:") orelse return null;
     const ca_metal_layer_class = sel.objc_getClass("CAMetalLayer") orelse return null;
 
     const view = msgSend(ns_window, content_view_sel) orelse return null;
     msgSendBool(view, set_wants_layer_sel, true);
 
-    if (msgSend(view, layer_sel)) |existing_layer| {
-        if (sel.object_getClass(existing_layer) == ca_metal_layer_class)
-            return existing_layer;
-    }
+    const scale = msgSendF64(ns_window, backing_scale_sel);
 
-    const alloc_sel = sel.sel_registerName("alloc") orelse return null;
-    const init_sel = sel.sel_registerName("init") orelse return null;
-    const raw = msgSend(ca_metal_layer_class, alloc_sel) orelse return null;
-    const metal_layer = msgSend(raw, init_sel) orelse return null;
-    msgSendObj(view, set_layer_sel, metal_layer);
-    return metal_layer;
+    const layer = blk: {
+        if (msgSend(view, layer_sel)) |existing_layer| {
+            if (sel.object_getClass(existing_layer) == ca_metal_layer_class)
+                break :blk existing_layer;
+        }
+        const alloc_sel = sel.sel_registerName("alloc") orelse return null;
+        const init_sel = sel.sel_registerName("init") orelse return null;
+        const raw = msgSend(ca_metal_layer_class, alloc_sel) orelse return null;
+        const new_layer = msgSend(raw, init_sel) orelse return null;
+        msgSendObj(view, set_layer_sel, new_layer);
+        break :blk new_layer;
+    };
+
+    // CAMetalLayer defaults to contentsScale=1, which makes the Vulkan
+    // swapchain report a points-sized (half-resolution) surface on Retina.
+    msgSendCGFloat(layer, set_contents_scale_sel, scale);
+    return layer;
 }
 
 fn getInstanceExtensions(window_handle: gpu.Context.WindowHandle) [if (builtin.os.tag.isDarwin()) 3 else 2][*:0]const u8 {
