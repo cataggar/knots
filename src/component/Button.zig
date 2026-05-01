@@ -1,6 +1,9 @@
 const std = @import("std");
 
 const ui_mod = @import("ui");
+const Size = @import("ui").Size;
+const Key = @import("ui").Key;
+
 const UI = ui_mod.UI;
 const Style = ui_mod.Style;
 const animation = ui_mod.animation;
@@ -24,7 +27,7 @@ padding: Element.Padding = .init(0, 0, 0, 0),
 style: Style = .{ .color = .primary },
 hover_style: ?Style.Override = null,
 hover_anim: ?HoverAnim = null,
-key: UI.Key,
+key: Key,
 onClick: ?*const fn (*App) anyerror!void = null,
 onHover: ?*const fn (*App) anyerror!void = null,
 text: ?ButtonText = null,
@@ -32,7 +35,7 @@ text: ?ButtonText = null,
 pub const ButtonText = struct {
     content: []const u8,
     font: ?[]const u8 = null,
-    size: f32 = 14,
+    size: Size.Input = .sm,
 };
 
 const Button = @This();

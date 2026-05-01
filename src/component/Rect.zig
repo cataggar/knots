@@ -1,6 +1,8 @@
 const App = @import("knots").App;
 const UI = @import("ui").UI;
 const Style = @import("ui").Style;
+const Key = @import("ui").Key;
+const Decoration = @import("ui").Decoration;
 const Element = @import("layout").Element;
 
 @"align": Element.Align = .start,
@@ -13,12 +15,12 @@ overflow: Element.Overflow = .visible,
 position: Element.Position = .static,
 gap: f32 = 0,
 style: Style = .{},
-key: UI.Key,
+key: Key,
 
 const Rect = @This();
 
 pub fn open(self: *const Rect, app: *App) !Element.Id {
-    const decoration: @import("ui").UI.Decoration = if (self.style.hasDecoration())
+    const decoration: Decoration = if (self.style.hasDecoration())
         .{ .rect = self.style.toRect() }
     else
         .none;

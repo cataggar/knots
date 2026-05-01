@@ -99,11 +99,7 @@ fn renderHeader(app: *knots.App) !void {
             .style = .{ .color = .bg, .border_width = 1, .border_color = .toned, .corner_radius = .sm },
         },
         .{
-            Text{
-                .key = .src(@src()),
-                .content = title,
-                .size = 14,
-            },
+            Text{ .key = .src(@src()), .content = title },
             Rect{
                 .key = .src(@src()),
                 .width = .fit(),
@@ -167,7 +163,7 @@ fn renderSidebarItems(app: *knots.App) !void {
                 .justify = .start,
                 .style = .{ .color = if (i & 1 == 0) .muted else .toned, .corner_radius = .sm },
                 .hover_anim = .{},
-                .text = .{ .content = label, .size = 11 },
+                .text = .{ .content = label, .size = .xs },
             },
         });
     }
@@ -242,7 +238,7 @@ const GridCells = struct {
                         .corner_radius = .sm,
                     },
                     .hover_anim = .{ .brighten = 0.35 },
-                    .text = .{ .content = label, .size = 9 },
+                    .text = .{ .content = label, .size = .{ .size = 9 } },
                 },
             });
         }

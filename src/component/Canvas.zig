@@ -4,7 +4,8 @@ const App = @import("knots").App;
 const UI = @import("ui").UI;
 const Style = @import("ui").Style;
 const Element = @import("layout").Element;
-const Decoration = UI.Decoration;
+const Decoration = @import("ui").Decoration;
+const Key = @import("ui").Key;
 
 pub const DrawCmd = Decoration.DrawCmd;
 
@@ -14,7 +15,7 @@ style: Style = .{},
 interactive: bool = false,
 onDraw: *const fn (*App, *Painter) anyerror!void,
 cmds: *std.ArrayList(DrawCmd),
-key: UI.Key,
+key: Key,
 
 const Canvas = @This();
 

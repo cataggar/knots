@@ -3,12 +3,13 @@ const UI = @import("ui").UI;
 const State = @import("ui").State;
 const Color = @import("ui").Color;
 const Element = @import("layout").Element;
-const Key = UI.Key;
+const Size = @import("ui").Size;
+const Key = @import("ui").Key;
 const util = @import("util.zig");
 
 width: Element.sizing.Axis = .fit(),
 height: Element.sizing.Axis = .fit(),
-size: f32 = 16,
+size: Size.Input = .sm,
 content: []const u8,
 color: Color.Input = .text,
 font: ?[]const u8 = null,
@@ -21,7 +22,7 @@ const Text = @This();
 pub fn open(self: *const Text, app: *App) !Element.Id {
     const ui = &app.ui;
     if (!self.selectable) {
-        var decoration = try ui.textDecoration(self.content, self.size, self.font);
+        var decoration = try ui.textDecoration(self.content, self.size.resolve(), self.font);
         decoration.text.color = self.color.resolve();
         return try ui.open(self.key, .{
             .width = self.width,
@@ -59,7 +60,7 @@ pub fn close(self: *const Text, app: *App) !void {
         return;
     }
 
-    var deco = try ui.textDecoration(self.content, self.size, self.font);
+    var deco = try ui.textDecoration(self.content, self.size.resolve(), self.font);
     deco.text.color = self.color.resolve();
     _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
     ui.close();
@@ -76,8 +77,9 @@ fn closeSlow(
 ) !void {
     const scale = ui.content_scale;
     const face = try ui.font.getFace(self.font);
-    const shaped = try face.shape(self.content, self.size * scale);
-    const line_h = (try face.lineHeight(self.size * scale)) / scale;
+    const size = self.size.resolve();
+    const shaped = try face.shape(self.content, size.value * scale);
+    const line_h = (try face.lineHeight(size.value * scale)) / scale;
 
     if (need_hit_test) {
         const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
@@ -123,7 +125,7 @@ fn closeSlow(
         ui.close();
     }
 
-    var deco = try ui.textDecoration(self.content, self.size, self.font);
+    var deco = try ui.textDecoration(self.content, size, self.font);
     deco.text.color = self.color.resolve();
     _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
     ui.close();

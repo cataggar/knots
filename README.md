@@ -5,7 +5,7 @@ Knots is a high performance cross-platform immediate-mode GUI library written in
 ## Requirements
 
 - Zig 0.16.0 and newer.
-- If using the Vulkan backend, the Vulkan SDK and glslc must be installed and accessible on the system.
+- If using the Vulkan backend, glslc must be installed and accessible on the system. This is due to the shaders used in the Vulkan backend being compiled as part of building knots.
 
 ## Install
 

@@ -4,11 +4,13 @@ const State = @import("ui").State;
 const Style = @import("ui").Style;
 const Theme = @import("ui").Theme;
 const Color = @import("ui").Color;
+const Size = @import("ui").Size;
+const Key = @import("ui").Key;
+const Decoration = @import("ui").Decoration;
+
 const App = @import("knots").App;
-const Key = UI.Key;
 
 const Element = @import("layout").Element;
-const Decoration = UI.Decoration;
 
 fn enumTagNames(comptime T: type, comptime values: []const T) [][]const u8 {
     comptime var names: [values.len][]const u8 = undefined;
@@ -34,7 +36,7 @@ pub fn SelectInput(comptime T: type) type {
         placeholder: []const u8 = "Select...",
         width: Element.sizing.Axis = .grow(),
         height: Element.sizing.Axis = .fit(),
-        size: f32 = 16,
+        size: Size.Input = .md,
         color: Color.Input = .text,
         placeholder_color: Color.Input = .dimmed,
         style: Style = .{ .color = .muted },
@@ -77,7 +79,7 @@ pub fn SelectInput(comptime T: type) type {
             const current_style = if (s.open) self.focused_style else self.style;
 
             var h = self.height;
-            h.min = try ui.lineHeight(self.size, null);
+            h.min = try ui.lineHeight(self.size.resolve(), null);
 
             const decoration: Decoration = if (current_style.hasDecoration())
                 .{ .rect = current_style.toRect() }
@@ -99,6 +101,7 @@ pub fn SelectInput(comptime T: type) type {
             const ui = &app.ui;
             const id = self.key.hash();
             const s = try ui.state.getOrCreate(.select_input, ui.allocator, id);
+            const size = self.size.resolve();
 
             const display_text, const text_color = if (s.selected) |sel|
                 if (sel < self.labels.len)
@@ -109,7 +112,7 @@ pub fn SelectInput(comptime T: type) type {
                 .{ self.placeholder, self.placeholder_color.resolve() };
 
             {
-                var deco = try ui.textDecoration(display_text, self.size, null);
+                var deco = try ui.textDecoration(display_text, size, null);
                 deco.text.color = text_color;
                 _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
                 ui.close();
@@ -117,7 +120,7 @@ pub fn SelectInput(comptime T: type) type {
 
             {
                 const arrow_str: []const u8 = if (s.open) "O" else ">";
-                var arrow_deco = try ui.textDecoration(arrow_str, self.size * 0.8, null);
+                var arrow_deco = try ui.textDecoration(arrow_str, .{ .value = size.value * 0.8 }, null);
                 arrow_deco.text.color = self.color.resolve();
                 _ = try ui.open(self.key.indexed(2), .{ .width = .fit(), .height = .fit() }, arrow_deco);
                 ui.close();
@@ -129,7 +132,7 @@ pub fn SelectInput(comptime T: type) type {
                 const anchor = s.anchor_box;
                 const viewport = s.viewport_box;
 
-                const line_h = try ui.lineHeight(self.size, null);
+                const line_h = try ui.lineHeight(size, null);
                 const item_h = line_h + 12 + 2;
                 const dropdown_h = item_h * @as(f32, @floatFromInt(self.labels.len)) + 4;
 
@@ -170,7 +173,7 @@ pub fn SelectInput(comptime T: type) type {
                         }, opt_bg);
 
                         {
-                            var opt_deco = try ui.textDecoration(option, self.size, null);
+                            var opt_deco = try ui.textDecoration(option, size, null);
                             opt_deco.text.color = self.color.resolve();
                             _ = try ui.open(self.key.indexed(4 + self.labels.len + i), .{ .width = .fit(), .height = .fit() }, opt_deco);
                             ui.close();

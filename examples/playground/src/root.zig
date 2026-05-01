@@ -109,7 +109,7 @@ pub fn frameCb(app: *knots.App) !void {
                 .{
                     Text{
                         .content = try std.fmt.allocPrint(arena, "\u{e88a} knots playground - {s}", .{@tagName(app.renderer.cfg.gpu_backend)}),
-                        .size = 20,
+                        .size = .xl,
                         .key = .src(@src()),
                     },
                     Rect{
@@ -197,7 +197,6 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
     try app.e(.{
         Text{
             .content = "Buttons",
-            .size = 16,
             .key = .src(@src()),
         },
         Spacer{ .height = .fixed(8), .key = .src(@src()) },
@@ -255,7 +254,7 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
                 .onClick = sleep,
                 .justify = .center,
                 .@"align" = .center,
-                .text = .{ .content = "sleep +50", .size = 9 },
+                .text = .{ .content = "sleep +50", .size = .xs },
             },
         },
     });
@@ -263,7 +262,7 @@ fn renderSectionButtons(app: *knots.App) anyerror!void {
 
 fn renderSectionSizing(app: *knots.App) anyerror!void {
     try app.e(.{
-        Text{ .content = "Sizing", .size = 16, .key = .src(@src()) },
+        Text{ .content = "Sizing", .key = .src(@src()) },
         Spacer{ .height = .fixed(8), .key = .src(@src()) },
     });
     // Row 1: grow | fixed(80) | grow
@@ -368,11 +367,7 @@ fn renderSectionSizing(app: *knots.App) anyerror!void {
 
 fn renderSectionNesting(app: *knots.App) !void {
     try app.e(.{
-        Text{
-            .content = "Nesting",
-            .size = 16,
-            .key = .src(@src()),
-        },
+        Text{ .content = "Nesting", .key = .src(@src()) },
         Spacer{ .height = .fixed(8), .key = .src(@src()) },
         Rect{
             .width = .grow(),
@@ -393,7 +388,7 @@ fn renderSectionNesting(app: *knots.App) !void {
 fn renderSectionAlignment(app: *knots.App) !void {
     try app.e(
         .{
-            Text{ .content = "Alignment", .size = 16, .key = .src(@src()) },
+            Text{ .content = "Alignment", .key = .src(@src()) },
             Spacer{ .height = .fixed(8), .key = .src(@src()) },
             Rect{
                 .width = .grow(),
@@ -430,7 +425,7 @@ fn renderSectionAlignment(app: *knots.App) !void {
                     },
                     Text{
                         .content = "start",
-                        .size = 12,
+                        .size = .xs,
                         .color = .dimmed,
                         .key = .src(@src()),
                     },
@@ -464,7 +459,7 @@ fn renderSectionAlignment(app: *knots.App) !void {
                     },
                     Text{
                         .content = "center",
-                        .size = 12,
+                        .size = .xs,
                         .color = .dimmed,
                         .key = .src(@src()),
                     },
@@ -498,7 +493,7 @@ fn renderSectionAlignment(app: *knots.App) !void {
                     },
                     Text{
                         .content = "end",
-                        .size = 12,
+                        .size = .xs,
                         .color = .dimmed,
                         .key = .src(@src()),
                     },
@@ -563,7 +558,7 @@ fn renderNestingLevel3(app: *knots.App) !void {
         .{
             Text{
                 .content = "innermost",
-                .size = 11,
+                .size = .xs,
                 .color = .warning,
                 .key = .src(@src()),
             },
@@ -575,7 +570,7 @@ fn renderSectionControlFlow(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
 
     try app.e(.{
-        Text{ .content = "Control Flow", .size = 16, .key = .src(@src()) },
+        Text{ .content = "Control Flow", .key = .src(@src()) },
         Spacer{ .height = .fixed(8), .key = .src(@src()) },
         Rect{
             .width = .grow(),
@@ -690,7 +685,7 @@ fn renderDetailsGated(app: *knots.App) !void {
 fn renderSectionInputs(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     try app.e(.{
-        Text{ .content = "Input", .size = 16, .key = .src(@src()) },
+        Text{ .content = "Input", .key = .src(@src()) },
         Spacer{ .height = .fixed(8), .key = .src(@src()) },
         TextInput{
             .key = .src(@src()),
@@ -714,7 +709,7 @@ fn renderCounterItem(app: *knots.App, item: isize, i: usize) !void {
         },
         .{Text{
             .content = try std.fmt.allocPrint(arena, "item {d}", .{item}),
-            .size = 14,
+            .size = .{ .size = 14 },
             .key = knots.ui.Key.src(@src()).indexed(i),
         }},
     });

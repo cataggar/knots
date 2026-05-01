@@ -7,16 +7,17 @@ const State = @import("ui").State;
 const Style = @import("ui").Style;
 const Theme = @import("ui").Theme;
 const Color = @import("ui").Color;
-const Key = UI.Key;
+const Size = @import("ui").Size;
+const Key = @import("ui").Key;
+const Decoration = @import("ui").Decoration;
 
 const Element = @import("layout").Element;
-const Decoration = UI.Decoration;
 const glyph = @import("text").glyph;
 const xAtByte = @import("util.zig").xAtByte;
 
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .fit(),
-size: f32 = 16,
+size: Size.Input = .sm,
 buf: *std.ArrayList(u8),
 placeholder: []const u8 = "",
 color: Color.Input = .text,
@@ -41,7 +42,7 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
     const current_style = if (is_focused) self.focused_style else self.style;
 
     var height = self.height;
-    height.min = try ui.lineHeight(self.size, null);
+    height.min = try ui.lineHeight(self.size.resolve(), null);
 
     const decoration: Decoration = if (current_style.hasDecoration())
         .{ .rect = current_style.toRect() }
@@ -74,6 +75,7 @@ pub fn close(self: *const TextInput, app: *App) !void {
     const is_focused = ui.focused(id);
     const items = self.buf.items;
     const resolved_color = self.color.resolve();
+    const size = self.size.resolve();
 
     const display, const color = if (!is_focused and items.len == 0)
         .{ self.placeholder, self.placeholder_color.resolve() }
@@ -88,8 +90,8 @@ pub fn close(self: *const TextInput, app: *App) !void {
         const scale = ui.content_scale;
 
         const face = try ui.font.getFace(null);
-        const shaped = try face.shape(items, self.size * scale);
-        const line_h = (try face.lineHeight(self.size * scale)) / scale;
+        const shaped = try face.shape(items, size.value * scale);
+        const line_h = (try face.lineHeight(size.value * scale)) / scale;
 
         if (has_sel) {
             const sel_color = comptime blk: {
@@ -108,7 +110,7 @@ pub fn close(self: *const TextInput, app: *App) !void {
     }
 
     if (display.len > 0) {
-        var deco = try ui.textDecoration(display, self.size, null);
+        var deco = try ui.textDecoration(display, size, null);
         deco.text.color = color;
         _ = try ui.open(self.key.indexed(@intFromEnum(SubKey.body)), .{ .width = .fit(), .height = .fit() }, deco);
         ui.close();

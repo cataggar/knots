@@ -11,9 +11,10 @@ const State = @import("State.zig");
 const Input = @import("Input.zig");
 const animation = @import("animation.zig");
 
-pub const Decoration = @import("decoration.zig").Decoration;
-pub const Key = @import("Key.zig");
-pub const Style = @import("Style.zig");
+const Decoration = @import("decoration.zig").Decoration;
+const Key = @import("Key.zig");
+const Style = @import("Style.zig");
+const Size = @import("Size.zig");
 
 pub const AnimOpts = struct {
     duration_ms: u32 = 150,
@@ -109,19 +110,19 @@ pub fn openRoot(self: *UI, key: Key, x: f32, y: f32, config: Element.Config, dec
     return id;
 }
 
-pub fn lineHeight(self: *UI, size: f32, font: ?[]const u8) !f32 {
+pub fn lineHeight(self: *UI, size: Size, font: ?[]const u8) !f32 {
     const face = try self.font.getFace(font);
     const scale = self.content_scale;
-    return (try face.lineHeight(size * scale)) / scale;
+    return (try face.lineHeight(size.value * scale)) / scale;
 }
 
-pub fn textDecoration(self: *UI, content: []const u8, size: f32, font: ?[]const u8) !Decoration {
+pub fn textDecoration(self: *UI, content: []const u8, size: Size, font: ?[]const u8) !Decoration {
     const face = try self.font.getFace(font);
     const scale = self.content_scale;
-    const measured = try face.measure(content, size * scale);
+    const measured = try face.measure(content, size.value * scale);
     return .{ .text = .{
         .content = content,
-        .size = size,
+        .size = size.value,
         .font = font,
         .intrinsic_w = measured.width / scale,
         .intrinsic_h = measured.height / scale,
