@@ -35,6 +35,7 @@ in_refresh: bool = false,
 canvas_selector: ?[:0]const u8,
 pending_resize: ?ResizeEvent = null,
 content_scale: f32 = 1.0,
+display_mode: DisplayMode = .windowed,
 
 const Window = @This();
 
@@ -119,12 +120,7 @@ pub fn getWindowHandle(self: *const Window) gpu.Context.WindowHandle {
 
 pub fn setDisplayMode(self: *Window, mode: DisplayMode) void {
     self.backend.setDisplayMode(mode);
-
-    // macOS drops the mouseUp event during window reconfiguration,
-    // leaving mouse_button_pressed stuck. Reset to prevent phantom press state.
-    if (comptime builtin.os.tag == .macos) {
-        self.mouse_button_pressed = false;
-    }
+    self.display_mode = mode;
 }
 
 pub fn setCursorVisible(self: *const Window, visible: bool) void {

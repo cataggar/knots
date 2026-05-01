@@ -9,6 +9,7 @@ const Window = @import("window").Window;
 pub const view_misc_methods = .{
     .{ "acceptsFirstResponder", acceptsFirstResponder },
     .{ "isFlipped", isFlipped },
+    .{ "drawRect:", drawRect },
 };
 
 pub const mouse_methods = .{
@@ -23,6 +24,11 @@ pub const keyboard_methods = .{
     .{ "flagsChanged:", flagsChanged },
 };
 
+pub const drag_methods = .{
+    .{ "draggingEntered:", draggingEntered },
+    .{ "performDragOperation:", performDragOperation },
+};
+
 pub const delegate_methods = .{
     .{ "windowShouldClose:", windowShouldClose },
     .{ "windowDidResize:", windowDidResize },
@@ -34,6 +40,11 @@ fn acceptsFirstResponder(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
 
 fn isFlipped(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
     return ak.boolParam(true);
+}
+
+fn drawRect(self: c.id, _: c.SEL, _: ak.NSRect) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.dispatchRefresh();
 }
 
 fn mouseDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
@@ -102,6 +113,37 @@ fn flagsChanged(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     owner.pushKey(@intFromEnum(key), action, modsFromFlags(flags));
 }
 
+fn draggingEntered(_: c.id, _: c.SEL, _: c.id) callconv(.c) c_ulong {
+    return ak.NSDragOperationCopy;
+}
+
+fn performDragOperation(self: c.id, _: c.SEL, sender_id: c.id) callconv(.c) c.BOOL {
+    const owner = ak.unwrapOwner(self) orelse return ak.boolParam(false);
+    const sender = objc.Object.fromId(sender_id);
+    const pasteboard = sender.msgSend(objc.Object, "draggingPasteboard", .{});
+    if (pasteboard.value == null) return ak.boolParam(false);
+
+    const NSURL = objc.getClass("NSURL").?;
+    const NSArray = objc.getClass("NSArray").?;
+    const classes_array = NSArray.msgSend(objc.Object, "arrayWithObject:", .{objc.Object{ .value = @ptrCast(@alignCast(NSURL.value)) }});
+    const urls = pasteboard.msgSend(objc.Object, "readObjectsForClasses:options:", .{ classes_array, @as(c.id, null) });
+    if (urls.value == null) return ak.boolParam(false);
+
+    const be = &owner.backend;
+    const count = urls.msgSend(c_ulong, "count", .{});
+    const n: usize = @min(@as(usize, count), be.drop_paths_buf.len);
+    for (0..n) |i| {
+        const url = urls.msgSend(objc.Object, "objectAtIndex:", .{@as(c_ulong, i)});
+        const c_path = url.msgSend([*:0]const u8, "fileSystemRepresentation", .{});
+        const slice = @import("std").mem.sliceTo(c_path, 0);
+        const len = @min(slice.len, be.drop_paths_buf[i].len);
+        @memcpy(be.drop_paths_buf[i][0..len], slice[0..len]);
+        be.drop_slices[i] = be.drop_paths_buf[i][0..len];
+    }
+    owner.dispatchDrop(be.drop_slices[0..n]);
+    return ak.boolParam(true);
+}
+
 fn windowShouldClose(self: c.id, _: c.SEL, _: c.id) callconv(.c) c.BOOL {
     const owner = ak.unwrapOwner(self) orelse return ak.boolParam(true);
     owner.markClosed();
@@ -111,7 +153,6 @@ fn windowShouldClose(self: c.id, _: c.SEL, _: c.id) callconv(.c) c.BOOL {
 fn windowDidResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
     owner.markResized();
-    owner.dispatchRefresh();
 }
 
 fn modsFromFlags(flags: c_ulong) window.Mods {

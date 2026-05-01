@@ -9,10 +9,15 @@ pub const NSSize = extern struct { width: f64, height: f64 };
 pub const NSRect = extern struct { origin: NSPoint, size: NSSize };
 pub const NSRange = extern struct { location: c_ulong, length: c_ulong };
 
+pub const NSWindowStyleMaskBorderless: c_ulong = 0;
 pub const NSWindowStyleMaskTitled: c_ulong = 1 << 0;
 pub const NSWindowStyleMaskClosable: c_ulong = 1 << 1;
 pub const NSWindowStyleMaskMiniaturizable: c_ulong = 1 << 2;
 pub const NSWindowStyleMaskResizable: c_ulong = 1 << 3;
+pub const NSWindowStyleMaskFullScreen: c_ulong = 1 << 14;
+
+pub const NSNormalWindowLevel: c_long = 0;
+pub const NSMainMenuWindowLevel: c_long = 24;
 
 pub const NSBackingStoreBuffered: c_ulong = 2;
 pub const NSApplicationActivationPolicyRegular: c_long = 0;
@@ -24,7 +29,10 @@ pub const NSEventModifierFlagControl: c_ulong = 1 << 18;
 pub const NSEventModifierFlagOption: c_ulong = 1 << 19;
 pub const NSEventModifierFlagCommand: c_ulong = 1 << 20;
 
+pub const NSDragOperationCopy: c_ulong = 1;
+
 pub extern const NSDefaultRunLoopMode: c.id;
+pub extern const NSPasteboardTypeFileURL: c.id;
 
 pub fn boolParam(b: bool) c.BOOL {
     return switch (c.BOOL) {

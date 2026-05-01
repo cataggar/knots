@@ -19,10 +19,10 @@ fn registerView() !objc.Class {
     const cls = objc.allocateClassPair(NSView, "KnotsView") orelse return error.AllocateClassFailed;
     if (!cls.addIvar(ak.IVAR_OWNER)) return error.AddIvarFailed;
     const methods = events.view_misc_methods ++ events.mouse_methods ++
-        events.keyboard_methods ++ text_input.text_input_methods;
-    inline for (methods) |entry| {
-        if (!cls.addMethod(entry[0], entry[1])) return error.AddMethodFailed;
-    }
+        events.keyboard_methods ++ events.drag_methods ++ text_input.text_input_methods;
+
+    inline for (methods) |entry| if (!cls.addMethod(entry[0], entry[1])) return error.AddMethodFailed;
+
     objc.registerClassPair(cls);
     return cls;
 }

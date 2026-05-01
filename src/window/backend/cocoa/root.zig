@@ -1,3 +1,4 @@
+const std = @import("std");
 const objc = @import("objc");
 const gpu = @import("gpu");
 const window = @import("window");
@@ -16,6 +17,14 @@ pub const Backend = struct {
     delegate: objc.Object,
     backing_scale: f32 = 1.0,
     should_close: bool = false,
+    cursor_visible: bool = true,
+    display_mode: window.DisplayMode = .windowed,
+    saved_frame: ak.NSRect = .{ .origin = .{ .x = 0, .y = 0 }, .size = .{ .width = 0, .height = 0 } },
+    saved_style_mask: c_ulong = 0,
+
+    // fixme: should be dynamic size
+    drop_paths_buf: [64][1024]u8 = undefined,
+    drop_slices: [64][]const u8 = undefined,
 
     const Self = @This();
 
@@ -30,8 +39,10 @@ pub const Backend = struct {
         self.ns_window.msgSend(void, "makeFirstResponder:", .{self.ns_view});
     }
 
-    pub fn setDropCallback(_: *Self, _: *window.Window) void {
-        @panic("TODO");
+    pub fn setDropCallback(self: *Self, _: *window.Window) void {
+        const NSArray = objc.getClass("NSArray").?;
+        const types = NSArray.msgSend(objc.Object, "arrayWithObject:", .{objc.Object{ .value = ak.NSPasteboardTypeFileURL }});
+        self.ns_view.msgSend(void, "registerForDraggedTypes:", .{types});
     }
 
     pub fn pollEvents(_: *const Self) void {
@@ -112,12 +123,53 @@ pub const Backend = struct {
         return .{ .macos = .{ .ns_window = @ptrCast(self.ns_window.value) } };
     }
 
-    pub fn setCursorVisible(_: *const Self, _: bool) void {
-        @panic("TODO");
+    pub fn setCursorVisible(self: *const Self, visible: bool) void {
+        const m: *Self = @constCast(self);
+        if (visible == m.cursor_visible) return;
+        const NSCursor = objc.getClass("NSCursor").?;
+        if (visible) {
+            NSCursor.msgSend(void, "unhide", .{});
+        } else {
+            NSCursor.msgSend(void, "hide", .{});
+        }
+        m.cursor_visible = visible;
     }
 
-    pub fn setDisplayMode(_: *Self, _: window.DisplayMode) void {
-        @panic("TODO");
+    pub fn setDisplayMode(self: *Self, mode: window.DisplayMode) void {
+        if (std.meta.activeTag(mode) == std.meta.activeTag(self.display_mode)) return;
+
+        switch (self.display_mode) {
+            .windowed => {},
+            .fullscreen_windowed => {
+                const style: c_ulong = self.ns_window.msgSend(c_ulong, "styleMask", .{});
+                if ((style & ak.NSWindowStyleMaskFullScreen) != 0)
+                    self.ns_window.msgSend(void, "toggleFullScreen:", .{@as(c.id, null)});
+            },
+            .fullscreen => {
+                self.ns_window.msgSend(void, "setLevel:", .{ak.NSNormalWindowLevel});
+                self.ns_window.msgSend(void, "setStyleMask:", .{self.saved_style_mask});
+                self.ns_window.msgSend(void, "setFrame:display:", .{ self.saved_frame, ak.boolParam(false) });
+            },
+        }
+
+        switch (mode) {
+            .windowed => {},
+            .fullscreen_windowed => {
+                self.ns_window.msgSend(void, "toggleFullScreen:", .{@as(c.id, null)});
+            },
+            .fullscreen => {
+                self.saved_frame = self.ns_window.msgSend(ak.NSRect, "frame", .{});
+                self.saved_style_mask = self.ns_window.msgSend(c_ulong, "styleMask", .{});
+                const screen = self.ns_window.msgSend(objc.Object, "screen", .{});
+                if (screen.value == null) return;
+                const screen_frame = screen.msgSend(ak.NSRect, "frame", .{});
+                self.ns_window.msgSend(void, "setStyleMask:", .{ak.NSWindowStyleMaskBorderless});
+                self.ns_window.msgSend(void, "setFrame:display:", .{ screen_frame, ak.boolParam(true) });
+                self.ns_window.msgSend(void, "setLevel:", .{ak.NSMainMenuWindowLevel + 1});
+            },
+        }
+
+        self.display_mode = mode;
     }
 
     pub fn applyEmscriptenSize(_: *Self, _: window.ResizeEvent) void {
