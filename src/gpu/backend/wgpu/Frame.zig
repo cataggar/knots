@@ -35,7 +35,7 @@ const vtable = gpu.Frame.VTable{
 
 fn waitForFence(_: *anyopaque) !void {}
 
-fn prepareResize(ptr: *anyopaque) !void {
+fn prepareResize(ptr: *anyopaque) void {
     const self: *Frame = @ptrCast(@alignCast(ptr));
     if (self.view) |v| v.deinit();
     self.view = null;

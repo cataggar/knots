@@ -8,7 +8,7 @@ vtable: *const VTable,
 pub const VTable = struct {
     deinit: *const fn (ptr: *anyopaque) void,
     waitForFence: *const fn (ptr: *anyopaque) anyerror!void,
-    prepareResize: *const fn (ptr: *anyopaque) anyerror!void,
+    prepareResize: *const fn (ptr: *anyopaque) void,
     beginRenderPass: *const fn (ptr: *anyopaque, desc: RenderPass.Desc) anyerror!RenderPass,
     submit: *const fn (ptr: *anyopaque) anyerror!void,
     waitForCompletion: *const fn (ptr: *anyopaque) anyerror!void,
@@ -22,7 +22,7 @@ pub inline fn waitForFence(self: *Frame) !void {
     return self.vtable.waitForFence(self.ptr);
 }
 
-pub inline fn prepareResize(self: *Frame) !void {
+pub inline fn prepareResize(self: *Frame) void {
     return self.vtable.prepareResize(self.ptr);
 }
 

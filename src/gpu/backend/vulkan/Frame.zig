@@ -96,7 +96,7 @@ fn waitForFence(ptr: *anyopaque) !void {
     _ = try ctx.vkd.waitForFences(ctx.device, fences, .true, std.math.maxInt(u64));
 }
 
-fn prepareResize(_: *anyopaque) !void {}
+fn prepareResize(_: *anyopaque) void {}
 
 fn acquireImage(ctx: *Context, semaphore: vk.Semaphore) !u32 {
     const result = try ctx.vkd.acquireNextImageKHR(ctx.device, ctx.swapchain, std.math.maxInt(u64), semaphore, .null_handle);
