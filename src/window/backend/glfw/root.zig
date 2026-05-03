@@ -223,7 +223,6 @@ fn framebufferSizeCallback(win: ?*glfw.c.GLFWwindow, _: c_int, _: c_int) callcon
 fn refreshCallback(win: ?*glfw.c.GLFWwindow) callconv(.c) void {
     const owner = ownerOf(win) orelse return;
     owner.markResized();
-    owner.dispatchRefresh();
 }
 
 fn charCallback(win: ?*glfw.c.GLFWwindow, codepoint: c_uint) callconv(.c) void {

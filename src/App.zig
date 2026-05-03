@@ -37,7 +37,6 @@ frame_arena: std.heap.ArenaAllocator,
 signals: std.ArrayList(Signal),
 completion_queue: CompletionQueue,
 renderer: render.Renderer,
-draw_list: render.DrawList,
 window: Window,
 ui: UI,
 timer: Timer,
@@ -50,16 +49,16 @@ const App = @This();
 /// The `io` parameter will be the underlying `Io` implementation used when calling `dispatch`.
 /// The `allocator` parameter will be used as the backing allocator to the per-frame arena.
 pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
-    const window = try Window.init(cfg.window);
+    const window: Window = try .init(cfg.window);
     errdefer window.deinit();
 
     var signals: std.ArrayList(Signal) = .empty;
     errdefer signals.deinit(allocator);
 
-    var completion_queue = try CompletionQueue.init(allocator, cfg.max_completions_recv);
+    var completion_queue: CompletionQueue = try .init(allocator, cfg.max_completions_recv);
     errdefer completion_queue.deinit(allocator, io);
 
-    var ui = try UI.init(allocator, cfg.ui);
+    var ui: UI = try .init(allocator, cfg.ui);
     errdefer ui.deinit();
 
     var renderer: render.Renderer = try .init(allocator, window, cfg.renderer);
@@ -72,7 +71,6 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
         .signals = signals,
         .completion_queue = completion_queue,
         .renderer = renderer,
-        .draw_list = .init(allocator),
         .timer = .init(cfg.timer_clock),
         .window = window,
         .ui = ui,
@@ -90,7 +88,6 @@ pub fn deinit(self: *App) void {
     self.completion_queue.deinit(self.allocator, self.io);
     self.signals.deinit(self.allocator);
     self.ui.deinit();
-    self.draw_list.deinit();
     self.renderer.deinit();
     self.window.deinit();
 }
@@ -102,30 +99,37 @@ pub fn start(self: *App, frameCb: Callback) !void {
         self.window.setDropCallback(@ptrCast(self), dropCallback);
     }
     self.frame_cb = frameCb;
-    self.window.setRefreshCallback(@ptrCast(self), refreshCallback);
     self.timer.start(self.io);
     self.window.pollEvents();
 
     switch (builtin.os.tag) {
         inline .emscripten => {
             const ctx = try self.allocator.create(EmscriptenContext);
+            const draw_list = try self.allocator.create(render.DrawList);
+            draw_list.* = .init(self.allocator);
             ctx.* = .{
                 .app = self,
                 .frameCb = frameCb,
+                .draw_list = draw_list,
             };
             std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(ctx), 0, 0);
         },
-        inline else => while (self.window.isOpen()) try self.tickFrame(frameCb),
+        inline else => {
+            var draw_list: render.DrawList = .init(self.allocator);
+            defer draw_list.deinit();
+            while (self.window.isOpen()) {
+                defer draw_list.reset();
+                try self.tickFrame(frameCb, &draw_list);
+            }
+        },
     }
 }
 
-fn tickFrame(self: *App, frameCb: Callback) !void {
-    defer {
-        self.draw_list.reset();
-        _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
-    }
+fn tickFrame(self: *App, frameCb: Callback, draw_list: *render.DrawList) !void {
+    defer _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
 
     self.timer.tick(self.io);
+    self.ui.reset();
 
     if (self.window.consumeResize()) |ev| {
         if (ev.physical.width == 0 or ev.physical.height == 0) return;
@@ -134,8 +138,7 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     }
     try self.handleRendererReconfigure();
 
-    try self.ui.collectInput(self.window.collectInput(), self.timer.ms(), self.window.getContentScale());
-    self.ui.reset();
+    try self.ui.resolveWindow(self.window.collectInput(), self.timer.ms(), self.window.getContentScale());
 
     try self.completion_queue.consume(self, self.io);
 
@@ -153,26 +156,22 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     };
 
     try self.ui.resolve();
-    try self.ui.tessellate(self.frame_arena.allocator(), &self.draw_list);
+    try self.ui.tessellate(self.frame_arena.allocator(), draw_list);
     self.ui.resolveHit();
-    try self.renderer.draw(&self.draw_list, self.ui.font.glyph_builder, self.ui.content_scale);
+    try self.renderer.draw(draw_list, self.ui.font.glyph_builder, self.ui.content_scale);
     self.window.waitEvents();
-}
-
-fn refreshCallback(ctx: *anyopaque) void {
-    const self: *App = @ptrCast(@alignCast(ctx));
-    const cb = self.frame_cb orelse return;
-    self.tickFrame(cb) catch |err| std.debug.panic("failed to tick frame for refresh: {s}", .{@errorName(err)});
 }
 
 const EmscriptenContext = struct {
     app: *App,
     frameCb: Callback,
+    draw_list: *render.DrawList,
 };
 
 fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
     const ctx: *EmscriptenContext = @ptrCast(@alignCast(ud orelse return));
-    ctx.app.tickFrame(ctx.frameCb) catch |err| {
+    defer ctx.draw_list.reset();
+    ctx.app.tickFrame(ctx.frameCb, ctx.draw_list) catch |err| {
         std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr);
     };
 }

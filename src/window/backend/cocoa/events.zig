@@ -9,7 +9,6 @@ const Window = @import("window").Window;
 pub const view_misc_methods = .{
     .{ "acceptsFirstResponder", acceptsFirstResponder },
     .{ "isFlipped", isFlipped },
-    .{ "drawRect:", drawRect },
 };
 
 pub const mouse_methods = .{
@@ -40,11 +39,6 @@ fn acceptsFirstResponder(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
 
 fn isFlipped(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
     return ak.boolParam(true);
-}
-
-fn drawRect(self: c.id, _: c.SEL, _: ak.NSRect) callconv(.c) void {
-    const owner = ak.unwrapOwner(self) orelse return;
-    owner.dispatchRefresh();
 }
 
 fn mouseDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {

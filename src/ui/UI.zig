@@ -254,7 +254,7 @@ fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element
     return self.layout_ctx.isDescendantOf(descendant_slot, ancestor_slot);
 }
 
-pub fn collectInput(self: *UI, input: window.Input, now_ms: i64, content_scale: f32) !void {
+pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale: f32) !void {
     self.content_scale = content_scale;
     self.input.collect(input, now_ms);
 
@@ -735,7 +735,7 @@ test "scroll routing uses previous frame elements" {
         try ui.resolve();
     }
 
-    try ui.collectInput(.{
+    try ui.resolveWindow(.{
         .pos = .{ 150, 100 },
         .mouse_down_now = false,
         .scroll_delta = .{ 0, 50 },
