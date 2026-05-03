@@ -21,12 +21,10 @@
         .zig_objc = .{
             .url = "git+https://github.com/mitchellh/zig-objc#c8de82ff80281215ad92900866dab7103a8efa8b",
             .hash = "zig_objc-0.0.0-Ir_Sp9gsAQCPAJc0oF5xoWePHWP6Y6tCphDeyNUThJoi",
-            .lazy = true,
         },
         .win32 = .{
             .url = "git+https://github.com/marlersoft/zigwin32.git#ec98bb4d9eea532320a8551720a9e3ec6de64994",
             .hash = "win32-25.0.28-preview-mX5pFWMt5QPTVIGh3r2-OpPunpcCCjApyRbA6Zn6WALH",
-            .lazy = true,
         },
         .TrueType = .{
             .url = "git+https://codeberg.org/andrewrk/TrueType.git#b0f9867671a14ce4ed75a05a7e52c927623095e5",

@@ -89,36 +89,31 @@ pub fn build(b: *std.Build) void {
 
     const window_impl_mod = blk: switch (target.result.os.tag) {
         .macos => {
-            if (b.lazyDependency("zig_objc", .{ .target = target, .optimize = optimize })) |objc_dep| {
-                const m = b.createModule(.{
-                    .target = target,
-                    .optimize = optimize,
-                    .root_source_file = b.path("src/window/backend/cocoa/root.zig"),
-                    .imports = &.{
-                        .{ .name = "objc", .module = objc_dep.module("objc") },
-                        .{ .name = "gpu", .module = gpu_mod },
-                    },
-                });
-                m.linkFramework("Cocoa", .{});
-                m.linkFramework("QuartzCore", .{});
-                break :blk m;
-            }
-            unreachable;
+            const objc_dep = b.dependency("zig_objc", .{ .target = target, .optimize = optimize });
+            const m = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/window/backend/cocoa/root.zig"),
+                .imports = &.{
+                    .{ .name = "objc", .module = objc_dep.module("objc") },
+                    .{ .name = "gpu", .module = gpu_mod },
+                },
+            });
+            m.linkFramework("Cocoa", .{});
+            m.linkFramework("QuartzCore", .{});
+            break :blk m;
         },
         .windows => {
-            if (b.lazyDependency("win32", .{})) |win32_dep| {
-                const m = b.createModule(.{
-                    .target = target,
-                    .optimize = optimize,
-                    .root_source_file = b.path("src/window/backend/windows/root.zig"),
-                    .imports = &.{
-                        .{ .name = "win32", .module = win32_dep.module("win32") },
-                        .{ .name = "gpu", .module = gpu_mod },
-                    },
-                });
-                break :blk m;
-            }
-            unreachable;
+            const win32_dep = b.dependency("win32", .{});
+            break :blk b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/window/backend/windows/root.zig"),
+                .imports = &.{
+                    .{ .name = "win32", .module = win32_dep.module("win32") },
+                    .{ .name = "gpu", .module = gpu_mod },
+                },
+            });
         },
         .emscripten => b.createModule(.{
             .target = target,
