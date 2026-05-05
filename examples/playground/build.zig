@@ -111,7 +111,7 @@ fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
     emcc.addArgs(args.items);
     emcc.addFileArg(b.path("src/shell.html"));
 
-    const install_html = b.addInstallFileWithDir(html_out, .{ .custom = "web" }, "playground.html");
+    const install_html = b.addInstallFileWithDir(html_out, .{ .custom = "web" }, "index.html");
     const install_js = b.addInstallFileWithDir(html_out.dirname().path(b, "playground.js"), .{ .custom = "web" }, "playground.js");
     const install_wasm = b.addInstallFileWithDir(html_out.dirname().path(b, "playground.wasm"), .{ .custom = "web" }, "playground.wasm");
 
@@ -119,7 +119,7 @@ fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
     b.getInstallStep().dependOn(&install_js.step);
     b.getInstallStep().dependOn(&install_wasm.step);
 
-    const serve_step = b.step("run", "Serve the playground on http://localhost:8000/triangle.html");
+    const serve_step = b.step("run", "Serve the playground on http://localhost:8000/");
     const serve = b.addSystemCommand(&.{ "python3", "-m", "http.server", "8000", "--directory" });
     serve.addArg(b.getInstallPath(.{ .custom = "web" }, ""));
     serve.step.dependOn(b.getInstallStep());
