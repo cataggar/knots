@@ -16,11 +16,6 @@ const Key = @import("Key.zig");
 const Style = @import("Style.zig");
 const Size = @import("Size.zig");
 
-pub const AnimOpts = struct {
-    duration_ms: u32 = 150,
-    ease: animation.Ease = .smooth_step,
-};
-
 const Allocator = std.mem.Allocator;
 
 const INV_SQRT2: f32 = 0.70710677;
@@ -42,6 +37,11 @@ pub const HitRecord = struct {
 pub const Config = struct {
     /// Default is Roboto regular + Material icons regular.
     fonts: []const text.Font.FontKey = &.{.{ "default", @embedFile("fonts/default.ttf") }},
+    /// Per-widget state (text input cursor, scroll, selection, etc.) is evicted
+    /// after this many frames without a `getOrCreate` touch. Higher values let
+    /// state survive transient absences (animations, conditional render) at
+    /// the cost of holding stale entries longer. 1 = old single-frame behavior.
+    state_ttl_frames: u32 = State.DEFAULT_TTL_FRAMES,
 };
 
 allocator: Allocator,
@@ -62,7 +62,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .allocator = allocator,
         .layout_ctx = .init(allocator),
         .decorations = .empty,
-        .state = .init(allocator),
+        .state = .init(allocator, cfg.state_ttl_frames),
         .input = .{},
         .font = try .init(allocator, cfg.fonts),
         .hit_records = .empty,
@@ -152,7 +152,7 @@ pub fn reset(self: *UI) void {
 /// wherever they were rather than restarting.
 ///
 /// Marks the UI dirty while in flight so the host app can keep ticking frames.
-pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32, opts: AnimOpts) f32 {
+pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32, opts: animation.Options) f32 {
     const id = animation.channelId(element_id, channel);
     const s: *State.Anim = self.state.getOrCreate(.anim, self.allocator, id) catch return target;
     const now = self.input.now_ms;
@@ -193,7 +193,7 @@ pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32,
 
 pub fn resolve(self: *UI) !void {
     self.layout_ctx.computeSizes();
-    self.layout_ctx.computeLayout(.{
+    try self.layout_ctx.computeLayout(.{
         .ctx = @ptrCast(&self.state),
         .getFn = @ptrCast(&State.getScroll),
     });
@@ -277,8 +277,13 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
     if (self.layout_ctx.has_scroll and (input.scroll_delta[0] != 0 or input.scroll_delta[1] != 0)) {
         try self.routeScroll(self.layout_ctx.pool.elements.items, input);
     }
+}
 
-    self.state.endFrame();
+/// Advance the per widget state TTL clock. Call once per frame after the
+/// users frame callback has had a chance to touch its state, otherwise
+/// entries lose a frame of TTL grace before the sweep sees them.
+pub fn endFrame(self: *UI) !void {
+    try self.state.endFrame();
 }
 
 const press_drag_threshold_sq: f64 = 9.0;
