@@ -15,6 +15,7 @@ pub const DispatchError = std.mem.Allocator.Error || std.Io.ConcurrentError;
 const Completion = struct {
     ptr: *anyopaque,
     callback: OpaqueCallback,
+    destroy: *const fn (*anyopaque) void,
 };
 
 fn Context(T: type) type {
@@ -36,9 +37,14 @@ fn Context(T: type) type {
                         fn cb(app: *App, ptr: *anyopaque) anyerror!void {
                             const ctx: *Self = @ptrCast(@alignCast(ptr));
                             try ctx.onComplete(app, ctx.result);
-                            ctx.allocator.destroy(ctx);
                         }
                     }).cb,
+                    .destroy = (struct {
+                        fn d(ptr: *anyopaque) void {
+                            const ctx: *Self = @ptrCast(@alignCast(ptr));
+                            ctx.allocator.destroy(ctx);
+                        }
+                    }).d,
                 },
             };
         }
@@ -64,10 +70,15 @@ pub fn init(allocator: Allocator, max_completions: usize) !CompletionQueue {
 
 pub fn deinit(self: *CompletionQueue, allocator: Allocator, io: std.Io) void {
     self.queue.close(io);
-    allocator.free(self.buf);
-    allocator.free(self.recv_buf);
     self.wg.cancel(io);
     self.wg.await(io) catch {};
+    while (self.queue.get(io, self.recv_buf, 0)) |n| {
+        if (n == 0) break;
+        for (self.recv_buf[0..n]) |completion|
+            completion.destroy(completion.ptr);
+    } else |_| {}
+    allocator.free(self.buf);
+    allocator.free(self.recv_buf);
 }
 
 pub fn dispatch(
@@ -85,8 +96,10 @@ pub fn dispatch(
 
 pub fn consume(self: *CompletionQueue, app: *App, io: std.Io) !void {
     const n = try self.queue.get(io, self.recv_buf, 0);
-    for (self.recv_buf[0..n]) |completion|
+    for (self.recv_buf[0..n]) |completion| {
+        defer completion.destroy(completion.ptr);
         try completion.callback(app, completion.ptr);
+    }
 }
 
 fn workerFn(
@@ -101,9 +114,12 @@ fn workerFn(
             queue: *std.Io.Queue(Completion),
         ) std.Io.Cancelable!void {
             ctx.result = @call(.auto, func, args);
-            queue.putOne(io, ctx.completion) catch |err| switch (err) {
-                error.Closed => unreachable,
-                error.Canceled => return error.Canceled,
+            queue.putOne(io, ctx.completion) catch |err| {
+                ctx.completion.destroy(ctx.completion.ptr);
+                switch (err) {
+                    error.Closed => {},
+                    error.Canceled => return error.Canceled,
+                }
             };
         }
     }.run;
