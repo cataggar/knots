@@ -15,7 +15,7 @@ vtable: *const VTable,
 pub const VTable = struct {
     deinit: *const fn (ptr: *anyopaque) void,
     updateViewport: *const fn (ptr: *anyopaque, width: u32, height: u32) void,
-    bindTexture: *const fn (ptr: *anyopaque, texture_ptr: *Texture, sampler_ptr: *Sampler) void,
+    bindTexture: *const fn (ptr: *anyopaque, texture_ptr: *Texture, sampler_ptr: *Sampler) anyerror!void,
     bindCurveBand: *const fn (ptr: *anyopaque, curve_tex: *Texture, band_tex: *Texture) void,
 };
 
@@ -27,8 +27,8 @@ pub inline fn updateViewport(self: *const Pipeline, width: u32, height: u32) voi
     self.vtable.updateViewport(self.ptr, width, height);
 }
 
-pub inline fn bindTexture(self: *const Pipeline, texture: *Texture, sampler: *Sampler) void {
-    self.vtable.bindTexture(self.ptr, texture, sampler);
+pub inline fn bindTexture(self: *const Pipeline, texture: *Texture, sampler: *Sampler) !void {
+    return self.vtable.bindTexture(self.ptr, texture, sampler);
 }
 
 pub inline fn bindCurveBand(self: *const Pipeline, curve_tex: *Texture, band_tex: *Texture) void {

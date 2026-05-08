@@ -102,23 +102,10 @@ pub fn start(self: *App, frameCb: Callback) !void {
     switch (builtin.os.tag) {
         inline .emscripten => {
             const ctx = try self.allocator.create(EmscriptenContext);
-            const draw_list = try self.allocator.create(render.DrawList);
-            draw_list.* = .init(self.allocator);
-            ctx.* = .{
-                .app = self,
-                .frameCb = frameCb,
-                .draw_list = draw_list,
-            };
+            ctx.* = .{ .app = self, .frameCb = frameCb };
             std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(ctx), 0, 0);
         },
-        inline else => {
-            var draw_list: render.DrawList = .init(self.allocator);
-            defer draw_list.deinit();
-            while (self.window.isOpen()) {
-                defer draw_list.reset();
-                try self.tickFrame(frameCb, &draw_list);
-            }
-        },
+        inline else => while (self.window.isOpen()) try self.tickFrame(frameCb),
     }
 }
 
@@ -128,7 +115,7 @@ pub fn start(self: *App, frameCb: Callback) !void {
 ///  3. `frameCb`: User code.
 ///  4. `endFrame`: TTL sweep over per-widget state.
 ///  5. `resolve` |> `tessellate` |> `resolveHit`: compute layout, build draw list, hit-test against the new tree.
-fn tickFrame(self: *App, frameCb: Callback, draw_list: *render.DrawList) !void {
+fn tickFrame(self: *App, frameCb: Callback) !void {
     defer _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
 
     self.timer.tick(self.io);
@@ -161,22 +148,21 @@ fn tickFrame(self: *App, frameCb: Callback, draw_list: *render.DrawList) !void {
     };
 
     try self.ui.resolve();
+    const draw_list = self.renderer.beginFrame();
     try self.ui.tessellate(self.frame_arena.allocator(), draw_list);
     self.ui.resolveHit();
-    try self.renderer.draw(draw_list, self.ui.font.glyph_builder, self.ui.content_scale);
+    try self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale);
     self.window.waitEvents();
 }
 
 const EmscriptenContext = struct {
     app: *App,
     frameCb: Callback,
-    draw_list: *render.DrawList,
 };
 
 fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
     const ctx: *EmscriptenContext = @ptrCast(@alignCast(ud orelse return));
-    defer ctx.draw_list.reset();
-    ctx.app.tickFrame(ctx.frameCb, ctx.draw_list) catch |err| {
+    ctx.app.tickFrame(ctx.frameCb) catch |err| {
         std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr);
     };
 }

@@ -24,7 +24,6 @@ indices: std.ArrayList(u32),
 instances: std.ArrayList(gpu.Instance),
 text_vertices: std.ArrayList(gpu.SlugVertex),
 text_indices: std.ArrayList(u32),
-cmds: std.ArrayList(Command),
 layer_cmds: std.ArrayList(Command),
 layer_ranges: [MAX_LAYERS]LayerRange,
 layers_dirty: std.StaticBitSet(MAX_LAYERS),
@@ -35,7 +34,6 @@ const DrawList = @This();
 pub fn init(allocator: std.mem.Allocator) DrawList {
     return DrawList{
         .allocator = allocator,
-        .cmds = .empty,
         .indices = .empty,
         .vertices = .empty,
         .instances = .empty,
@@ -54,7 +52,6 @@ pub fn deinit(self: *DrawList) void {
     self.instances.deinit(self.allocator);
     self.text_vertices.deinit(self.allocator);
     self.text_indices.deinit(self.allocator);
-    self.cmds.deinit(self.allocator);
     self.layer_cmds.deinit(self.allocator);
 }
 
@@ -64,10 +61,7 @@ pub fn reset(self: *DrawList) void {
     self.instances.clearRetainingCapacity();
     self.text_vertices.clearRetainingCapacity();
     self.text_indices.clearRetainingCapacity();
-    self.cmds.clearRetainingCapacity();
     self.layer_cmds.clearRetainingCapacity();
-    var it = self.layers_dirty.iterator(.{});
-    while (it.next()) |z| self.layer_ranges[z] = .{};
     self.layers_dirty = .initEmpty();
     self.current_layer = 0;
 }
@@ -76,7 +70,12 @@ pub fn setLayer(self: *DrawList, layer: u8) void {
     self.current_layer = layer;
 }
 
+pub fn isEmpty(self: *const DrawList) bool {
+    return self.layer_cmds.items.len == 0;
+}
+
 fn lastCmdMatches(self: *const DrawList, kind: CommandKind, texture: ?u32, clip: ?[4]f32) bool {
+    if (!self.layers_dirty.isSet(self.current_layer)) return false;
     const range = self.layer_ranges[self.current_layer];
     if (range.len == 0) return false;
     const last = &self.layer_cmds.items[range.start + range.len - 1];
@@ -87,8 +86,9 @@ fn lastCmdMatches(self: *const DrawList, kind: CommandKind, texture: ?u32, clip:
 
 fn beginCommand(self: *DrawList, kind: CommandKind, texture: ?u32, clip: ?[4]f32, offset: u32) !void {
     const range = &self.layer_ranges[self.current_layer];
-    if (range.len == 0) {
+    if (!self.layers_dirty.isSet(self.current_layer)) {
         range.start = @intCast(self.layer_cmds.items.len);
+        range.len = 0;
         self.layers_dirty.set(self.current_layer);
     }
     try self.layer_cmds.append(self.allocator, .{
@@ -145,12 +145,3 @@ pub fn pushText(self: *DrawList, verts: []const gpu.SlugVertex, indices: []const
     self.layer_cmds.items[range.start + range.len - 1].count += @intCast(indices.len);
 }
 
-pub fn finalize(self: *DrawList) !void {
-    self.cmds.clearRetainingCapacity();
-    try self.cmds.ensureTotalCapacity(self.allocator, self.layer_cmds.items.len);
-    for (0..MAX_LAYERS) |z| {
-        const range = self.layer_ranges[z];
-        if (range.len == 0) continue;
-        self.cmds.appendSliceAssumeCapacity(self.layer_cmds.items[range.start .. range.start + range.len]);
-    }
-}

@@ -76,6 +76,16 @@ pub fn markAllDirty(self: *GlyphBuilder) void {
     self.band_dirty_max_y_excl = self.bandTextureHeight();
 }
 
+pub fn markCurveDirtyTo(self: *GlyphBuilder, y_excl: u32) void {
+    self.curve_dirty_min_y = 0;
+    self.curve_dirty_max_y_excl = y_excl;
+}
+
+pub fn markBandDirtyTo(self: *GlyphBuilder, y_excl: u32) void {
+    self.band_dirty_min_y = 0;
+    self.band_dirty_max_y_excl = y_excl;
+}
+
 pub fn curveTextureHeight(self: *const GlyphBuilder) u32 {
     const len: u32 = @intCast(self.curve_data.items.len);
     return (len + TEXTURE_WIDTH - 1) / TEXTURE_WIDTH;

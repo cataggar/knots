@@ -207,7 +207,7 @@ fn updateViewport(ptr: *anyopaque, width: u32, height: u32) void {
     }
 }
 
-fn bindTexture(ptr: *anyopaque, texture_ptr: *gpu.Texture, sampler_ptr: *gpu.Sampler) void {
+fn bindTexture(ptr: *anyopaque, texture_ptr: *gpu.Texture, sampler_ptr: *gpu.Sampler) !void {
     const self: *Pipeline = @ptrCast(@alignCast(ptr));
     if (self.kind == .text) return; // text pipeline uses bindCurveBand
 
@@ -216,7 +216,7 @@ fn bindTexture(ptr: *anyopaque, texture_ptr: *gpu.Texture, sampler_ptr: *gpu.Sam
 
     if (self.bind_group) |bg| bg.deinit();
 
-    self.bind_group = self.device.createBindGroup(.{
+    self.bind_group = try self.device.createBindGroup(.{
         .label = "unified_bg",
         .layout = self.bind_group_layout,
         .entries = &.{
@@ -224,7 +224,7 @@ fn bindTexture(ptr: *anyopaque, texture_ptr: *gpu.Texture, sampler_ptr: *gpu.Sam
             .{ .binding = 1, .texture_view = tex.view },
             .{ .binding = 2, .sampler = samp.sampler },
         },
-    }) catch @panic("Failed to recreate bind group for texture binding");
+    });
 }
 
 fn bindCurveBand(ptr: *anyopaque, curve_tex_ptr: *gpu.Texture, band_tex_ptr: *gpu.Texture) void {

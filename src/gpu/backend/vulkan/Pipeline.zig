@@ -475,7 +475,7 @@ fn updateViewport(ptr: *anyopaque, width: u32, height: u32) void {
     }
 }
 
-fn bindTexture(ptr: *anyopaque, texture: *gpu.Texture, sampler: *gpu.Sampler) void {
+fn bindTexture(ptr: *anyopaque, texture: *gpu.Texture, sampler: *gpu.Sampler) !void {
     const self: *Pipeline = @ptrCast(@alignCast(ptr));
     if (self.kind == .text) return;
     const vk_texture: *Texture = @ptrCast(@alignCast(texture.ptr));
