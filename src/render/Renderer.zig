@@ -58,6 +58,7 @@ const TextureBinding = struct {
 
 const TextureSlot = struct {
     binding: ?TextureBinding,
+    bg: ?gpu.BindGroup = null,
     gen: u16,
 };
 
@@ -78,7 +79,6 @@ text_uniform_bg: gpu.BindGroup,
 
 atlas_texture_bg: gpu.BindGroup,
 text_curveband_bg: gpu.BindGroup,
-texture_bgs: std.AutoHashMap(u32, gpu.BindGroup),
 
 vertex_buf: gpu.Buffer,
 index_buf: gpu.Buffer,
@@ -247,7 +247,6 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .text_uniform_bg = text_uniform_bg,
         .atlas_texture_bg = atlas_texture_bg,
         .text_curveband_bg = text_curveband_bg,
-        .texture_bgs = .init(allocator),
         .vertex_buf = vertex_buf,
         .index_buf = index_buf,
         .instance_buf = instance_buf,
@@ -271,10 +270,6 @@ pub fn deinit(self: *Renderer) void {
     self.draw_list.deinit();
     self.frame.deinit();
 
-    var it = self.texture_bgs.valueIterator();
-    while (it.next()) |bg| bg.deinit();
-    self.texture_bgs.deinit();
-
     self.atlas_texture_bg.deinit();
     self.text_curveband_bg.deinit();
     self.vertex_uniform_bg.deinit();
@@ -285,6 +280,7 @@ pub fn deinit(self: *Renderer) void {
     self.text_uniform_buf.deinit();
 
     for (self.texture_slots.items) |*slot| {
+        if (slot.bg) |bg| bg.deinit();
         if (slot.binding) |*reg| {
             reg.texture.deinit();
             reg.sampler.deinit();
@@ -316,7 +312,6 @@ pub fn createTexture(self: *Renderer, width: u32, height: u32, format: gpu.Textu
         .height = height,
         .format = format,
         .usage = .{ .texture_binding = true, .copy_dst = true },
-        .sampler = &sampler,
     });
     errdefer texture.deinit();
 
@@ -352,7 +347,8 @@ pub fn destroyTexture(self: *Renderer, id: u32) !void {
     const slot = &self.texture_slots.items[idx];
     if ((id >> TEX_INDEX_BITS) != slot.gen) return error.InvalidTextureId;
     if (slot.binding) |*reg| {
-        if (self.texture_bgs.fetchRemove(id)) |kv| kv.value.deinit();
+        if (slot.bg) |bg| bg.deinit();
+        slot.bg = null;
         reg.texture.deinit();
         reg.sampler.deinit();
         slot.binding = null;
@@ -478,8 +474,7 @@ fn updateViewport(self: *Renderer, content_scale: f32) void {
     self.vertex_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
     self.instance_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
 
-    const y_down_clip = self.cfg.gpu_backend == .vulkan;
-    const u = pipelines.computeSlugUniforms(w_f, h_f, y_down_clip);
+    const u = pipelines.computeSlugUniforms(w_f, h_f, self.ctx.clipSpaceYDown());
     self.text_uniform_buf.load(pipelines.SlugUniforms, &.{u});
 
     self.cached_vp_width = logical_w;
@@ -532,19 +527,26 @@ fn bindKind(self: *Renderer, pass: *gpu.RenderPass, kind: DrawList.CommandKind, 
 
 fn bindTextureForCommand(self: *Renderer, pass: *gpu.RenderPass, texture: ?u32) !void {
     if (texture) |tex_id| {
-        const reg = (self.lookupTexture(tex_id) catch null) orelse {
+        const idx = tex_id & TEX_INDEX_MASK;
+        if (idx >= self.texture_slots.items.len) {
             pass.setBindGroup(1, &self.atlas_texture_bg);
             return;
-        };
-        const bg = try self.getOrCreateTextureBg(tex_id, reg);
+        }
+        const slot = &self.texture_slots.items[idx];
+        if ((tex_id >> TEX_INDEX_BITS) != slot.gen or slot.binding == null) {
+            pass.setBindGroup(1, &self.atlas_texture_bg);
+            return;
+        }
+        const bg = try self.getOrCreateTextureBg(slot);
         pass.setBindGroup(1, &bg);
     } else {
         pass.setBindGroup(1, &self.atlas_texture_bg);
     }
 }
 
-fn getOrCreateTextureBg(self: *Renderer, tex_id: u32, reg: *TextureBinding) !gpu.BindGroup {
-    if (self.texture_bgs.get(tex_id)) |bg| return bg;
+fn getOrCreateTextureBg(self: *Renderer, slot: *TextureSlot) !gpu.BindGroup {
+    if (slot.bg) |bg| return bg;
+    const reg = &slot.binding.?;
     const bg = try self.ctx.createBindGroup(.{
         .label = "user_texture_bg",
         .pipeline = &self.pipeline,
@@ -554,7 +556,7 @@ fn getOrCreateTextureBg(self: *Renderer, tex_id: u32, reg: *TextureBinding) !gpu
             .{ .binding = 1, .resource = .{ .sampler = &reg.sampler } },
         },
     });
-    try self.texture_bgs.put(tex_id, bg);
+    slot.bg = bg;
     return bg;
 }
 

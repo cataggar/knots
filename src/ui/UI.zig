@@ -358,7 +358,6 @@ pub fn tessellate(self: *UI, allocator: Allocator, draw_list: *DrawList) !void {
         draw_list.setLayer(@intCast(z));
         try self.tessellateLayer(allocator, draw_list, self.layout_ctx.zSlots(@intCast(z)), @intCast(z));
     }
-    try draw_list.finalize();
 }
 
 fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots: []const Element.Slot, layer: u8) !void {

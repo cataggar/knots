@@ -247,7 +247,12 @@ const vtable = gpu.Context.VTable{
     .resize = &resize,
     .surfaceFormat = &surfaceFormat,
     .surfaceIsSrgb = &surfaceIsSrgb,
+    .clipSpaceYDown = &clipSpaceYDown,
 };
+
+fn clipSpaceYDown(_: *anyopaque) bool {
+    return true;
+}
 
 fn deinit(ptr: *anyopaque) void {
     const self: *Context = @ptrCast(@alignCast(ptr));
@@ -329,7 +334,7 @@ fn vkFormatToGpu(f: vk.Format) gpu.Texture.Format {
         .r8_unorm => .r8,
         .r32g32b32a32_sfloat => .rgba32f,
         .r32g32b32a32_uint => .rgba32u,
-        else => @panic("swapchain format not representable as gpu.Texture.Format"),
+        else => unreachable,
     };
 }
 
@@ -524,21 +529,29 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
     var formats_buf: [32]vk.SurfaceFormatKHR = undefined;
     if (format_count > 32) format_count = 32;
     _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, &formats_buf);
-    var chosen_format = formats_buf[0];
+    if (format_count == 0) return error.NoSurfaceFormatFound;
+    var chosen_format: ?vk.SurfaceFormatKHR = null;
     for (formats_buf[0..format_count]) |f| {
         if (f.format == .b8g8r8a8_srgb and f.color_space == .srgb_nonlinear_khr) {
             chosen_format = f;
             break;
         }
-    } else {
-        for (formats_buf[0..format_count]) |f| {
-            if (f.format == .r8g8b8a8_srgb and f.color_space == .srgb_nonlinear_khr) {
-                chosen_format = f;
-                break;
-            }
-        }
     }
-    const is_srgb = switch (chosen_format.format) {
+    if (chosen_format == null) for (formats_buf[0..format_count]) |f| {
+        if (f.format == .r8g8b8a8_srgb and f.color_space == .srgb_nonlinear_khr) {
+            chosen_format = f;
+            break;
+        }
+    };
+    if (chosen_format == null) for (formats_buf[0..format_count]) |f| switch (f.format) {
+        .r8g8b8a8_unorm, .b8g8r8a8_unorm, .r8_unorm, .r32g32b32a32_sfloat, .r32g32b32a32_uint => {
+            chosen_format = f;
+            break;
+        },
+        else => {},
+    };
+    const cf = chosen_format orelse return error.UnsupportedSurfaceFormat;
+    const is_srgb = switch (cf.format) {
         .b8g8r8a8_srgb, .r8g8b8a8_srgb => true,
         else => false,
     };
@@ -551,8 +564,8 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
     const swapchain = try vkd.createSwapchainKHR(device, &.{
         .surface = surface,
         .min_image_count = image_count,
-        .image_format = chosen_format.format,
-        .image_color_space = chosen_format.color_space,
+        .image_format = cf.format,
+        .image_color_space = cf.color_space,
         .image_extent = extent,
         .image_array_layers = 1,
         .image_usage = .{ .color_attachment_bit = true },
@@ -568,7 +581,7 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
         .clipped = .true,
         .old_swapchain = old_swapchain,
     }, null);
-    return .{ .swapchain = swapchain, .format = chosen_format.format, .extent = extent, .is_srgb = is_srgb };
+    return .{ .swapchain = swapchain, .format = cf.format, .extent = extent, .is_srgb = is_srgb };
 }
 
 fn getSwapchainImages(allocator: std.mem.Allocator, vkd: vk.DeviceWrapper, device: vk.Device, swapchain: vk.SwapchainKHR) ![]vk.Image {

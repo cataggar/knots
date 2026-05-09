@@ -33,7 +33,10 @@ const vtable = gpu.Frame.VTable{
     .waitForCompletion = &waitForCompletion,
 };
 
-fn waitForFence(_: *anyopaque) !void {}
+fn waitForFence(ptr: *anyopaque) !void {
+    const self: *Frame = @ptrCast(@alignCast(ptr));
+    _ = self.ctx.device.poll(true);
+}
 
 fn prepareResize(ptr: *anyopaque) void {
     const self: *Frame = @ptrCast(@alignCast(ptr));
@@ -56,10 +59,20 @@ fn beginRenderPass(ptr: *anyopaque, desc: gpu.RenderPass.Desc) anyerror!gpu.Rend
     const self: *Frame = @ptrCast(@alignCast(ptr));
 
     if (self.encoder) |e| e.deinit();
+    self.encoder = null;
     if (self.view) |v| v.deinit();
+    self.view = null;
     if (self.surface_texture) |t| t.deinit();
+    self.surface_texture = null;
 
-    self.surface_texture = try self.ctx.surface.getCurrentTexture();
+    self.surface_texture = self.ctx.surface.getCurrentTexture() catch |err| switch (err) {
+        error.CurrentTextureOutdated, error.CurrentTextureLost => blk: {
+            _ = self.ctx.device.poll(true);
+            self.ctx.reconfigureSurface(self.ctx.surface_width, self.ctx.surface_height);
+            break :blk try self.ctx.surface.getCurrentTexture();
+        },
+        else => return err,
+    };
     self.view = try self.surface_texture.?.createView(.{ .format = self.ctx.surface_format });
     self.encoder = try self.ctx.device.createCommandEncoder(.{ .label = "frame_encoder" });
 

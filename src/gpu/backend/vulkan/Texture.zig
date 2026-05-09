@@ -22,6 +22,9 @@ width: u32,
 height: u32,
 format: gpu.Texture.Format,
 ctx: *Context,
+staging_buffer: vk.Buffer = .null_handle,
+staging_memory: vk.DeviceMemory = .null_handle,
+staging_size: usize = 0,
 _native_handle: NativeHandle = undefined,
 
 pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Texture.Desc) !gpu.Texture {
@@ -88,10 +91,43 @@ const vtable = gpu.Texture.VTable{
 
 fn deinit(ptr: *anyopaque) void {
     const self: *Texture = @ptrCast(@alignCast(ptr));
+    if (self.staging_size != 0) {
+        self.ctx.vkd.destroyBuffer(self.ctx.device, self.staging_buffer, null);
+        self.ctx.vkd.freeMemory(self.ctx.device, self.staging_memory, null);
+    }
     self.ctx.vkd.destroyImageView(self.ctx.device, self.image_view, null);
     self.ctx.vkd.destroyImage(self.ctx.device, self.image, null);
     self.ctx.vkd.freeMemory(self.ctx.device, self.memory, null);
     self.allocator.destroy(self);
+}
+
+fn ensureStaging(self: *Texture, len: usize) !void {
+    if (len <= self.staging_size) return;
+    const ctx = self.ctx;
+
+    const new_buffer = try ctx.vkd.createBuffer(ctx.device, &.{
+        .size = @intCast(len),
+        .usage = .{ .transfer_src_bit = true },
+        .sharing_mode = .exclusive,
+    }, null);
+    errdefer ctx.vkd.destroyBuffer(ctx.device, new_buffer, null);
+
+    const mem_reqs = ctx.vkd.getBufferMemoryRequirements(ctx.device, new_buffer);
+    const new_memory = try ctx.vkd.allocateMemory(ctx.device, &.{
+        .allocation_size = mem_reqs.size,
+        .memory_type_index = try ctx.findMemoryType(mem_reqs.memory_type_bits, .{ .host_visible_bit = true, .host_coherent_bit = true }),
+    }, null);
+    errdefer ctx.vkd.freeMemory(ctx.device, new_memory, null);
+
+    try ctx.vkd.bindBufferMemory(ctx.device, new_buffer, new_memory, 0);
+
+    if (self.staging_size != 0) {
+        ctx.vkd.destroyBuffer(ctx.device, self.staging_buffer, null);
+        ctx.vkd.freeMemory(ctx.device, self.staging_memory, null);
+    }
+    self.staging_buffer = new_buffer;
+    self.staging_memory = new_memory;
+    self.staging_size = len;
 }
 
 fn write(ptr: *anyopaque, data: [*]const u8, len: usize, x: u32, y: u32, width: u32, height: u32, bytes_per_row: ?u32) !void {
@@ -102,24 +138,11 @@ fn write(ptr: *anyopaque, data: [*]const u8, len: usize, x: u32, y: u32, width: 
 fn writeImpl(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, width: u32, height: u32, bytes_per_row: ?u32) !void {
     const ctx = self.ctx;
 
-    const staging_buffer = try ctx.vkd.createBuffer(ctx.device, &.{
-        .size = @intCast(len),
-        .usage = .{ .transfer_src_bit = true },
-        .sharing_mode = .exclusive,
-    }, null);
-    defer ctx.vkd.destroyBuffer(ctx.device, staging_buffer, null);
+    try self.ensureStaging(len);
 
-    const mem_reqs = ctx.vkd.getBufferMemoryRequirements(ctx.device, staging_buffer);
-    const staging_memory = try ctx.vkd.allocateMemory(ctx.device, &.{
-        .allocation_size = mem_reqs.size,
-        .memory_type_index = try ctx.findMemoryType(mem_reqs.memory_type_bits, .{ .host_visible_bit = true, .host_coherent_bit = true }),
-    }, null);
-    defer ctx.vkd.freeMemory(ctx.device, staging_memory, null);
-
-    try ctx.vkd.bindBufferMemory(ctx.device, staging_buffer, staging_memory, 0);
-    const mapped: [*]u8 = @ptrCast(try ctx.vkd.mapMemory(ctx.device, staging_memory, 0, @intCast(len), .{}));
+    const mapped: [*]u8 = @ptrCast(try ctx.vkd.mapMemory(ctx.device, self.staging_memory, 0, @intCast(len), .{}));
     @memcpy(mapped[0..len], data[0..len]);
-    ctx.vkd.unmapMemory(ctx.device, staging_memory);
+    ctx.vkd.unmapMemory(ctx.device, self.staging_memory);
 
     const cmd = try ctx.beginSingleTimeCommands();
 
@@ -135,7 +158,7 @@ fn writeImpl(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, widt
     }});
 
     const row_length: u32 = if (bytes_per_row) |bpr| bpr / bytesPerPixel(self.format) else 0;
-    ctx.vkd.cmdCopyBufferToImage(cmd, staging_buffer, self.image, .transfer_dst_optimal, &.{.{
+    ctx.vkd.cmdCopyBufferToImage(cmd, self.staging_buffer, self.image, .transfer_dst_optimal, &.{.{
         .buffer_offset = 0,
         .buffer_row_length = row_length,
         .buffer_image_height = 0,

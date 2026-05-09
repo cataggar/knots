@@ -59,6 +59,7 @@ pub const VTable = struct {
     resize: *const fn (ptr: *anyopaque, width: u32, height: u32) anyerror!void,
     surfaceFormat: *const fn (ptr: *anyopaque) Texture.Format,
     surfaceIsSrgb: *const fn (ptr: *anyopaque) bool,
+    clipSpaceYDown: *const fn (ptr: *anyopaque) bool,
 };
 
 pub inline fn deinit(self: *const Context) void {
@@ -101,4 +102,8 @@ pub inline fn surfaceFormat(self: *const Context) Texture.Format {
 
 pub inline fn surfaceIsSrgb(self: *const Context) bool {
     return self.vtable.surfaceIsSrgb(self.ptr);
+}
+
+pub inline fn clipSpaceYDown(self: *const Context) bool {
+    return self.vtable.clipSpaceYDown(self.ptr);
 }

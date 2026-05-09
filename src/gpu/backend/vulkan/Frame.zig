@@ -87,13 +87,8 @@ fn deinit(ptr: *anyopaque) void {
 
 fn waitForFence(ptr: *anyopaque) !void {
     const self: *Frame = @ptrCast(@alignCast(ptr));
-    const ctx = self.ctx;
-    const fences = try self.allocator.alloc(vk.Fence, self.frames.len);
-    defer self.allocator.free(fences);
-    for (self.frames, 0..) |f, i| {
-        fences[i] = f.in_flight;
-    }
-    _ = try ctx.vkd.waitForFences(ctx.device, fences, .true, std.math.maxInt(u64));
+    const f = &self.frames[self.current];
+    _ = try self.ctx.vkd.waitForFences(self.ctx.device, &.{f.in_flight}, .true, std.math.maxInt(u64));
 }
 
 fn prepareResize(_: *anyopaque) void {}

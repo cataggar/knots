@@ -85,6 +85,7 @@ pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: b
         .vertex => "vs_main",
         .instance => "vs_instance_main",
     };
+    const fs_entry: []const u8 = if (srgb_surface) "fs_main" else "fs_main_srgb_encode";
 
     const shader: gpu.Pipeline.ShaderSource = switch (backend) {
         .wgpu => .{ .wgsl = shaders.primitives_wgsl },
@@ -98,20 +99,10 @@ pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: b
         } },
     };
 
-    const fs_entry: []const u8 = switch (backend) {
-        .wgpu => if (srgb_surface) "fs_main" else "fs_main_srgb_encode",
-        .vulkan => "main",
-    };
-
-    const vs_entry_final: []const u8 = switch (backend) {
-        .wgpu => vs_entry,
-        .vulkan => "main",
-    };
-
     return .{
         .label = "primitives",
         .shader = shader,
-        .vs_entry = vs_entry_final,
+        .vs_entry = vs_entry,
         .fs_entry = fs_entry,
         .vertex_buffers = vbs,
         .bind_group_layouts = &primitives_bgls,
@@ -120,25 +111,17 @@ pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: b
 }
 
 pub fn slugDesc(backend: GPUBackend, srgb_surface: bool) gpu.Pipeline.Desc {
+    const fs_entry: []const u8 = if (srgb_surface) "fs_main" else "fs_main_srgb_encode";
+
     const shader: gpu.Pipeline.ShaderSource = switch (backend) {
         .wgpu => .{ .wgsl = shaders.slug_wgsl },
         .vulkan => .{ .spirv = .{ .vs = shaders.slug_vert_spv, .fs = shaders.slug_frag_spv, .srgb_encode_constant = 0 } },
     };
 
-    const fs_entry: []const u8 = switch (backend) {
-        .wgpu => if (srgb_surface) "fs_main" else "fs_main_srgb_encode",
-        .vulkan => "main",
-    };
-
-    const vs_entry: []const u8 = switch (backend) {
-        .wgpu => "vs_main",
-        .vulkan => "main",
-    };
-
     return .{
         .label = "slug",
         .shader = shader,
-        .vs_entry = vs_entry,
+        .vs_entry = "vs_main",
         .fs_entry = fs_entry,
         .vertex_buffers = &slug_buffers,
         .bind_group_layouts = &slug_bgls,

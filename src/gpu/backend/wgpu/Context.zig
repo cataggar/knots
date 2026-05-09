@@ -24,6 +24,8 @@ surface: wgpu.Surface,
 surface_format: wgpu.Texture.Format,
 surface_is_srgb: bool,
 present_mode: wgpu.types.PresentMode,
+surface_width: u32,
+surface_height: u32,
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle, cfg: gpu.Context.Config) !gpu.Context {
     const wgpu_handle: wgpu.RawWindowHandle = switch (window_handle) {
@@ -82,6 +84,8 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .surface_format = surface_format,
         .surface_is_srgb = surface_is_srgb,
         .present_mode = chosen_present_mode,
+        .surface_width = cfg.window_width,
+        .surface_height = cfg.window_height,
     };
 
     return .{ .ptr = self, .vtable = &vtable, .cfg = cfg };
@@ -98,7 +102,12 @@ const vtable = gpu.Context.VTable{
     .resize = &resize,
     .surfaceFormat = &surfaceFormat,
     .surfaceIsSrgb = &surfaceIsSrgb,
+    .clipSpaceYDown = &clipSpaceYDown,
 };
+
+fn clipSpaceYDown(_: *anyopaque) bool {
+    return false;
+}
 
 fn deinit(ptr: *anyopaque) void {
     const self: *Context = @ptrCast(@alignCast(ptr));
@@ -143,6 +152,10 @@ fn createSampler(ptr: *anyopaque, desc: gpu.Sampler.Desc) anyerror!gpu.Sampler {
 
 fn resize(ptr: *anyopaque, width: u32, height: u32) anyerror!void {
     const self: *Context = @ptrCast(@alignCast(ptr));
+    self.reconfigureSurface(width, height);
+}
+
+pub fn reconfigureSurface(self: *Context, width: u32, height: u32) void {
     self.surface.configure(.{
         .width = width,
         .height = height,
@@ -150,6 +163,8 @@ fn resize(ptr: *anyopaque, width: u32, height: u32) anyerror!void {
         .device = self.device,
         .present_mode = self.present_mode,
     });
+    self.surface_width = width;
+    self.surface_height = height;
 }
 
 fn surfaceFormat(ptr: *anyopaque) gpu.Texture.Format {
@@ -171,7 +186,7 @@ fn wgpuFormatToGpu(f: wgpu.Texture.Format) gpu.Texture.Format {
         .r8_unorm => .r8,
         .rgba32_float => .rgba32f,
         .rgba32_uint => .rgba32u,
-        else => @panic("surface format not representable as gpu.Texture.Format"),
+        else => unreachable,
     };
 }
 
@@ -188,7 +203,11 @@ fn chooseSurfaceFormat(capabilities: wgpu.Surface.Capabilities) !wgpu.Texture.Fo
         if (format == .rgba8_unorm_srgb)
             return .rgba8_unorm_srgb;
 
-    return capabilities.formats[0];
+    for (capabilities.formats) |format| switch (format) {
+        .rgba8_unorm, .bgra8_unorm, .r8_unorm, .rgba32_float, .rgba32_uint => return format,
+        else => {},
+    };
+    return error.UnsupportedSurfaceFormat;
 }
 
 fn isSrgbFormat(format: wgpu.Texture.Format) bool {

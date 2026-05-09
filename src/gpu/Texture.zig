@@ -1,5 +1,3 @@
-const Sampler = @import("Sampler.zig");
-
 const Texture = @This();
 
 pub const Format = enum { rgba8, rgba8_srgb, bgra8, bgra8_srgb, r8, rgba32f, rgba32u };
@@ -17,7 +15,6 @@ pub const Desc = struct {
     format: Format,
     usage: Usage,
     label: []const u8 = "",
-    sampler: ?*const Sampler = null,
 };
 
 ptr: *anyopaque,

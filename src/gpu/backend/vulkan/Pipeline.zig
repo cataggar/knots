@@ -131,13 +131,13 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Pipeline.De
 
     var vs_entry_buf: [64]u8 = undefined;
     var fs_entry_buf: [64]u8 = undefined;
-    if (desc.vs_entry.len >= vs_entry_buf.len or desc.fs_entry.len >= fs_entry_buf.len) {
+    if (spirv.vs_entry.len >= vs_entry_buf.len or spirv.fs_entry.len >= fs_entry_buf.len) {
         return error.EntryPointNameTooLong;
     }
-    @memcpy(vs_entry_buf[0..desc.vs_entry.len], desc.vs_entry);
-    vs_entry_buf[desc.vs_entry.len] = 0;
-    @memcpy(fs_entry_buf[0..desc.fs_entry.len], desc.fs_entry);
-    fs_entry_buf[desc.fs_entry.len] = 0;
+    @memcpy(vs_entry_buf[0..spirv.vs_entry.len], spirv.vs_entry);
+    vs_entry_buf[spirv.vs_entry.len] = 0;
+    @memcpy(fs_entry_buf[0..spirv.fs_entry.len], spirv.fs_entry);
+    fs_entry_buf[spirv.fs_entry.len] = 0;
 
     var vk_pipeline: [1]vk.Pipeline = undefined;
     _ = try vkd.createGraphicsPipelines(device, .null_handle, &.{.{
