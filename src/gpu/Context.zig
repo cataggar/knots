@@ -1,6 +1,7 @@
 const Buffer = @import("Buffer.zig");
 const Frame = @import("Frame.zig");
 const Pipeline = @import("Pipeline.zig");
+const BindGroup = @import("BindGroup.zig");
 const Texture = @import("Texture.zig");
 const Sampler = @import("Sampler.zig");
 
@@ -52,9 +53,12 @@ pub const VTable = struct {
     createBuffer: *const fn (ptr: *anyopaque, size: usize, usage: Buffer.Usage) anyerror!Buffer,
     createFrame: *const fn (ptr: *anyopaque) anyerror!Frame,
     createPipeline: *const fn (ptr: *anyopaque, desc: Pipeline.Desc) anyerror!Pipeline,
+    createBindGroup: *const fn (ptr: *anyopaque, desc: BindGroup.Desc) anyerror!BindGroup,
     createTexture: *const fn (ptr: *anyopaque, desc: Texture.Desc) anyerror!Texture,
     createSampler: *const fn (ptr: *anyopaque, desc: Sampler.Desc) anyerror!Sampler,
     resize: *const fn (ptr: *anyopaque, width: u32, height: u32) anyerror!void,
+    surfaceFormat: *const fn (ptr: *anyopaque) Texture.Format,
+    surfaceIsSrgb: *const fn (ptr: *anyopaque) bool,
 };
 
 pub inline fn deinit(self: *const Context) void {
@@ -73,6 +77,10 @@ pub inline fn createPipeline(self: *const Context, desc: Pipeline.Desc) !Pipelin
     return self.vtable.createPipeline(self.ptr, desc);
 }
 
+pub inline fn createBindGroup(self: *const Context, desc: BindGroup.Desc) !BindGroup {
+    return self.vtable.createBindGroup(self.ptr, desc);
+}
+
 pub inline fn createTexture(self: *const Context, desc: Texture.Desc) !Texture {
     return self.vtable.createTexture(self.ptr, desc);
 }
@@ -85,4 +93,12 @@ pub inline fn resize(self: *Context, width: u32, height: u32) !void {
     try self.vtable.resize(self.ptr, width, height);
     self.cfg.window_width = width;
     self.cfg.window_height = height;
+}
+
+pub inline fn surfaceFormat(self: *const Context) Texture.Format {
+    return self.vtable.surfaceFormat(self.ptr);
+}
+
+pub inline fn surfaceIsSrgb(self: *const Context) bool {
+    return self.vtable.surfaceIsSrgb(self.ptr);
 }

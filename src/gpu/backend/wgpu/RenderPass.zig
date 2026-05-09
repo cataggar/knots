@@ -3,12 +3,12 @@ const wgpu = @import("wgpu");
 const gpu = @import("gpu");
 const Buffer = @import("Buffer.zig");
 const Pipeline = @import("Pipeline.zig");
+const BindGroup = @import("BindGroup.zig");
 
 const RenderPass = @This();
 
 allocator: std.mem.Allocator,
 pass: wgpu.RenderPassEncoder,
-current_pipeline: ?*Pipeline = null,
 
 pub fn create(allocator: std.mem.Allocator, encoder: wgpu.CommandEncoder, view: wgpu.TextureView, desc: gpu.RenderPass.Desc) !gpu.RenderPass {
     const ca = desc.color_attachment;
@@ -47,7 +47,7 @@ pub fn create(allocator: std.mem.Allocator, encoder: wgpu.CommandEncoder, view: 
 const vtable = gpu.RenderPass.VTable{
     .end = &end,
     .bindPipeline = &bindPipeline,
-    .rebindTextureSet = &rebindTextureSet,
+    .setBindGroup = &setBindGroup,
     .setVertexBuffer = &setVertexBuffer,
     .setIndexBuffer = &setIndexBuffer,
     .setScissorRect = &setScissorRect,
@@ -64,16 +64,13 @@ fn end(ptr: *anyopaque) void {
 fn bindPipeline(ptr: *anyopaque, pipeline: *const gpu.Pipeline) void {
     const self: *RenderPass = @ptrCast(@alignCast(ptr));
     const wgpu_pipeline: *Pipeline = @ptrCast(@alignCast(pipeline.ptr));
-    self.current_pipeline = wgpu_pipeline;
     self.pass.setPipeline(wgpu_pipeline.render_pipeline);
-    if (wgpu_pipeline.bind_group) |bg| self.pass.setBindGroup(0, bg, &.{});
 }
 
-fn rebindTextureSet(ptr: *anyopaque) void {
+fn setBindGroup(ptr: *anyopaque, group_index: u32, group: *const gpu.BindGroup) void {
     const self: *RenderPass = @ptrCast(@alignCast(ptr));
-    if (self.current_pipeline) |p| {
-        if (p.bind_group) |bg| self.pass.setBindGroup(0, bg, &.{});
-    }
+    const wbg: *BindGroup = @ptrCast(@alignCast(group.ptr));
+    self.pass.setBindGroup(group_index, wbg.bind_group, &.{});
 }
 
 fn setVertexBuffer(ptr: *anyopaque, slot: u32, buf: *const gpu.Buffer, offset: usize, size: usize) void {

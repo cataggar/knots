@@ -66,7 +66,7 @@ pub fn build(b: *std.Build) void {
                 const vulkan = b.dependency("vulkan", .{
                     .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
                 });
-                const vk_backend = b.createModule(.{
+                break :blk b.createModule(.{
                     .target = target,
                     .optimize = optimize,
                     .root_source_file = b.path("src/gpu/backend/vulkan/root.zig"),
@@ -75,17 +75,6 @@ pub fn build(b: *std.Build) void {
                         .{ .name = "gpu", .module = gpu_mod },
                     },
                 });
-                embedZigSpirV(b, vk_backend, "ui_primitives_vertex_shader", b.path("src/gpu/backend/vulkan/shaders/ui_primitives_vertex.zig"));
-                embedZigSpirV(b, vk_backend, "ui_primitives_instance_vertex_shader", b.path("src/gpu/backend/vulkan/shaders/ui_primitives_instance_vertex.zig"));
-                embedZigSpirV(b, vk_backend, "slug_vertex_shader", b.path("src/gpu/backend/vulkan/shaders/slug_vertex.zig"));
-
-                // TODO: Migrate to Zig and drop glslc as a dependency.
-                // Will require a fix for https://codeberg.org/ziglang/zig/issues/35238
-                // Among other things.
-                embedSpirV(b, vk_backend, "ui_primitives_fragment_shader", b.path("src/gpu/backend/vulkan/shaders/ui_primitives.frag"));
-                embedSpirV(b, vk_backend, "slug_fragment_shader", b.path("src/gpu/backend/vulkan/shaders/slug.frag"));
-
-                break :blk vk_backend;
             },
         };
         gpu_backend_mod.addImport(b.fmt("gpu_{s}", .{@tagName(gpu_backend)}), backend_mod);
@@ -172,6 +161,26 @@ pub fn build(b: *std.Build) void {
             .{ .name = "window", .module = window_mod },
         },
     });
+
+    var render_shader_opts = b.addOptions();
+    render_shader_opts.addOption(bool, "has_wgpu_shaders", se.wgpu);
+    render_shader_opts.addOption(bool, "has_vulkan_shaders", se.vulkan);
+    render_mod.addOptions("shader_config", render_shader_opts);
+
+    if (se.wgpu) {
+        render_mod.addAnonymousImport("primitives_wgsl", .{ .root_source_file = b.path("src/gpu/backend/wgpu/shaders/ui_primitives.wgsl") });
+        render_mod.addAnonymousImport("slug_wgsl", .{ .root_source_file = b.path("src/gpu/backend/wgpu/shaders/slug.wgsl") });
+    }
+    if (se.vulkan) {
+        embedZigSpirV(b, render_mod, "primitives_vert_spv", b.path("src/gpu/backend/vulkan/shaders/ui_primitives_vertex.zig"));
+        embedZigSpirV(b, render_mod, "primitives_instance_vert_spv", b.path("src/gpu/backend/vulkan/shaders/ui_primitives_instance_vertex.zig"));
+        embedZigSpirV(b, render_mod, "slug_vert_spv", b.path("src/gpu/backend/vulkan/shaders/slug_vertex.zig"));
+        // TODO: Migrate to Zig and drop glslc as a dependency.
+        // Will require a fix for https://codeberg.org/ziglang/zig/issues/35238
+        // Among other things.
+        embedSpirV(b, render_mod, "primitives_frag_spv", b.path("src/gpu/backend/vulkan/shaders/ui_primitives.frag"));
+        embedSpirV(b, render_mod, "slug_frag_spv", b.path("src/gpu/backend/vulkan/shaders/slug.frag"));
+    }
 
     const layout_mod = b.createModule(.{
         .target = target,
@@ -272,17 +281,17 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_text_tests.step);
 }
 
-fn embedSpirV(b: *std.Build, mod: *std.Build.Module, comptime name: []const u8, path: std.Build.LazyPath) void {
+fn embedSpirV(b: *std.Build, mod: *std.Build.Module, name: []const u8, path: std.Build.LazyPath) void {
     const cmd = b.addSystemCommand(&.{ "glslc", "--target-env=vulkan1.2", "-o" });
-    const spv = cmd.addOutputFileArg(std.fmt.comptimePrint("{s}.spv", .{name}));
+    const spv = cmd.addOutputFileArg(b.fmt("{s}.spv", .{name}));
     cmd.addFileArg(path);
     mod.addAnonymousImport(name, .{ .root_source_file = spv });
 }
 
 // We should be using b.addObject with a resolved spir-v target
 // but it doesn't work on windows due to a bug in the Zig build system.
-fn embedZigSpirV(b: *std.Build, mod: *std.Build.Module, comptime name: []const u8, path: std.Build.LazyPath) void {
-    const out_name = std.fmt.comptimePrint("{s}.spv", .{name});
+fn embedZigSpirV(b: *std.Build, mod: *std.Build.Module, name: []const u8, path: std.Build.LazyPath) void {
+    const out_name = b.fmt("{s}.spv", .{name});
 
     const cmd = b.addSystemCommand(&.{
         b.graph.zig_exe, "build-obj",

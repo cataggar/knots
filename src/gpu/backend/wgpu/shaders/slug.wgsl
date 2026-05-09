@@ -12,8 +12,8 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(1) var curve_texture: texture_2d<f32>;
-@group(0) @binding(2) var band_texture: texture_2d<u32>;
+@group(1) @binding(0) var curve_texture: texture_2d<f32>;
+@group(1) @binding(1) var band_texture: texture_2d<u32>;
 
 struct VsIn {
     @location(0) pos: vec4f,

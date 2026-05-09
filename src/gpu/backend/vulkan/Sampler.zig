@@ -7,7 +7,7 @@ const Sampler = @This();
 
 allocator: std.mem.Allocator,
 sampler: vk.Sampler,
-vkd: Context.DeviceDispatch,
+vkd: vk.DeviceWrapper,
 device: vk.Device,
 
 pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Sampler.Desc) !gpu.Sampler {

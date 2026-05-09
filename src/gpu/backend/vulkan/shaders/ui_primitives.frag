@@ -2,7 +2,8 @@
 
 layout(constant_id = 0) const bool apply_srgb_encode = false;
 
-layout(set = 1, binding = 0) uniform sampler2D atlas;
+layout(set = 1, binding = 0) uniform texture2D atlas;
+layout(set = 1, binding = 1) uniform sampler atlas_sampler;
 
 layout(location = 0) in vec4 in_color;
 layout(location = 1) in vec2 in_uv;
@@ -39,10 +40,10 @@ void main() {
         vec4 mixed = mix(in_color, in_border_color, border_alpha * fill_alpha);
         col = vec4(mixed.rgb, mixed.a * fill_alpha);
     } else if (in_prim_type < 1.5) {
-        float coverage = texture(atlas, in_uv).r;
+        float coverage = texture(sampler2D(atlas, atlas_sampler), in_uv).r;
         col = vec4(in_color.rgb, in_color.a * coverage);
     } else {
-        vec4 sampled = texture(atlas, in_uv);
+        vec4 sampled = texture(sampler2D(atlas, atlas_sampler), in_uv);
         col = vec4(sampled.rgb * in_color.rgb, in_color.a);
     }
 

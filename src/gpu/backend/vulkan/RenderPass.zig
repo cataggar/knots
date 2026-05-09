@@ -4,16 +4,15 @@ const gpu = @import("gpu");
 const Context = @import("Context.zig");
 const Buffer = @import("Buffer.zig");
 const Pipeline = @import("Pipeline.zig");
-const Texture = @import("Texture.zig");
+const BindGroup = @import("BindGroup.zig");
 
 const RenderPass = @This();
 
 allocator: std.mem.Allocator,
 command_buffer: vk.CommandBuffer,
-vkd: Context.DeviceDispatch,
+vkd: vk.DeviceWrapper,
 extent: vk.Extent2D,
-current_pipeline: ?*Pipeline,
-frame_index: u32,
+current_pipeline_layout: vk.PipelineLayout,
 
 pub fn create(allocator: std.mem.Allocator, command_buffer: vk.CommandBuffer, ctx: *Context, desc: gpu.RenderPass.Desc) !gpu.RenderPass {
     const ca = desc.color_attachment;
@@ -45,8 +44,7 @@ pub fn create(allocator: std.mem.Allocator, command_buffer: vk.CommandBuffer, ct
         .command_buffer = command_buffer,
         .vkd = ctx.vkd,
         .extent = ctx.swapchain_extent,
-        .current_pipeline = null,
-        .frame_index = ctx._current_image_index,
+        .current_pipeline_layout = .null_handle,
     };
     return .{ .ptr = self, .vtable = &vtable };
 }
@@ -54,7 +52,7 @@ pub fn create(allocator: std.mem.Allocator, command_buffer: vk.CommandBuffer, ct
 const vtable = gpu.RenderPass.VTable{
     .end = &end,
     .bindPipeline = &bindPipeline,
-    .rebindTextureSet = &rebindTextureSet,
+    .setBindGroup = &setBindGroup,
     .setVertexBuffer = &setVertexBuffer,
     .setIndexBuffer = &setIndexBuffer,
     .setScissorRect = &setScissorRect,
@@ -70,35 +68,21 @@ fn end(ptr: *anyopaque) void {
 fn bindPipeline(ptr: *anyopaque, pipeline: *const gpu.Pipeline) void {
     const self: *RenderPass = @ptrCast(@alignCast(ptr));
     const vk_pipeline: *Pipeline = @ptrCast(@alignCast(pipeline.ptr));
-    self.current_pipeline = vk_pipeline;
-
+    self.current_pipeline_layout = vk_pipeline.pipeline_layout;
     self.vkd.cmdBindPipeline(self.command_buffer, .graphics, vk_pipeline.pipeline);
+}
 
+fn setBindGroup(ptr: *anyopaque, group_index: u32, group: *const gpu.BindGroup) void {
+    const self: *RenderPass = @ptrCast(@alignCast(ptr));
+    const vbg: *BindGroup = @ptrCast(@alignCast(group.ptr));
     self.vkd.cmdBindDescriptorSets(
         self.command_buffer,
         .graphics,
-        vk_pipeline.pipeline_layout,
-        0,
-        &[_]vk.DescriptorSet{
-            vk_pipeline.uniform_descriptor_sets[self.frame_index],
-            vk_pipeline.current_texture_ds,
-        },
+        self.current_pipeline_layout,
+        group_index,
+        &[_]vk.DescriptorSet{vbg.descriptor_set},
         null,
     );
-}
-
-fn rebindTextureSet(ptr: *anyopaque) void {
-    const self: *RenderPass = @ptrCast(@alignCast(ptr));
-    if (self.current_pipeline) |p| {
-        self.vkd.cmdBindDescriptorSets(
-            self.command_buffer,
-            .graphics,
-            p.pipeline_layout,
-            1,
-            &[_]vk.DescriptorSet{p.current_texture_ds},
-            null,
-        );
-    }
 }
 
 fn setVertexBuffer(ptr: *anyopaque, slot: u32, buf: *const gpu.Buffer, offset: usize, _: usize) void {

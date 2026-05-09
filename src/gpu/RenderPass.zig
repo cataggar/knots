@@ -1,5 +1,6 @@
 const Buffer = @import("Buffer.zig");
 const Pipeline = @import("Pipeline.zig");
+const BindGroup = @import("BindGroup.zig");
 const Texture = @import("Texture.zig");
 
 const RenderPass = @This();
@@ -25,7 +26,7 @@ vtable: *const VTable,
 pub const VTable = struct {
     end: *const fn (ptr: *anyopaque) void,
     bindPipeline: *const fn (ptr: *anyopaque, pipeline: *const Pipeline) void,
-    rebindTextureSet: *const fn (ptr: *anyopaque) void,
+    setBindGroup: *const fn (ptr: *anyopaque, group_index: u32, group: *const BindGroup) void,
     setVertexBuffer: *const fn (ptr: *anyopaque, slot: u32, buf: *const Buffer, offset: usize, size: usize) void,
     setIndexBuffer: *const fn (ptr: *anyopaque, buf: *const Buffer, offset: usize, size: usize) void,
     setScissorRect: *const fn (ptr: *anyopaque, x: u32, y: u32, w: u32, h: u32) void,
@@ -40,8 +41,8 @@ pub inline fn bindPipeline(self: *const RenderPass, pipeline: *const Pipeline) v
     self.vtable.bindPipeline(self.ptr, pipeline);
 }
 
-pub inline fn rebindTextureSet(self: *const RenderPass) void {
-    self.vtable.rebindTextureSet(self.ptr);
+pub inline fn setBindGroup(self: *const RenderPass, group_index: u32, group: *const BindGroup) void {
+    self.vtable.setBindGroup(self.ptr, group_index, group);
 }
 
 pub inline fn setVertexBuffer(self: *const RenderPass, slot: u32, buf: *const Buffer, offset: usize, size: usize) void {

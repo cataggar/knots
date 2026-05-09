@@ -2,7 +2,6 @@ const std = @import("std");
 const vk = @import("vk");
 const gpu = @import("gpu");
 const Context = @import("Context.zig");
-const Sampler = @import("Sampler.zig");
 
 const NativeHandle = struct {
     image: vk.Image,
@@ -18,9 +17,7 @@ allocator: std.mem.Allocator,
 image: vk.Image,
 memory: vk.DeviceMemory,
 image_view: vk.ImageView,
-descriptor_set: vk.DescriptorSet,
-descriptor_written: bool,
-sampler_bound: bool,
+ready: bool,
 width: u32,
 height: u32,
 format: gpu.Texture.Format,
@@ -67,58 +64,19 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Texture.Des
     }, null);
     errdefer ctx.vkd.destroyImageView(ctx.device, image_view, null);
 
-    const descriptor_set = try ctx.allocateDescriptorSet(ctx.texture_descriptor_set_layout);
-
-    if (desc.sampler) |s| {
-        const vk_sampler: *Sampler = @ptrCast(@alignCast(s.ptr));
-        ctx.vkd.updateDescriptorSets(ctx.device, &.{.{
-            .dst_set = descriptor_set,
-            .dst_binding = 0,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .descriptor_type = .combined_image_sampler,
-            .p_image_info = &[_]vk.DescriptorImageInfo{.{
-                .sampler = vk_sampler.sampler,
-                .image_view = image_view,
-                .image_layout = .shader_read_only_optimal,
-            }},
-            .p_buffer_info = undefined,
-            .p_texel_buffer_view = undefined,
-        }}, null);
-    }
-
     const self = try allocator.create(Texture);
     self.* = .{
         .allocator = allocator,
         .image = image,
         .memory = memory,
         .image_view = image_view,
-        .descriptor_set = descriptor_set,
-        .descriptor_written = false,
-        .sampler_bound = desc.sampler != null,
+        .ready = false,
         .width = desc.width,
         .height = desc.height,
         .format = desc.format,
         .ctx = ctx,
     };
     return .{ .ptr = self, .vtable = &vtable };
-}
-
-pub fn writeDescriptor(self: *Texture, sampler: *Sampler) void {
-    self.ctx.vkd.updateDescriptorSets(self.ctx.device, &.{.{
-        .dst_set = self.descriptor_set,
-        .dst_binding = 0,
-        .dst_array_element = 0,
-        .descriptor_count = 1,
-        .descriptor_type = .combined_image_sampler,
-        .p_image_info = &[_]vk.DescriptorImageInfo{.{
-            .sampler = sampler.sampler,
-            .image_view = self.image_view,
-            .image_layout = .shader_read_only_optimal,
-        }},
-        .p_buffer_info = undefined,
-        .p_texel_buffer_view = undefined,
-    }}, null);
 }
 
 const vtable = gpu.Texture.VTable{
@@ -198,12 +156,12 @@ fn writeImpl(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, widt
     }});
 
     try ctx.endSingleTimeCommands(cmd);
-    self.descriptor_written = true;
+    self.ready = true;
 }
 
 fn isReady(ptr: *anyopaque) bool {
     const self: *Texture = @ptrCast(@alignCast(ptr));
-    return self.descriptor_written;
+    return self.ready;
 }
 
 fn bytesPerPixel(format: gpu.Texture.Format) u32 {

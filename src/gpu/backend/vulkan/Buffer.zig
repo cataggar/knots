@@ -11,10 +11,10 @@ memory: vk.DeviceMemory,
 mapped: [*]u8,
 size: usize,
 usage: vk.BufferUsageFlags,
-vkd: Context.DeviceDispatch,
+vkd: vk.DeviceWrapper,
 device: vk.Device,
 physical_device: vk.PhysicalDevice,
-vki: Context.InstanceDispatch,
+vki: vk.InstanceWrapper,
 
 pub fn create(allocator: std.mem.Allocator, ctx: *Context, size: usize, usage: gpu.Buffer.Usage) !gpu.Buffer {
     const vk_usage = toVkUsage(usage);

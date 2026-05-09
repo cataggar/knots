@@ -4,6 +4,7 @@ const gpu = @import("gpu");
 const Buffer = @import("Buffer.zig");
 const Frame = @import("Frame.zig");
 const Pipeline = @import("Pipeline.zig");
+const BindGroup = @import("BindGroup.zig");
 const Texture = @import("Texture.zig");
 const Sampler = @import("Sampler.zig");
 
@@ -91,9 +92,12 @@ const vtable = gpu.Context.VTable{
     .createBuffer = &createBuffer,
     .createFrame = &createFrame,
     .createPipeline = &createPipeline,
+    .createBindGroup = &createBindGroup,
     .createTexture = &createTexture,
     .createSampler = &createSampler,
     .resize = &resize,
+    .surfaceFormat = &surfaceFormat,
+    .surfaceIsSrgb = &surfaceIsSrgb,
 };
 
 fn deinit(ptr: *anyopaque) void {
@@ -122,6 +126,11 @@ fn createPipeline(ptr: *anyopaque, desc: gpu.Pipeline.Desc) anyerror!gpu.Pipelin
     return Pipeline.create(self.allocator, self, desc);
 }
 
+fn createBindGroup(ptr: *anyopaque, desc: gpu.BindGroup.Desc) anyerror!gpu.BindGroup {
+    const self: *Context = @ptrCast(@alignCast(ptr));
+    return BindGroup.create(self.allocator, self, desc);
+}
+
 fn createTexture(ptr: *anyopaque, desc: gpu.Texture.Desc) anyerror!gpu.Texture {
     const self: *Context = @ptrCast(@alignCast(ptr));
     return Texture.create(self.allocator, self.device, self.queue, desc);
@@ -141,6 +150,29 @@ fn resize(ptr: *anyopaque, width: u32, height: u32) anyerror!void {
         .device = self.device,
         .present_mode = self.present_mode,
     });
+}
+
+fn surfaceFormat(ptr: *anyopaque) gpu.Texture.Format {
+    const self: *Context = @ptrCast(@alignCast(ptr));
+    return wgpuFormatToGpu(self.surface_format);
+}
+
+fn surfaceIsSrgb(ptr: *anyopaque) bool {
+    const self: *Context = @ptrCast(@alignCast(ptr));
+    return self.surface_is_srgb;
+}
+
+fn wgpuFormatToGpu(f: wgpu.Texture.Format) gpu.Texture.Format {
+    return switch (f) {
+        .rgba8_unorm => .rgba8,
+        .rgba8_unorm_srgb => .rgba8_srgb,
+        .bgra8_unorm => .bgra8,
+        .bgra8_unorm_srgb => .bgra8_srgb,
+        .r8_unorm => .r8,
+        .rgba32_float => .rgba32f,
+        .rgba32_uint => .rgba32u,
+        else => @panic("surface format not representable as gpu.Texture.Format"),
+    };
 }
 
 fn chooseSurfaceFormat(capabilities: wgpu.Surface.Capabilities) !wgpu.Texture.Format {

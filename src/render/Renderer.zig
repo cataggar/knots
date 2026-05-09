@@ -6,6 +6,7 @@ const Window = @import("window").Window;
 const builtin = @import("builtin");
 
 const DrawList = @import("DrawList.zig");
+const pipelines = @import("pipelines.zig");
 
 const INIT_VERTEX_BYTES = 256 * 1024;
 const INIT_INSTANCE_BYTES = 64 * 1024;
@@ -67,6 +68,18 @@ ctx: gpu.Context,
 pipeline: gpu.Pipeline,
 instance_pipeline: gpu.Pipeline,
 text_pipeline: gpu.Pipeline,
+
+vertex_uniform_buf: gpu.Buffer,
+instance_uniform_buf: gpu.Buffer,
+text_uniform_buf: gpu.Buffer,
+vertex_uniform_bg: gpu.BindGroup,
+instance_uniform_bg: gpu.BindGroup,
+text_uniform_bg: gpu.BindGroup,
+
+atlas_texture_bg: gpu.BindGroup,
+text_curveband_bg: gpu.BindGroup,
+texture_bgs: std.AutoHashMap(u32, gpu.BindGroup),
+
 vertex_buf: gpu.Buffer,
 index_buf: gpu.Buffer,
 instance_buf: gpu.Buffer,
@@ -101,14 +114,47 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
     const ctx = try cfg.gpu_backend.init(allocator, window.getWindowHandle(), ctx_cfg);
     errdefer ctx.deinit();
 
-    const pipeline = try ctx.createPipeline(.{ .kind = .vertex });
+    const srgb_surface = ctx.surfaceIsSrgb();
+
+    const pipeline = try ctx.createPipeline(pipelines.primitivesDesc(cfg.gpu_backend, .vertex, srgb_surface));
     errdefer pipeline.deinit();
 
-    const instance_pipeline = try ctx.createPipeline(.{ .kind = .instance });
+    const instance_pipeline = try ctx.createPipeline(pipelines.primitivesDesc(cfg.gpu_backend, .instance, srgb_surface));
     errdefer instance_pipeline.deinit();
 
-    const text_pipeline = try ctx.createPipeline(.{ .kind = .text });
+    const text_pipeline = try ctx.createPipeline(pipelines.slugDesc(cfg.gpu_backend, srgb_surface));
     errdefer text_pipeline.deinit();
+
+    const vertex_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
+    errdefer vertex_uniform_buf.deinit();
+    const instance_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
+    errdefer instance_uniform_buf.deinit();
+    const text_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.SlugUniforms), .{ .uniform = true, .copy_dst = true });
+    errdefer text_uniform_buf.deinit();
+
+    const vertex_uniform_bg = try ctx.createBindGroup(.{
+        .label = "vertex_uniform_bg",
+        .pipeline = &pipeline,
+        .layout_index = 0,
+        .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &vertex_uniform_buf, .size = @sizeOf(pipelines.ViewportUniform) } } }},
+    });
+    errdefer vertex_uniform_bg.deinit();
+
+    const instance_uniform_bg = try ctx.createBindGroup(.{
+        .label = "instance_uniform_bg",
+        .pipeline = &instance_pipeline,
+        .layout_index = 0,
+        .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &instance_uniform_buf, .size = @sizeOf(pipelines.ViewportUniform) } } }},
+    });
+    errdefer instance_uniform_bg.deinit();
+
+    const text_uniform_bg = try ctx.createBindGroup(.{
+        .label = "text_uniform_bg",
+        .pipeline = &text_pipeline,
+        .layout_index = 0,
+        .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &text_uniform_buf, .size = @sizeOf(pipelines.SlugUniforms) } } }},
+    });
+    errdefer text_uniform_bg.deinit();
 
     const vertex_buf = try ctx.createBuffer(INIT_VERTEX_BYTES, .{ .vertex = true, .copy_dst = true });
     errdefer vertex_buf.deinit();
@@ -136,6 +182,17 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
     const dummy_pixel = [_]u8{0};
     try atlas_texture.write(&dummy_pixel, 1, 0, 0, 1, 1, null);
 
+    const atlas_texture_bg = try ctx.createBindGroup(.{
+        .label = "atlas_texture_bg",
+        .pipeline = &pipeline,
+        .layout_index = 1,
+        .entries = &.{
+            .{ .binding = 0, .resource = .{ .texture_view = &atlas_texture } },
+            .{ .binding = 1, .resource = .{ .sampler = &atlas_sampler } },
+        },
+    });
+    errdefer atlas_texture_bg.deinit();
+
     const curve_texture = try ctx.createTexture(.{
         .width = CURVE_TEX_WIDTH,
         .height = INITIAL_TEX_HEIGHT,
@@ -151,6 +208,17 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .usage = .{ .texture_binding = true, .copy_dst = true },
     });
     errdefer band_texture.deinit();
+
+    const text_curveband_bg = try ctx.createBindGroup(.{
+        .label = "text_curveband_bg",
+        .pipeline = &text_pipeline,
+        .layout_index = 1,
+        .entries = &.{
+            .{ .binding = 0, .resource = .{ .texture_view = &curve_texture } },
+            .{ .binding = 1, .resource = .{ .texture_view = &band_texture } },
+        },
+    });
+    errdefer text_curveband_bg.deinit();
 
     const index_buf = try ctx.createBuffer(INIT_INDEX_COUNT * @sizeOf(u32), .{ .index = true, .copy_dst = true });
     errdefer index_buf.deinit();
@@ -171,6 +239,15 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .pipeline = pipeline,
         .instance_pipeline = instance_pipeline,
         .text_pipeline = text_pipeline,
+        .vertex_uniform_buf = vertex_uniform_buf,
+        .instance_uniform_buf = instance_uniform_buf,
+        .text_uniform_buf = text_uniform_buf,
+        .vertex_uniform_bg = vertex_uniform_bg,
+        .instance_uniform_bg = instance_uniform_bg,
+        .text_uniform_bg = text_uniform_bg,
+        .atlas_texture_bg = atlas_texture_bg,
+        .text_curveband_bg = text_curveband_bg,
+        .texture_bgs = .init(allocator),
         .vertex_buf = vertex_buf,
         .index_buf = index_buf,
         .instance_buf = instance_buf,
@@ -193,6 +270,20 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
 pub fn deinit(self: *Renderer) void {
     self.draw_list.deinit();
     self.frame.deinit();
+
+    var it = self.texture_bgs.valueIterator();
+    while (it.next()) |bg| bg.deinit();
+    self.texture_bgs.deinit();
+
+    self.atlas_texture_bg.deinit();
+    self.text_curveband_bg.deinit();
+    self.vertex_uniform_bg.deinit();
+    self.instance_uniform_bg.deinit();
+    self.text_uniform_bg.deinit();
+    self.vertex_uniform_buf.deinit();
+    self.instance_uniform_buf.deinit();
+    self.text_uniform_buf.deinit();
+
     for (self.texture_slots.items) |*slot| {
         if (slot.binding) |*reg| {
             reg.texture.deinit();
@@ -261,6 +352,7 @@ pub fn destroyTexture(self: *Renderer, id: u32) !void {
     const slot = &self.texture_slots.items[idx];
     if ((id >> TEX_INDEX_BITS) != slot.gen) return error.InvalidTextureId;
     if (slot.binding) |*reg| {
+        if (self.texture_bgs.fetchRemove(id)) |kv| kv.value.deinit();
         reg.texture.deinit();
         reg.sampler.deinit();
         slot.binding = null;
@@ -339,9 +431,6 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
         return;
     }
 
-    try self.pipeline.bindTexture(&self.atlas_texture, &self.atlas_sampler);
-    try self.instance_pipeline.bindTexture(&self.atlas_texture, &self.atlas_sampler);
-
     self.updateViewport(content_scale);
     const sizes = try self.uploadFrameData(dl);
 
@@ -379,15 +468,20 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
 }
 
 fn updateViewport(self: *Renderer, content_scale: f32) void {
-    // Vertex coords are in logical pixels; surface/scissor are in physical pixels.
-    // The GPU rasterizer stretches NDC to the physical surface, so we feed the
-    // shader the logical viewport size for correct pixel->NDC mapping.
     const logical_w: u32 = @max(1, @as(u32, @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_width)) / content_scale)));
     const logical_h: u32 = @max(1, @as(u32, @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_height)) / content_scale)));
     if (logical_w == self.cached_vp_width and logical_h == self.cached_vp_height) return;
-    self.pipeline.updateViewport(logical_w, logical_h);
-    self.instance_pipeline.updateViewport(logical_w, logical_h);
-    self.text_pipeline.updateViewport(logical_w, logical_h);
+
+    const w_f: f32 = @floatFromInt(logical_w);
+    const h_f: f32 = @floatFromInt(logical_h);
+    const viewport: pipelines.ViewportUniform = .{ w_f, h_f };
+    self.vertex_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
+    self.instance_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
+
+    const y_down_clip = self.cfg.gpu_backend == .vulkan;
+    const u = pipelines.computeSlugUniforms(w_f, h_f, y_down_clip);
+    self.text_uniform_buf.load(pipelines.SlugUniforms, &.{u});
+
     self.cached_vp_width = logical_w;
     self.cached_vp_height = logical_h;
 }
@@ -414,16 +508,22 @@ fn bindKind(self: *Renderer, pass: *gpu.RenderPass, kind: DrawList.CommandKind, 
     switch (kind) {
         .vertex => {
             pass.bindPipeline(&self.pipeline);
+            pass.setBindGroup(0, &self.vertex_uniform_bg);
+            pass.setBindGroup(1, &self.atlas_texture_bg);
             pass.setVertexBuffer(0, &self.vertex_buf, 0, sizes.verts_bytes);
             pass.setIndexBuffer(&self.index_buf, 0, sizes.indices_bytes);
         },
         .instance => {
             pass.bindPipeline(&self.instance_pipeline);
+            pass.setBindGroup(0, &self.instance_uniform_bg);
+            pass.setBindGroup(1, &self.atlas_texture_bg);
             pass.setVertexBuffer(0, &self.instance_buf, 0, sizes.insts_bytes);
             pass.setIndexBuffer(&self.unit_index_buf, 0, 6 * @sizeOf(u32));
         },
         .text => {
             pass.bindPipeline(&self.text_pipeline);
+            pass.setBindGroup(0, &self.text_uniform_bg);
+            pass.setBindGroup(1, &self.text_curveband_bg);
             pass.setVertexBuffer(0, &self.text_vertex_buf, 0, sizes.tverts_bytes);
             pass.setIndexBuffer(&self.text_index_buf, 0, sizes.tindices_bytes);
         },
@@ -431,15 +531,31 @@ fn bindKind(self: *Renderer, pass: *gpu.RenderPass, kind: DrawList.CommandKind, 
 }
 
 fn bindTextureForCommand(self: *Renderer, pass: *gpu.RenderPass, texture: ?u32) !void {
-    const reg_opt: ?*TextureBinding = if (texture) |tex_id| (self.lookupTexture(tex_id) catch null) else null;
-    if (reg_opt) |reg| {
-        try self.pipeline.bindTexture(&reg.texture, &reg.sampler);
-        try self.instance_pipeline.bindTexture(&reg.texture, &reg.sampler);
+    if (texture) |tex_id| {
+        const reg = (self.lookupTexture(tex_id) catch null) orelse {
+            pass.setBindGroup(1, &self.atlas_texture_bg);
+            return;
+        };
+        const bg = try self.getOrCreateTextureBg(tex_id, reg);
+        pass.setBindGroup(1, &bg);
     } else {
-        try self.pipeline.bindTexture(&self.atlas_texture, &self.atlas_sampler);
-        try self.instance_pipeline.bindTexture(&self.atlas_texture, &self.atlas_sampler);
+        pass.setBindGroup(1, &self.atlas_texture_bg);
     }
-    pass.rebindTextureSet();
+}
+
+fn getOrCreateTextureBg(self: *Renderer, tex_id: u32, reg: *TextureBinding) !gpu.BindGroup {
+    if (self.texture_bgs.get(tex_id)) |bg| return bg;
+    const bg = try self.ctx.createBindGroup(.{
+        .label = "user_texture_bg",
+        .pipeline = &self.pipeline,
+        .layout_index = 1,
+        .entries = &.{
+            .{ .binding = 0, .resource = .{ .texture_view = &reg.texture } },
+            .{ .binding = 1, .resource = .{ .sampler = &reg.sampler } },
+        },
+    });
+    try self.texture_bgs.put(tex_id, bg);
+    return bg;
 }
 
 fn applyClip(pass: *gpu.RenderPass, clip_rect: ?[4]f32, content_scale: f32, phys_w: u32, phys_h: u32) void {
@@ -468,6 +584,8 @@ fn syncGlyphBuilder(self: *Renderer, gb: *text.GlyphBuilder) !void {
     const needed_curve_h = gb.curveTextureHeight();
     const needed_band_h = gb.bandTextureHeight();
 
+    var curveband_dirty = false;
+
     if (needed_curve_h > self.curve_tex_height) {
         try self.frame.waitForCompletion();
         self.curve_texture.deinit();
@@ -480,6 +598,7 @@ fn syncGlyphBuilder(self: *Renderer, gb: *text.GlyphBuilder) !void {
         });
         self.curve_tex_height = new_h;
         gb.markCurveDirtyTo(needed_curve_h);
+        curveband_dirty = true;
     }
     if (needed_band_h > self.band_tex_height) {
         try self.frame.waitForCompletion();
@@ -493,6 +612,7 @@ fn syncGlyphBuilder(self: *Renderer, gb: *text.GlyphBuilder) !void {
         });
         self.band_tex_height = new_h;
         gb.markBandDirtyTo(needed_band_h);
+        curveband_dirty = true;
     }
 
     if (gb.curveDirtyRange()) |r| {
@@ -519,7 +639,18 @@ fn syncGlyphBuilder(self: *Renderer, gb: *text.GlyphBuilder) !void {
     }
     gb.markClean();
 
-    self.text_pipeline.bindCurveBand(&self.curve_texture, &self.band_texture);
+    if (curveband_dirty) {
+        self.text_curveband_bg.deinit();
+        self.text_curveband_bg = try self.ctx.createBindGroup(.{
+            .label = "text_curveband_bg",
+            .pipeline = &self.text_pipeline,
+            .layout_index = 1,
+            .entries = &.{
+                .{ .binding = 0, .resource = .{ .texture_view = &self.curve_texture } },
+                .{ .binding = 1, .resource = .{ .texture_view = &self.band_texture } },
+            },
+        });
+    }
 }
 
 fn uploadDirtyRows(

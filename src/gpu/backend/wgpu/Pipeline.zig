@@ -2,166 +2,90 @@ const std = @import("std");
 const wgpu = @import("wgpu");
 const gpu = @import("gpu");
 const Context = @import("Context.zig");
-const Texture = @import("Texture.zig");
-const Sampler = @import("Sampler.zig");
 
 const Pipeline = @This();
 
-const ui_primitives_src = @embedFile("shaders/ui_primitives.wgsl");
-const slug_src = @embedFile("shaders/slug.wgsl");
-
-const SlugUniforms = extern struct {
-    mvp_row0: [4]f32,
-    mvp_row1: [4]f32,
-    mvp_row2: [4]f32,
-    mvp_row3: [4]f32,
-    viewport: [4]f32,
-};
-
 allocator: std.mem.Allocator,
-kind: gpu.Pipeline.Kind,
 render_pipeline: wgpu.RenderPipeline,
-bind_group_layout: wgpu.BindGroupLayout,
-bind_group: ?wgpu.BindGroup,
-uniform_buffer: wgpu.Buffer,
-uniform_size: usize,
-queue: wgpu.Queue,
+bind_group_layouts: []wgpu.BindGroupLayout,
 device: wgpu.Device,
 
 pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Pipeline.Desc) !gpu.Pipeline {
-    return switch (desc.kind) {
-        .vertex, .instance => createPrimitives(allocator, ctx, desc),
-        .text => createSlug(allocator, ctx),
+    const wgsl = switch (desc.shader) {
+        .wgsl => |s| s,
+        .spirv => return error.UnsupportedShaderSource,
     };
-}
 
-fn createPrimitives(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Pipeline.Desc) !gpu.Pipeline {
-    const self = try allocator.create(Pipeline);
-    errdefer allocator.destroy(self);
-
-    const shader_module = try wgpu.ShaderModule.init(ctx.device.device, .{ .wgsl = ui_primitives_src });
+    const shader_module = try wgpu.ShaderModule.init(ctx.device.device, .{ .wgsl = wgsl });
     defer shader_module.deinit();
 
-    const uniform_size = 2 * @sizeOf(f32);
-    const uniform_buffer = try ctx.device.createBuffer(.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = uniform_size,
-        .label = "",
-    });
+    const bgls = try allocator.alloc(wgpu.BindGroupLayout, desc.bind_group_layouts.len);
+    errdefer allocator.free(bgls);
+    var bgls_created: usize = 0;
+    errdefer for (bgls[0..bgls_created]) |bgl| bgl.deinit();
 
-    const bgl_entries = &[_]wgpu.BindGroupLayout.Entry{
-        .{ .binding = 0, .visibility = .{ .vertex = true }, .buffer = .{ .binding_type = .uniform } },
-        .{ .binding = 1, .visibility = .{ .fragment = true }, .texture = .{ .sample_type = .float, .view_dimension = .@"2d" } },
-        .{ .binding = 2, .visibility = .{ .fragment = true }, .sampler = .{ .binding_type = .filtering } },
-    };
+    var entry_buf: [16]wgpu.BindGroupLayout.Entry = undefined;
 
-    const bgl = try ctx.device.createBindGroupLayout(.{ .label = "unified_bgl", .entries = bgl_entries });
-    const pipeline_layout = try ctx.device.createPipelineLayout("unified_pipeline_layout", &.{bgl});
+    for (desc.bind_group_layouts, 0..) |bgl_desc, bgl_i| {
+        if (bgl_desc.entries.len > entry_buf.len) return error.TooManyBindGroupEntries;
+        for (bgl_desc.entries, 0..) |e, i| {
+            entry_buf[i] = toWgpuBglEntry(e);
+        }
+        bgls[bgl_i] = try ctx.device.createBindGroupLayout(.{
+            .label = bgl_desc.label,
+            .entries = entry_buf[0..bgl_desc.entries.len],
+        });
+        bgls_created += 1;
+    }
+
+    const pipeline_layout = try ctx.device.createPipelineLayout(desc.label, bgls);
     defer pipeline_layout.deinit();
 
-    const vertex_attributes = toAttributes(gpu.Vertex);
-    const instance_attributes = toAttributes(gpu.Instance);
+    var attr_buf: [4][16]wgpu.RenderPipeline.VertexAttribute = undefined;
+    var vbl_buf: [4]wgpu.RenderPipeline.VertexBufferLayout = undefined;
+    if (desc.vertex_buffers.len > vbl_buf.len) return error.TooManyVertexBuffers;
+    for (desc.vertex_buffers, 0..) |vb, i| {
+        if (vb.attributes.len > attr_buf[i].len) return error.TooManyVertexAttributes;
+        for (vb.attributes, 0..) |a, j| {
+            attr_buf[i][j] = .{
+                .shader_location = a.location,
+                .offset = a.offset,
+                .format = toWgpuVertexFormat(a.format),
+            };
+        }
+        vbl_buf[i] = .{
+            .array_stride = vb.stride,
+            .step_mode = switch (vb.step_mode) {
+                .vertex => .vertex,
+                .instance => .instance,
+            },
+            .attributes = attr_buf[i][0..vb.attributes.len],
+        };
+    }
 
-    const vertex_buffers: []const wgpu.RenderPipeline.VertexBufferLayout = switch (desc.kind) {
-        .vertex => &.{.{ .array_stride = @sizeOf(gpu.Vertex), .step_mode = .vertex, .attributes = &vertex_attributes }},
-        .instance => &.{.{ .array_stride = @sizeOf(gpu.Instance), .step_mode = .instance, .attributes = &instance_attributes }},
-        .text => unreachable,
-    };
-
-    const vs_entry: []const u8 = switch (desc.kind) {
-        .vertex => "vs_main",
-        .instance => "vs_instance_main",
-        .text => unreachable,
-    };
+    const target_format = if (desc.color_target.format) |f| toWgpuFormat(f) else ctx.surface_format;
+    const blend = if (desc.color_target.blend) |b| toWgpuBlend(b) else null;
 
     const pipeline = try ctx.device.createRenderPipeline(.{
-        .label = "unified_pipeline",
+        .label = desc.label,
         .layout = pipeline_layout,
-        .vertex = .{ .module = shader_module, .entry_point = vs_entry, .buffers = vertex_buffers },
+        .vertex = .{
+            .module = shader_module,
+            .entry_point = desc.vs_entry,
+            .buffers = vbl_buf[0..desc.vertex_buffers.len],
+        },
         .fragment = .{
             .module = shader_module,
-            .entry_point = if (ctx.surface_is_srgb) "fs_main" else "fs_main_srgb_encode",
-            .targets = &.{.{
-                .format = ctx.surface_format,
-                .blend = .{
-                    .color = .{ .src_factor = .src_alpha, .dst_factor = .one_minus_src_alpha, .operation = .add },
-                    .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha, .operation = .add },
-                },
-            }},
+            .entry_point = desc.fs_entry,
+            .targets = &.{.{ .format = target_format, .blend = blend }},
         },
     });
 
-    self.* = .{
-        .allocator = allocator,
-        .kind = desc.kind,
-        .render_pipeline = pipeline,
-        .bind_group_layout = bgl,
-        .bind_group = null,
-        .uniform_buffer = uniform_buffer,
-        .uniform_size = uniform_size,
-        .queue = ctx.queue,
-        .device = ctx.device,
-    };
-    return .{ .ptr = self, .vtable = &vtable };
-}
-
-fn createSlug(allocator: std.mem.Allocator, ctx: *Context) !gpu.Pipeline {
     const self = try allocator.create(Pipeline);
-    errdefer allocator.destroy(self);
-
-    const shader_module = try wgpu.ShaderModule.init(ctx.device.device, .{ .wgsl = slug_src });
-    defer shader_module.deinit();
-
-    const uniform_size = @sizeOf(SlugUniforms);
-    const uniform_buffer = try ctx.device.createBuffer(.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = uniform_size,
-        .label = "slug_uniforms",
-    });
-
-    const bgl_entries = &[_]wgpu.BindGroupLayout.Entry{
-        .{ .binding = 0, .visibility = .{ .vertex = true, .fragment = true }, .buffer = .{ .binding_type = .uniform } },
-        .{ .binding = 1, .visibility = .{ .fragment = true }, .texture = .{ .sample_type = .unfilterable_float, .view_dimension = .@"2d" } },
-        .{ .binding = 2, .visibility = .{ .fragment = true }, .texture = .{ .sample_type = .uint, .view_dimension = .@"2d" } },
-    };
-
-    const bgl = try ctx.device.createBindGroupLayout(.{ .label = "slug_bgl", .entries = bgl_entries });
-    const pipeline_layout = try ctx.device.createPipelineLayout("slug_pipeline_layout", &.{bgl});
-    defer pipeline_layout.deinit();
-
-    const slug_attributes = toAttributes(gpu.SlugVertex);
-    const vertex_buffers: []const wgpu.RenderPipeline.VertexBufferLayout = &.{.{
-        .array_stride = @sizeOf(gpu.SlugVertex),
-        .step_mode = .vertex,
-        .attributes = &slug_attributes,
-    }};
-
-    const pipeline = try ctx.device.createRenderPipeline(.{
-        .label = "slug_pipeline",
-        .layout = pipeline_layout,
-        .vertex = .{ .module = shader_module, .entry_point = "vs_main", .buffers = vertex_buffers },
-        .fragment = .{
-            .module = shader_module,
-            .entry_point = if (ctx.surface_is_srgb) "fs_main" else "fs_main_srgb_encode",
-            .targets = &.{.{
-                .format = ctx.surface_format,
-                .blend = .{
-                    .color = .{ .src_factor = .src_alpha, .dst_factor = .one_minus_src_alpha, .operation = .add },
-                    .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha, .operation = .add },
-                },
-            }},
-        },
-    });
-
     self.* = .{
         .allocator = allocator,
-        .kind = .text,
         .render_pipeline = pipeline,
-        .bind_group_layout = bgl,
-        .bind_group = null,
-        .uniform_buffer = uniform_buffer,
-        .uniform_size = uniform_size,
-        .queue = ctx.queue,
+        .bind_group_layouts = bgls,
         .device = ctx.device,
     };
     return .{ .ptr = self, .vtable = &vtable };
@@ -169,111 +93,92 @@ fn createSlug(allocator: std.mem.Allocator, ctx: *Context) !gpu.Pipeline {
 
 const vtable = gpu.Pipeline.VTable{
     .deinit = &deinit,
-    .updateViewport = &updateViewport,
-    .bindTexture = &bindTexture,
-    .bindCurveBand = &bindCurveBand,
 };
 
 fn deinit(ptr: *anyopaque) void {
     const self: *Pipeline = @ptrCast(@alignCast(ptr));
     self.render_pipeline.deinit();
-    self.bind_group_layout.deinit();
-    if (self.bind_group) |bg| bg.deinit();
-    self.uniform_buffer.deinit();
+    for (self.bind_group_layouts) |bgl| bgl.deinit();
+    self.allocator.free(self.bind_group_layouts);
     self.allocator.destroy(self);
 }
 
-fn updateViewport(ptr: *anyopaque, width: u32, height: u32) void {
-    const self: *Pipeline = @ptrCast(@alignCast(ptr));
-    const w_f: f32 = @floatFromInt(width);
-    const h_f: f32 = @floatFromInt(height);
-    switch (self.kind) {
-        .vertex, .instance => {
-            const viewport = [2]f32{ w_f, h_f };
-            self.queue.writeBuffer(f32, self.uniform_buffer, 0, &viewport);
-        },
-        .text => {
-            // Screen-space pos.xy -> clip space orthographic projection,
-            // y-flipped to match the rest of the UI (window y-down).
-            const u = SlugUniforms{
-                .mvp_row0 = .{ 2.0 / w_f, 0, 0, -1 },
-                .mvp_row1 = .{ 0, -2.0 / h_f, 0, 1 },
-                .mvp_row2 = .{ 0, 0, 1, 0 },
-                .mvp_row3 = .{ 0, 0, 0, 1 },
-                .viewport = .{ w_f, h_f, 0, 0 },
-            };
-            self.queue.writeBuffer(SlugUniforms, self.uniform_buffer, 0, &.{u});
-        },
-    }
-}
-
-fn bindTexture(ptr: *anyopaque, texture_ptr: *gpu.Texture, sampler_ptr: *gpu.Sampler) !void {
-    const self: *Pipeline = @ptrCast(@alignCast(ptr));
-    if (self.kind == .text) return; // text pipeline uses bindCurveBand
-
-    const tex: *Texture = @ptrCast(@alignCast(texture_ptr.ptr));
-    const samp: *Sampler = @ptrCast(@alignCast(sampler_ptr.ptr));
-
-    if (self.bind_group) |bg| bg.deinit();
-
-    self.bind_group = try self.device.createBindGroup(.{
-        .label = "unified_bg",
-        .layout = self.bind_group_layout,
-        .entries = &.{
-            .{ .binding = 0, .buffer = self.uniform_buffer, .size = self.uniform_size },
-            .{ .binding = 1, .texture_view = tex.view },
-            .{ .binding = 2, .sampler = samp.sampler },
-        },
-    });
-}
-
-fn bindCurveBand(ptr: *anyopaque, curve_tex_ptr: *gpu.Texture, band_tex_ptr: *gpu.Texture) void {
-    const self: *Pipeline = @ptrCast(@alignCast(ptr));
-    if (self.kind != .text) return;
-
-    const ctex: *Texture = @ptrCast(@alignCast(curve_tex_ptr.ptr));
-    const btex: *Texture = @ptrCast(@alignCast(band_tex_ptr.ptr));
-
-    if (self.bind_group) |bg| bg.deinit();
-
-    self.bind_group = self.device.createBindGroup(.{
-        .label = "slug_bg",
-        .layout = self.bind_group_layout,
-        .entries = &.{
-            .{ .binding = 0, .buffer = self.uniform_buffer, .size = self.uniform_size },
-            .{ .binding = 1, .texture_view = ctex.view },
-            .{ .binding = 2, .texture_view = btex.view },
-        },
-    }) catch @panic("Failed to recreate slug bind group");
-}
-
-fn toAttributes(comptime T: type) [@typeInfo(T).@"struct".fields.len]wgpu.RenderPipeline.VertexAttribute {
-    const fields = @typeInfo(T).@"struct".fields;
-    var attrs: [fields.len]wgpu.RenderPipeline.VertexAttribute = undefined;
-
-    inline for (fields, 0..) |field, i| {
-        attrs[i] = .{
-            .shader_location = i,
-            .offset = @offsetOf(T, field.name),
-            .format = switch (@typeInfo(field.type)) {
-                inline .array => |arr| switch (arr.child) {
-                    inline f32 => switch (arr.len) {
-                        inline 2 => .float32x2,
-                        inline 3 => .float32x3,
-                        inline 4 => .float32x4,
-                        inline else => unreachable,
-                    },
-                    inline else => unreachable,
-                },
-                inline .float => |float| switch (float.bits) {
-                    inline 16 => .float16,
-                    inline 32 => .float32,
-                    inline else => unreachable,
-                },
-                inline else => unreachable,
+fn toWgpuBglEntry(e: gpu.Pipeline.BindGroupLayoutEntry) wgpu.BindGroupLayout.Entry {
+    var out: wgpu.BindGroupLayout.Entry = .{
+        .binding = e.binding,
+        .visibility = .{ .vertex = e.visibility.vertex, .fragment = e.visibility.fragment },
+    };
+    switch (e.type) {
+        .uniform_buffer => out.buffer = .{ .binding_type = .uniform },
+        .sampled_texture => |st| out.texture = .{
+            .sample_type = switch (st) {
+                .float => .float,
+                .unfilterable_float => .unfilterable_float,
+                .uint => .uint,
             },
-        };
+            .view_dimension = .@"2d",
+        },
+        .sampler => |sb| out.sampler = .{
+            .binding_type = switch (sb) {
+                .filtering => .filtering,
+                .non_filtering => .non_filtering,
+            },
+        },
     }
+    return out;
+}
 
-    return attrs;
+fn toWgpuVertexFormat(f: gpu.Pipeline.VertexFormat) wgpu.RenderPipeline.VertexFormat {
+    return switch (f) {
+        .f32 => .float32,
+        .f32x2 => .float32x2,
+        .f32x3 => .float32x3,
+        .f32x4 => .float32x4,
+    };
+}
+
+fn toWgpuFormat(f: gpu.Texture.Format) wgpu.Texture.Format {
+    return switch (f) {
+        .rgba8 => .rgba8_unorm,
+        .rgba8_srgb => .rgba8_unorm_srgb,
+        .bgra8 => .bgra8_unorm,
+        .bgra8_srgb => .bgra8_unorm_srgb,
+        .r8 => .r8_unorm,
+        .rgba32f => .rgba32_float,
+        .rgba32u => .rgba32_uint,
+    };
+}
+
+fn toWgpuBlendFactor(f: gpu.Pipeline.BlendFactor) wgpu.RenderPipeline.BlendFactor {
+    return switch (f) {
+        .zero => .zero,
+        .one => .one,
+        .src_alpha => .src_alpha,
+        .one_minus_src_alpha => .one_minus_src_alpha,
+    };
+}
+
+fn toWgpuBlendOp(o: gpu.Pipeline.BlendOp) wgpu.RenderPipeline.BlendOperation {
+    return switch (o) {
+        .add => .add,
+    };
+}
+
+fn toWgpuBlend(b: gpu.Pipeline.BlendState) wgpu.RenderPipeline.BlendState {
+    return .{
+        .color = .{
+            .operation = toWgpuBlendOp(b.color.op),
+            .src_factor = toWgpuBlendFactor(b.color.src_factor),
+            .dst_factor = toWgpuBlendFactor(b.color.dst_factor),
+        },
+        .alpha = .{
+            .operation = toWgpuBlendOp(b.alpha.op),
+            .src_factor = toWgpuBlendFactor(b.alpha.src_factor),
+            .dst_factor = toWgpuBlendFactor(b.alpha.dst_factor),
+        },
+    };
+}
+
+pub fn bindGroupLayout(self: *const Pipeline, index: u32) wgpu.BindGroupLayout {
+    return self.bind_group_layouts[index];
 }

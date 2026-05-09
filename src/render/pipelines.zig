@@ -1,0 +1,160 @@
+const std = @import("std");
+const gpu = @import("gpu");
+const GPUBackend = @import("gpu_backend").Backend;
+const shaders = @import("shaders.zig");
+
+pub const SlugUniforms = extern struct {
+    mvp_row0: [4]f32,
+    mvp_row1: [4]f32,
+    mvp_row2: [4]f32,
+    mvp_row3: [4]f32,
+    viewport: [4]f32,
+};
+
+pub const ViewportUniform = [2]f32;
+
+pub const PrimitivesKind = enum { vertex, instance };
+
+const standard_blend = gpu.Pipeline.BlendState{
+    .color = .{ .src_factor = .src_alpha, .dst_factor = .one_minus_src_alpha, .op = .add },
+    .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha, .op = .add },
+};
+
+const vertex_attrs = gpu.Pipeline.attrsFromStruct(gpu.Vertex);
+const instance_attrs = gpu.Pipeline.attrsFromStruct(gpu.Instance);
+const slug_attrs = gpu.Pipeline.attrsFromStruct(gpu.SlugVertex);
+
+const vertex_buffers = [_]gpu.Pipeline.VertexBufferLayout{.{
+    .stride = @sizeOf(gpu.Vertex),
+    .step_mode = .vertex,
+    .attributes = &vertex_attrs,
+}};
+
+const instance_buffers = [_]gpu.Pipeline.VertexBufferLayout{.{
+    .stride = @sizeOf(gpu.Instance),
+    .step_mode = .instance,
+    .attributes = &instance_attrs,
+}};
+
+const slug_buffers = [_]gpu.Pipeline.VertexBufferLayout{.{
+    .stride = @sizeOf(gpu.SlugVertex),
+    .step_mode = .vertex,
+    .attributes = &slug_attrs,
+}};
+
+const primitives_uniform_bgl = gpu.Pipeline.BindGroupLayoutDesc{
+    .label = "primitives_uniform_bgl",
+    .entries = &.{
+        .{ .binding = 0, .visibility = .{ .vertex = true }, .type = .uniform_buffer },
+    },
+};
+
+const primitives_texture_bgl = gpu.Pipeline.BindGroupLayoutDesc{
+    .label = "primitives_texture_bgl",
+    .entries = &.{
+        .{ .binding = 0, .visibility = .{ .fragment = true }, .type = .{ .sampled_texture = .float } },
+        .{ .binding = 1, .visibility = .{ .fragment = true }, .type = .{ .sampler = .filtering } },
+    },
+};
+
+const primitives_bgls = [_]gpu.Pipeline.BindGroupLayoutDesc{ primitives_uniform_bgl, primitives_texture_bgl };
+
+const slug_uniform_bgl = gpu.Pipeline.BindGroupLayoutDesc{
+    .label = "slug_uniform_bgl",
+    .entries = &.{
+        .{ .binding = 0, .visibility = .{ .vertex = true, .fragment = true }, .type = .uniform_buffer },
+    },
+};
+
+const slug_curveband_bgl = gpu.Pipeline.BindGroupLayoutDesc{
+    .label = "slug_curveband_bgl",
+    .entries = &.{
+        .{ .binding = 0, .visibility = .{ .fragment = true }, .type = .{ .sampled_texture = .unfilterable_float } },
+        .{ .binding = 1, .visibility = .{ .fragment = true }, .type = .{ .sampled_texture = .uint } },
+    },
+};
+
+const slug_bgls = [_]gpu.Pipeline.BindGroupLayoutDesc{ slug_uniform_bgl, slug_curveband_bgl };
+
+pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: bool) gpu.Pipeline.Desc {
+    const vbs: []const gpu.Pipeline.VertexBufferLayout = switch (kind) {
+        .vertex => &vertex_buffers,
+        .instance => &instance_buffers,
+    };
+    const vs_entry: []const u8 = switch (kind) {
+        .vertex => "vs_main",
+        .instance => "vs_instance_main",
+    };
+
+    const shader: gpu.Pipeline.ShaderSource = switch (backend) {
+        .wgpu => .{ .wgsl = shaders.primitives_wgsl },
+        .vulkan => .{ .spirv = .{
+            .vs = switch (kind) {
+                .vertex => shaders.primitives_vert_spv,
+                .instance => shaders.primitives_instance_vert_spv,
+            },
+            .fs = shaders.primitives_frag_spv,
+            .srgb_encode_constant = 0,
+        } },
+    };
+
+    const fs_entry: []const u8 = switch (backend) {
+        .wgpu => if (srgb_surface) "fs_main" else "fs_main_srgb_encode",
+        .vulkan => "main",
+    };
+
+    const vs_entry_final: []const u8 = switch (backend) {
+        .wgpu => vs_entry,
+        .vulkan => "main",
+    };
+
+    return .{
+        .label = "primitives",
+        .shader = shader,
+        .vs_entry = vs_entry_final,
+        .fs_entry = fs_entry,
+        .vertex_buffers = vbs,
+        .bind_group_layouts = &primitives_bgls,
+        .color_target = .{ .format = null, .blend = standard_blend },
+    };
+}
+
+pub fn slugDesc(backend: GPUBackend, srgb_surface: bool) gpu.Pipeline.Desc {
+    const shader: gpu.Pipeline.ShaderSource = switch (backend) {
+        .wgpu => .{ .wgsl = shaders.slug_wgsl },
+        .vulkan => .{ .spirv = .{ .vs = shaders.slug_vert_spv, .fs = shaders.slug_frag_spv, .srgb_encode_constant = 0 } },
+    };
+
+    const fs_entry: []const u8 = switch (backend) {
+        .wgpu => if (srgb_surface) "fs_main" else "fs_main_srgb_encode",
+        .vulkan => "main",
+    };
+
+    const vs_entry: []const u8 = switch (backend) {
+        .wgpu => "vs_main",
+        .vulkan => "main",
+    };
+
+    return .{
+        .label = "slug",
+        .shader = shader,
+        .vs_entry = vs_entry,
+        .fs_entry = fs_entry,
+        .vertex_buffers = &slug_buffers,
+        .bind_group_layouts = &slug_bgls,
+        .color_target = .{ .format = null, .blend = standard_blend },
+    };
+}
+
+pub fn computeSlugUniforms(width: f32, height: f32, y_down_clip: bool) SlugUniforms {
+    // y_down_clip = Vulkan (clip y goes down). wgpu has y-up, so flip y.
+    const y_sign: f32 = if (y_down_clip) 1.0 else -1.0;
+    const y_offset: f32 = if (y_down_clip) -1.0 else 1.0;
+    return .{
+        .mvp_row0 = .{ 2.0 / width, 0, 0, -1 },
+        .mvp_row1 = .{ 0, y_sign * 2.0 / height, 0, y_offset },
+        .mvp_row2 = .{ 0, 0, 1, 0 },
+        .mvp_row3 = .{ 0, 0, 0, 1 },
+        .viewport = .{ width, height, 0, 0 },
+    };
+}
