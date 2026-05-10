@@ -28,7 +28,6 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    const glfw_dep = b.dependency("glfw", .{ .target = target, .optimize = optimize, .linux_backend = .wayland });
     const truetype_dep = b.dependency("TrueType", .{ .target = target, .optimize = optimize });
 
     const gpu_mod = b.createModule(.{
@@ -115,6 +114,8 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "gpu", .module = gpu_mod }},
         }),
         .linux => {
+            const glfw_dep = b.dependency("glfw", .{ .target = target, .optimize = optimize, .linux_backend = .wayland });
+
             const m = b.createModule(.{
                 .target = target,
                 .optimize = optimize,

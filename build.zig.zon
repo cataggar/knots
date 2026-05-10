@@ -7,8 +7,8 @@
             .hash = "glfw-0.0.3-TqMi_9ZFAABGHCKBDqncWvrkxIM0gtant5BPj0nTUehQ",
         },
         .wgpu = .{
-            .url = "git+https://codeberg.org/shahwali/wgpu-bindings.git#d9ad2d5c8d1c8536cac356fec63cef7b0e998f1e",
-            .hash = "wgpu-0.0.2-Z1CB1rB0AQCUPzRbSz6n_gccDhDo57jGWHalqyEJiC1i",
+            .url = "git+https://codeberg.org/shahwali/wgpu-bindings.git#c56a63b58b73abfe21dfe3c441a24eb89b670996",
+            .hash = "wgpu-0.0.2-Z1CB1tZzAQCeLiHR9GrD3Zal_qs6AxvaXCl2fKuChh6-",
         },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig#f75b0011214705d6593e6ad64948c4832b1e6f27",

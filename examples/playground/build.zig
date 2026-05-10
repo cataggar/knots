@@ -75,11 +75,10 @@ pub fn build(b: *std.Build) void {
 }
 
 fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, root_module: *std.Build.Module) void {
-    const emsdk = b.graph.environ_map.get("EMSDK") orelse {
-        std.debug.panic("EMSDK env var not set. Source $EMSDK/emsdk_env.sh before building for wasm32-emscripten.", .{});
-    };
-    const emcc_path = b.pathJoin(&.{ emsdk, "upstream", "emscripten", "emcc" });
-
+    const emcc_path =
+        b.option([]const u8, "emcc", "Path to emcc. Defaults to searching PATH.") orelse b.findProgram(&.{"emcc"}, &.{}) catch
+            @panic("emcc not found. Put emcc on PATH or pass -Demcc=/path/to/emcc.");
+            
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "playground",
