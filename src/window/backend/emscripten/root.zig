@@ -109,10 +109,6 @@ pub const Backend = struct {
         _ = emscripten_set_blur_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), false, events.onBlur, 0);
     }
 
-    pub fn setDropCallback(_: *Self, _: *window.Window) void {
-        @panic("TODO");
-    }
-
     pub fn pollEvents(_: *const Self) void {}
     pub fn waitEvents(_: *const Self) void {}
     pub fn postEmptyEvent(_: *const Self) void {}
@@ -181,10 +177,18 @@ pub const Backend = struct {
         self.pending_resize = ev;
     }
 
+    pub fn peekResize(self: *Self, _: *window.Window) ?window.ResizeEvent {
+        return self.pending_resize;
+    }
+
     pub fn consumeResize(self: *Self, _: *window.Window) ?window.ResizeEvent {
         const ev = self.pending_resize orelse return null;
         self.pending_resize = null;
         return ev;
+    }
+
+    pub fn consumeDrops(_: *Self, _: *window.Window, _: std.mem.Allocator, _: usize) ![][]const u8 {
+        return &[_][]const u8{};
     }
 };
 

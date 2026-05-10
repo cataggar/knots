@@ -38,12 +38,6 @@ pub const Backend = struct {
         self.ns_window.msgSend(void, "makeFirstResponder:", .{self.ns_view});
     }
 
-    pub fn setDropCallback(self: *Self, _: *window.Window) void {
-        const NSArray = objc.getClass("NSArray").?;
-        const types = NSArray.msgSend(objc.Object, "arrayWithObject:", .{objc.Object{ .value = ak.NSPasteboardTypeFileURL }});
-        self.ns_view.msgSend(void, "registerForDraggedTypes:", .{types});
-    }
-
     pub fn pollEvents(_: *const Self) void {
         drainEventQueue(ak.sharedApp());
     }
@@ -171,14 +165,26 @@ pub const Backend = struct {
         self.display_mode = mode;
     }
 
-    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+    pub fn peekResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
         if (!owner.resized) return null;
-        owner.resized = false;
         return .{
             .logical = self.getSize(),
             .physical = self.getFramebufferSize(),
             .content_scale = self.computeContentScale(),
         };
+    }
+
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+        const ev = self.peekResize(owner) orelse return null;
+        owner.resized = false;
+        return ev;
+    }
+
+    pub fn consumeDrops(self: *Self, _: *window.Window, allocator: std.mem.Allocator, n: usize) ![][]const u8 {
+        const out = try allocator.alloc([]const u8, n);
+        errdefer allocator.free(out);
+        for (0..n) |i| out[i] = try allocator.dupe(u8, self.drop_slices[i]);
+        return out;
     }
 };
 
@@ -216,6 +222,10 @@ pub fn init(cfg: window.Config) !Backend {
         .msgSend(objc.Object, "alloc", .{})
         .msgSend(objc.Object, "initWithFrame:", .{frame});
     ns_window.msgSend(void, "setContentView:", .{view});
+
+    const NSArray = objc.getClass("NSArray").?;
+    const drag_types = NSArray.msgSend(objc.Object, "arrayWithObject:", .{objc.Object{ .value = ak.NSPasteboardTypeFileURL }});
+    view.msgSend(void, "registerForDraggedTypes:", .{drag_types});
 
     const delegate = KnotsDelegate
         .msgSend(objc.Object, "alloc", .{})

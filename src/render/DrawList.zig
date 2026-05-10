@@ -40,7 +40,7 @@ pub fn init(allocator: std.mem.Allocator) DrawList {
         .text_vertices = .empty,
         .text_indices = .empty,
         .layer_cmds = .empty,
-        .layer_ranges = [_]LayerRange{.{}} ** MAX_LAYERS,
+        .layer_ranges = @splat(.{}),
         .layers_dirty = .initEmpty(),
         .current_layer = 0,
     };
@@ -144,4 +144,3 @@ pub fn pushText(self: *DrawList, verts: []const gpu.SlugVertex, indices: []const
     try self.text_vertices.appendSlice(self.allocator, verts);
     self.layer_cmds.items[range.start + range.len - 1].count += @intCast(indices.len);
 }
-

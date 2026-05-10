@@ -16,6 +16,8 @@ pub const Backend = struct {
     is_fullscreen: bool = false,
     windowed_pos: [2]c_int = .{ 0, 0 },
     windowed_size: [2]c_int = .{ 0, 0 },
+    drop_paths_buf: [64][1024]u8 = undefined,
+    drop_slices: [64][]const u8 = undefined,
 
     const Self = @This();
 
@@ -30,11 +32,8 @@ pub const Backend = struct {
         self.window.setCharCallback(charCallback);
         self.window.setMouseButtonCallback(mouseButtonCallback);
         self.window.setFramebufferSizecallback(framebufferSizeCallback);
-        _ = glfw.c.glfwSetWindowRefreshCallback(self.window.window, refreshCallback);
-    }
-
-    pub fn setDropCallback(self: *Self, _: *window.Window) void {
         self.window.setDropCallback(dropCallback);
+        _ = glfw.c.glfwSetWindowRefreshCallback(self.window.window, refreshCallback);
     }
 
     pub fn pollEvents(self: *const Self) void {
@@ -158,14 +157,26 @@ pub const Backend = struct {
         }
     }
 
-    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+    pub fn peekResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
         if (!owner.resized) return null;
-        owner.resized = false;
         return .{
             .logical = self.getSize(),
             .physical = self.getFramebufferSize(),
             .content_scale = self.computeContentScale(),
         };
+    }
+
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+        const ev = self.peekResize(owner) orelse return null;
+        owner.resized = false;
+        return ev;
+    }
+
+    pub fn consumeDrops(self: *Self, _: *window.Window, allocator: std.mem.Allocator, n: usize) ![][]const u8 {
+        const out = try allocator.alloc([]const u8, n);
+        errdefer allocator.free(out);
+        for (0..n) |i| out[i] = try allocator.dupe(u8, self.drop_slices[i]);
+        return out;
     }
 };
 
@@ -232,12 +243,14 @@ fn charCallback(win: ?*glfw.c.GLFWwindow, codepoint: c_uint) callconv(.c) void {
 
 fn dropCallback(win: ?*glfw.c.GLFWwindow, count: c_int, raw_paths: [*c]const [*c]const u8) callconv(.c) void {
     const owner = ownerOf(win) orelse return;
-    const n: usize = @intCast(count);
+    const be = &owner.backend;
+    const n: usize = @min(@as(usize, @intCast(count)), be.drop_paths_buf.len);
     const paths: [*]const [*:0]const u8 = @ptrCast(raw_paths);
-    var slices: [64][]const u8 = undefined;
-    const clamped = @min(n, slices.len);
-    for (0..clamped) |i| {
-        slices[i] = std.mem.sliceTo(paths[i], 0);
+    for (0..n) |i| {
+        const slice = std.mem.sliceTo(paths[i], 0);
+        const len = @min(slice.len, be.drop_paths_buf[i].len);
+        @memcpy(be.drop_paths_buf[i][0..len], slice[0..len]);
+        be.drop_slices[i] = be.drop_paths_buf[i][0..len];
     }
-    owner.dispatchDrop(slices[0..clamped]);
+    owner.markDropped(n);
 }

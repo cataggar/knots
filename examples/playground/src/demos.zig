@@ -20,8 +20,11 @@ pub const Demo = struct {
         canvas_cmds: std.ArrayList(knots.component.Canvas.DrawCmd) = .empty,
         pending_async: usize = 0,
         hover_strength: f32 = 0,
+        dropped_paths: std.ArrayList([]const u8) = .empty,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
+            for (self.dropped_paths.items) |p| allocator.free(p);
+            self.dropped_paths.deinit(allocator);
             self.canvas_cmds.deinit(allocator);
             self.form_password.deinit(allocator);
             self.form_email.deinit(allocator);
@@ -106,5 +109,10 @@ pub const all = [_]Demo{
         .name = "Async dispatch",
         .description = "Schedule background work via app.dispatch and react to wakeups.",
         .render = @import("demos/async_dispatch.zig").render,
+    },
+    .{
+        .name = "Drops",
+        .description = "Drag files onto the window and consume them via app.window.consumeDrops.",
+        .render = @import("demos/drops.zig").render,
     },
 };

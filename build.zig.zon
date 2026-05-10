@@ -11,8 +11,8 @@
             .hash = "wgpu-0.0.2-Z1CB1rB0AQCUPzRbSz6n_gccDhDo57jGWHalqyEJiC1i",
         },
         .vulkan = .{
-            .url = "git+https://github.com/Snektron/vulkan-zig#be16fc99f7f794cba90334978c6c5aadeda8094f",
-            .hash = "vulkan-0.0.0-r7Ytx-V9AwCwHxS2TaZ-KJCp_3axidu3ASZUg3B512-k",
+            .url = "git+https://github.com/Snektron/vulkan-zig#f75b0011214705d6593e6ad64948c4832b1e6f27",
+            .hash = "vulkan-0.0.0-r7Ytx759AwBNdwE-gHKt3vzRQaU7RFerBg3FmD7iTEv4",
         },
         .vulkan_headers = .{
             .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.346.tar.gz",

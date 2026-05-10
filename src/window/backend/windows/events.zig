@@ -67,5 +67,5 @@ pub fn onDropFiles(self: *Backend, owner: *window.Window, hdrop: win32.HDROP) vo
         self.drop_slices[i] = self.drop_paths_buf[i][0..out];
     }
     win32.DragFinish(hdrop);
-    owner.dispatchDrop(self.drop_slices[0..n]);
+    owner.markDropped(n);
 }

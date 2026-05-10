@@ -11,8 +11,6 @@ const KeyEvent = @import("root.zig").KeyEvent;
 const Size = @import("root.zig").Size;
 const ResizeEvent = @import("root.zig").ResizeEvent;
 const DisplayMode = @import("root.zig").DisplayMode;
-const DropCallback = @import("root.zig").DropCallback;
-const RefreshCallback = @import("root.zig").RefreshCallback;
 
 const SCROLL_SPEED: comptime_float = 10;
 
@@ -20,14 +18,13 @@ backend: impl.Backend,
 should_close: bool = false,
 mouse_button_pressed: bool = false,
 scroll: [2]f64 = .{ 0, 0 },
-char_buf: [32]u21 = [_]u21{0} ** 32,
+char_buf: [32]u21 = @splat(0),
 char_count: u8 = 0,
 key_events: [16]KeyEvent = undefined,
 key_buf: [16]Key = undefined,
 key_count: u8 = 0,
 resized: bool = false,
-drop_callback: ?DropCallback = null,
-drop_ctx: ?*anyopaque = null,
+pending_drop_count: u8 = 0,
 canvas_selector: ?[:0]const u8,
 content_scale: f32 = 1.0,
 display_mode: DisplayMode = .windowed,
@@ -43,29 +40,23 @@ pub fn init(cfg: Config) !Window {
     };
 }
 
-pub fn deinit(self: *const Window) void {
+pub inline fn deinit(self: *const Window) void {
     self.backend.deinit();
 }
 
-pub fn startCapture(self: *Window) void {
+pub inline fn startCapture(self: *Window) void {
     self.backend.startCapture(self);
 }
 
-pub fn setDropCallback(self: *Window, ctx: *anyopaque, cb: DropCallback) void {
-    self.drop_callback = cb;
-    self.drop_ctx = ctx;
-    self.backend.setDropCallback(self);
-}
-
-pub fn pollEvents(self: *const Window) void {
+pub inline fn pollEvents(self: *const Window) void {
     self.backend.pollEvents();
 }
 
-pub fn waitEvents(self: *const Window) void {
+pub inline fn waitEvents(self: *const Window) void {
     self.backend.waitEvents();
 }
 
-pub fn postEmptyEvent(self: *const Window) void {
+pub inline fn postEmptyEvent(self: *const Window) void {
     self.backend.postEmptyEvent();
 }
 
@@ -79,11 +70,11 @@ pub fn close(self: *Window) void {
     self.backend.close();
 }
 
-pub fn getSize(self: *const Window) Size {
+pub inline fn getSize(self: *const Window) Size {
     return self.backend.getSize();
 }
 
-pub fn getFramebufferSize(self: *const Window) Size {
+pub inline fn getFramebufferSize(self: *const Window) Size {
     return self.backend.getFramebufferSize();
 }
 
@@ -91,16 +82,16 @@ pub fn getContentScale(self: *const Window) f32 {
     return self.content_scale;
 }
 
-pub fn getWindowHandle(self: *const Window) gpu.Context.WindowHandle {
+pub inline fn getWindowHandle(self: *const Window) gpu.Context.WindowHandle {
     return self.backend.getNativeHandle(self.canvas_selector);
 }
 
-pub fn setDisplayMode(self: *Window, mode: DisplayMode) void {
+pub inline fn setDisplayMode(self: *Window, mode: DisplayMode) void {
     self.backend.setDisplayMode(mode);
     self.display_mode = mode;
 }
 
-pub fn setCursorVisible(self: *const Window, visible: bool) void {
+pub inline fn setCursorVisible(self: *const Window, visible: bool) void {
     self.backend.setCursorVisible(visible);
 }
 
@@ -111,7 +102,7 @@ pub fn collectInput(self: *Window) Input {
         @floatCast(self.scroll[0] * SCROLL_SPEED),
         @floatCast(-self.scroll[1] * SCROLL_SPEED),
     };
-    self.scroll = [_]f64{0} ** 2;
+    self.scroll = @splat(0);
 
     var translated_count: u8 = 0;
     var shift_held = false;
@@ -145,10 +136,21 @@ pub fn collectInput(self: *Window) Input {
     };
 }
 
+pub inline fn peekResize(self: *Window) ?ResizeEvent {
+    return self.backend.peekResize(self);
+}
+
 pub fn consumeResize(self: *Window) ?ResizeEvent {
     const ev = self.backend.consumeResize(self) orelse return null;
     self.content_scale = ev.content_scale;
     return ev;
+}
+
+pub fn consumeDrops(self: *Window, allocator: std.mem.Allocator) ![][]const u8 {
+    const n = self.pending_drop_count;
+    self.pending_drop_count = 0;
+    if (n == 0) return &[_][]const u8{};
+    return self.backend.consumeDrops(self, allocator, n);
 }
 
 pub fn pushChar(self: *Window, codepoint: u21) void {
@@ -182,8 +184,6 @@ pub fn markClosed(self: *Window) void {
     self.should_close = true;
 }
 
-pub fn dispatchDrop(self: *Window, paths: []const []const u8) void {
-    const cb = self.drop_callback orelse return;
-    const ctx = self.drop_ctx orelse return;
-    cb(ctx, paths) catch {};
+pub fn markDropped(self: *Window, count: usize) void {
+    self.pending_drop_count = @intCast(@min(count, std.math.maxInt(u8)));
 }

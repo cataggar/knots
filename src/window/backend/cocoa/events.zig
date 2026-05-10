@@ -134,7 +134,7 @@ fn performDragOperation(self: c.id, _: c.SEL, sender_id: c.id) callconv(.c) c.BO
         @memcpy(be.drop_paths_buf[i][0..len], slice[0..len]);
         be.drop_slices[i] = be.drop_paths_buf[i][0..len];
     }
-    owner.dispatchDrop(be.drop_slices[0..n]);
+    owner.markDropped(n);
     return ak.boolParam(true);
 }
 

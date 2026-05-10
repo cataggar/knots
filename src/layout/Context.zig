@@ -101,7 +101,7 @@ stack: std.ArrayList(Element.Slot) = .empty,
 root_slot: Element.Slot = Element.INVALID_SLOT,
 z_used: std.StaticBitSet(256),
 z_slots: std.ArrayList(Element.Slot) = .empty,
-z_offsets: [257]u32 = [_]u32{0} ** 257,
+z_offsets: [257]u32 = @splat(0),
 id_to_slot: IdToSlotMap = .empty,
 has_scroll: bool = false,
 
@@ -201,7 +201,7 @@ pub fn buildZOrder(self: *Context) !void {
     const elements = self.pool.elements.items;
     const n: u32 = @intCast(elements.len);
 
-    var counts = [_]u32{0} ** 256;
+    var counts: [256]u32 = @splat(0);
     for (elements) |el| counts[el.z_index] += 1;
 
     self.z_offsets[0] = 0;

@@ -26,9 +26,6 @@ pub const Config = struct {
     arena_reset_mode: std.heap.ArenaAllocator.ResetMode = .retain_capacity,
     max_completions_recv: usize = 64,
     timer_clock: std.Io.Clock = .real,
-    onResize: ?*const fn (app: *App, width: u32, height: u32) anyerror!void = null,
-    onDrop: ?*const fn (app: *App, paths: []const []const u8) anyerror!void = null,
-    onReconfigure: ?*const fn (app: *App) anyerror!void = null,
 };
 
 io: std.Io,
@@ -42,6 +39,7 @@ ui: UI,
 timer: Timer,
 cfg: Config,
 pending_renderer_cfg: ?render.Renderer.Config = null,
+pending_reconfigure: bool = false,
 frame_cb: ?Callback = null,
 
 const App = @This();
@@ -92,9 +90,6 @@ pub fn deinit(self: *App) void {
 /// Start a frame-loop that runs until the window is closed.
 pub fn start(self: *App, frameCb: Callback) !void {
     self.window.startCapture();
-    if (self.cfg.onDrop) |_| {
-        self.window.setDropCallback(@ptrCast(self), dropCallback);
-    }
     self.frame_cb = frameCb;
     self.timer.start(self.io);
     self.window.pollEvents();
@@ -120,10 +115,9 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
 
     self.timer.tick(self.io);
 
-    if (self.window.consumeResize()) |ev| {
+    if (self.window.peekResize()) |ev| {
         if (ev.physical.width == 0 or ev.physical.height == 0) return;
         try self.renderer.resize(ev.physical.width, ev.physical.height);
-        if (self.cfg.onResize) |cb| try @call(.auto, cb, .{ self, ev.logical.width, ev.logical.height });
     }
     try self.handleRendererReconfigure();
 
@@ -182,6 +176,22 @@ pub inline fn arena(self: *App) std.mem.Allocator {
 /// `onComplete` will be called when the function is complete with the return type of `func`.
 pub inline fn dispatch(self: *App, func: anytype, args: anytype, onComplete: CompletionQueue.Callback(ReturnType(func))) !void {
     try self.completion_queue.dispatch(self.io, self.allocator, func, args, onComplete);
+}
+
+pub fn consumeReconfigure(self: *App) bool {
+    const v = self.pending_reconfigure;
+    self.pending_reconfigure = false;
+    return v;
+}
+
+fn handleRendererReconfigure(self: *App) !void {
+    const new_cfg = self.pending_renderer_cfg orelse return;
+    self.pending_renderer_cfg = null;
+
+    try self.renderer.reconfigure(new_cfg);
+
+    self.ui.font.glyph_builder.markAllDirty();
+    self.pending_reconfigure = true;
 }
 
 /// Register a component tree to be rendered in the UI.
@@ -245,19 +255,4 @@ fn isChildren(comptime T: type) bool {
         inline .@"struct" => |s| s.is_tuple,
         inline else => false,
     };
-}
-
-fn handleRendererReconfigure(self: *App) !void {
-    const new_cfg = self.pending_renderer_cfg orelse return;
-    self.pending_renderer_cfg = null;
-
-    try self.renderer.reconfigure(new_cfg);
-
-    self.ui.font.glyph_builder.markAllDirty();
-    if (self.cfg.onReconfigure) |cb| try cb(self);
-}
-
-fn dropCallback(ctx: *anyopaque, paths: []const []const u8) anyerror!void {
-    const self: *App = @ptrCast(@alignCast(ctx));
-    if (self.cfg.onDrop) |cb| try cb(self, paths);
 }

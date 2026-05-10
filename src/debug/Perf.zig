@@ -4,7 +4,7 @@ const App = @import("knots").App;
 const UI = @import("ui").UI;
 const Element = @import("layout").Element;
 
-samples: [60]f32 = [_]f32{0} ** 60,
+samples: [60]f32 = @splat(0),
 index: usize = 0,
 fps_label: []const u8 = "",
 fps_buf: []u8,

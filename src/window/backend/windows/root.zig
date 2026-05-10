@@ -31,10 +31,6 @@ pub const Backend = struct {
         _ = win32.SetWindowLongPtrW(self.hwnd, win32.GWLP_USERDATA, @bitCast(@as(usize, @intFromPtr(owner))));
     }
 
-    pub fn setDropCallback(self: *Self, _: *window.Window) void {
-        win32.DragAcceptFiles(self.hwnd, 1);
-    }
-
     pub fn pollEvents(_: *const Self) void {
         var msg: win32.MSG = undefined;
         while (win32.PeekMessageW(&msg, null, 0, 0, win32.PM_REMOVE) != 0) {
@@ -160,14 +156,26 @@ pub const Backend = struct {
         }
     }
 
-    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+    pub fn peekResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
         if (!owner.resized) return null;
-        owner.resized = false;
         return .{
             .logical = self.getSize(),
             .physical = self.getFramebufferSize(),
             .content_scale = self.computeContentScale(),
         };
+    }
+
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+        const ev = self.peekResize(owner) orelse return null;
+        owner.resized = false;
+        return ev;
+    }
+
+    pub fn consumeDrops(self: *Self, _: *window.Window, allocator: std.mem.Allocator, n: usize) ![][]const u8 {
+        const out = try allocator.alloc([]const u8, n);
+        errdefer allocator.free(out);
+        for (0..n) |i| out[i] = try allocator.dupe(u8, self.drop_slices[i]);
+        return out;
     }
 };
 
@@ -235,6 +243,7 @@ pub fn init(cfg: window.Config) !Backend {
 
     _ = win32.ShowWindow(hwnd, win32.SW_SHOW);
     _ = win32.UpdateWindow(hwnd);
+    win32.DragAcceptFiles(hwnd, 1);
 
     return .{ .hwnd = hwnd, .hinstance = hinstance };
 }
