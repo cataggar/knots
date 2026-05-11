@@ -37,6 +37,22 @@ pub const ShapedView = struct {
     ascender: f32,
 };
 
+pub const Line = struct {
+    glyphs: []const Shaped,
+    byte_start: u32,
+    byte_end: u32,
+    width: f32,
+    y: f32,
+};
+
+pub const ShapedWrappedView = struct {
+    lines: []const Line,
+    width: f32,
+    height: f32,
+    ascender: f32,
+    line_height: f32,
+};
+
 pub const TextMetrics = struct {
     width: f32,
     height: f32,

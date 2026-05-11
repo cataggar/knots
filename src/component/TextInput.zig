@@ -13,7 +13,12 @@ const Decoration = @import("ui").Decoration;
 
 const Element = @import("layout").Element;
 const glyph = @import("text").glyph;
-const xAtByte = @import("util.zig").xAtByte;
+const util = @import("util.zig");
+
+const BODY_INDEX: usize = 1; // text decoration
+const CURSOR_TOWER: usize = 8; // cursor overlay tower (5 elements use 8,9,10,11,12)
+const SELECTION_TOWER_BASE: usize = 16; // selection line i overlay tower
+const TOWER_STRIDE: usize = 8;
 
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .fit(),
@@ -24,6 +29,7 @@ color: Color.Input = .text,
 placeholder_color: Color.Input = .dimmed,
 style: Style = .{ .color = .muted },
 focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
+wrap: bool = false,
 key: Key,
 
 const TextInput = @This();
@@ -35,8 +41,7 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
 
     if (is_focused) {
         const s = try ui.state.getOrCreate(.text_input, ui.allocator, id);
-        try processInput(self, ui, s);
-        ui.input.consumeKeyboard();
+        try processInputEarly(self, ui, s);
     }
 
     const current_style = if (is_focused) self.focused_style else self.style;
@@ -48,26 +53,16 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
         .{ .rect = current_style.toRect() }
     else
         .none;
+    const overflow: Element.Overflow = if (self.wrap) .visible else .scroll_x;
     return try ui.open(self.key, .{
         .width = self.width,
         .height = height,
-        .overflow = .scroll_x,
+        .overflow = overflow,
         .interactive = true,
         .alignment = .center,
         .padding = .init(0, 0, 0, 6),
     }, decoration);
 }
-
-// Subkey indices under `self.key`.
-const SubKey = enum(usize) {
-    body = 1,
-    cur_overlay = 2,
-    cur_spacer = 3,
-    cur_rect = 4,
-    hl_overlay = 5,
-    hl_spacer = 6,
-    hl_rect = 7,
-};
 
 pub fn close(self: *const TextInput, app: *App) !void {
     const ui = &app.ui;
@@ -84,14 +79,22 @@ pub fn close(self: *const TextInput, app: *App) !void {
 
     if (is_focused) {
         const s = ui.state.get(.text_input, id).?;
-        const sel_lo = @min(s.cursor, s.sel_anchor);
-        const sel_hi = @max(s.cursor, s.sel_anchor);
-        const has_sel = sel_lo != sel_hi;
         const scale = ui.content_scale;
 
         const face = try ui.font.getFace(null);
-        const shaped = try face.shape(items, size.value * scale);
-        const line_h = (try face.lineHeight(size.value * scale)) / scale;
+        const wrap_px: f32 = if (self.wrap) blk: {
+            const m = try ui.state.getOrCreate(.measured, ui.allocator, id);
+            break :blk @max(0, m.width * scale);
+        } else 0;
+        const shaped = try face.shapeWrapped(items, size.value * scale, wrap_px);
+        const line_h = shaped.line_height / scale;
+
+        try processInputLate(self, ui, s, shaped, line_h);
+        ui.input.consumeKeyboard();
+
+        const sel_lo = @min(s.cursor, s.sel_anchor);
+        const sel_hi = @max(s.cursor, s.sel_anchor);
+        const has_sel = sel_lo != sel_hi;
 
         if (has_sel) {
             const sel_color = comptime blk: {
@@ -100,56 +103,62 @@ pub fn close(self: *const TextInput, app: *App) !void {
                 c[3] = 0.4;
                 break :blk c;
             };
-            const x_lo = xAtByte(shaped.glyphs, sel_lo, scale);
-            const x_hi = xAtByte(shaped.glyphs, sel_hi, scale);
-            try self.emitOverlayRect(ui, .hl_overlay, .hl_spacer, .hl_rect, x_lo, x_hi - x_lo, line_h, sel_color);
+            const spans = try util.lineSpansForRange(ui.allocator, shaped, sel_lo, sel_hi, scale);
+            defer ui.allocator.free(spans);
+            for (spans, 0..) |sp, i| {
+                try emitOverlayRect(self, ui, SELECTION_TOWER_BASE + i * TOWER_STRIDE, sp.x, sp.y, sp.w, line_h, sel_color);
+            }
         } else {
-            const cx = xAtByte(shaped.glyphs, s.cursor, scale);
-            try self.emitOverlayRect(ui, .cur_overlay, .cur_spacer, .cur_rect, cx, 1, line_h, resolved_color);
+            const p = util.posAtByte(shaped, s.cursor, scale);
+            try emitOverlayRect(self, ui, CURSOR_TOWER, p.x, p.y, 1, line_h, resolved_color);
         }
+
+        if (has_sel) ui.state.selection_text = items[sel_lo..sel_hi];
     }
 
     if (display.len > 0) {
-        var deco = try ui.textDecoration(display, size, null);
+        var deco = try ui.textDecoration(display, size, null, self.wrap);
         deco.text.color = color;
-        _ = try ui.open(self.key.indexed(@intFromEnum(SubKey.body)), .{ .width = .fit(), .height = .fit() }, deco);
+        const inner_w: Element.sizing.Axis = if (self.wrap) .grow() else .fit();
+        _ = try ui.open(self.key.indexed(BODY_INDEX), .{ .width = inner_w, .height = .fit() }, deco);
         ui.close();
     }
 
     ui.close();
 }
 
-fn emitOverlayRect(
-    self: *const TextInput,
-    ui: *UI,
-    overlay: SubKey,
-    spacer: SubKey,
-    rect: SubKey,
-    x: f32,
-    w: f32,
-    h: f32,
-    color: [4]f32,
-) !void {
-    _ = try ui.open(self.key.indexed(@intFromEnum(overlay)), .{
+fn emitOverlayRect(self: *const TextInput, ui: *UI, base: usize, x: f32, y: f32, w: f32, h: f32, color: [4]f32) !void {
+    _ = try ui.open(self.key.indexed(base), .{
         .width = .grow(),
         .height = .grow(),
         .position = .absolute,
+        .direction = .column,
+    }, .none);
+    _ = try ui.open(self.key.indexed(base + 1), .{
+        .width = .fixed(0),
+        .height = .fixed(y),
+    }, .none);
+    ui.close();
+    _ = try ui.open(self.key.indexed(base + 2), .{
+        .width = .grow(),
+        .height = .fixed(h),
         .direction = .row,
     }, .none);
-    _ = try ui.open(self.key.indexed(@intFromEnum(spacer)), .{
+    _ = try ui.open(self.key.indexed(base + 3), .{
         .width = .fixed(x),
         .height = .fixed(0),
     }, .none);
     ui.close();
-    _ = try ui.open(self.key.indexed(@intFromEnum(rect)), .{
+    _ = try ui.open(self.key.indexed(base + 4), .{
         .width = .fixed(w),
         .height = .fixed(h),
     }, .{ .rect = .{ .color = color } });
     ui.close();
     ui.close();
+    ui.close();
 }
 
-fn processInput(self: *const TextInput, ui: *UI, s: *State.TextInput) !void {
+fn processInputEarly(self: *const TextInput, ui: *UI, s: *State.TextInput) !void {
     const buf = self.buf;
     var len: u32 = @intCast(buf.items.len);
     s.cursor = @min(s.cursor, len);
@@ -217,14 +226,6 @@ fn processInput(self: *const TextInput, ui: *UI, s: *State.TextInput) !void {
                     if (!extend) s.sel_anchor = s.cursor;
                 }
             },
-            .home => {
-                s.cursor = 0;
-                if (!ui.input.shift_held) s.sel_anchor = s.cursor;
-            },
-            .end => {
-                s.cursor = len;
-                if (!ui.input.shift_held) s.sel_anchor = s.cursor;
-            },
             .a => if (super_ctrl_held) {
                 s.sel_anchor = 0;
                 s.cursor = len;
@@ -232,6 +233,59 @@ fn processInput(self: *const TextInput, ui: *UI, s: *State.TextInput) !void {
             else => {},
         }
     }
+}
+
+fn processInputLate(self: *const TextInput, ui: *UI, s: *State.TextInput, shaped: glyph.ShapedWrappedView, line_h: f32) !void {
+    const buf = self.buf;
+    var len: u32 = @intCast(buf.items.len);
+    const scale = ui.content_scale;
+
+    for (ui.input.keys) |key| {
+        switch (key) {
+            .enter => if (self.wrap) {
+                if (s.sel_anchor != s.cursor) deleteSelection(buf, &len, s);
+                buf.insertSlice(ui.allocator, s.cursor, "\n") catch return;
+                len += 1;
+                s.cursor += 1;
+                s.sel_anchor = s.cursor;
+                return;
+            },
+            .up, .down => if (self.wrap) {
+                const cur_pos = util.posAtByte(shaped, s.cursor, scale);
+                const target_y = if (key == .up) cur_pos.y - line_h * 0.5 else cur_pos.y + line_h * 1.5;
+                const target: util.Pos = .{ .x = cur_pos.x, .y = target_y };
+                const new_cursor = util.byteAtPos(shaped, target, scale);
+                s.cursor = @min(new_cursor, len);
+                if (!ui.input.shift_held) s.sel_anchor = s.cursor;
+            },
+            .home => {
+                const new_cursor: u32 = if (self.wrap)
+                    lineBounds(shaped, s.cursor).start
+                else
+                    0;
+                s.cursor = new_cursor;
+                if (!ui.input.shift_held) s.sel_anchor = s.cursor;
+            },
+            .end => {
+                const new_cursor: u32 = if (self.wrap)
+                    lineBounds(shaped, s.cursor).end
+                else
+                    len;
+                s.cursor = new_cursor;
+                if (!ui.input.shift_held) s.sel_anchor = s.cursor;
+            },
+            else => {},
+        }
+    }
+}
+
+fn lineBounds(view: glyph.ShapedWrappedView, byte: u32) struct { start: u32, end: u32 } {
+    if (view.lines.len == 0) return .{ .start = 0, .end = 0 };
+    for (view.lines) |line| {
+        if (byte <= line.byte_end) return .{ .start = line.byte_start, .end = line.byte_end };
+    }
+    const last = view.lines[view.lines.len - 1];
+    return .{ .start = last.byte_start, .end = last.byte_end };
 }
 
 fn deleteSelection(buf: *std.ArrayList(u8), len: *u32, s: *State.TextInput) void {

@@ -20,6 +20,7 @@ pub const Decoration = union(enum) {
         font: ?[]const u8 = null,
         intrinsic_w: f32 = 0,
         intrinsic_h: f32 = 0,
+        wrap: bool = false,
     };
 
     pub const Canvas = struct {

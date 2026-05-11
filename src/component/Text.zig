@@ -14,15 +14,21 @@ content: []const u8,
 color: Color.Input = .text,
 font: ?[]const u8 = null,
 selectable: bool = true,
+wrap: bool = false,
 highlight_color: Color.Input = .primary,
 key: Key,
 
 const Text = @This();
 
+const BODY_INDEX: usize = 1; // text decoration
+const SPANS_ROOT: usize = 2; // selection container
+const SPANS_TOWER_BASE: usize = 16; // selection line i overlay tower
+const TOWER_STRIDE: usize = 8;
+
 pub fn open(self: *const Text, app: *App) !Element.Id {
     const ui = &app.ui;
     if (!self.selectable) {
-        var decoration = try ui.textDecoration(self.content, self.size.resolve(), self.font);
+        var decoration = try ui.textDecoration(self.content, self.size.resolve(), self.font, self.wrap);
         decoration.text.color = self.color.resolve();
         return try ui.open(self.key, .{
             .width = self.width,
@@ -60,31 +66,28 @@ pub fn close(self: *const Text, app: *App) !void {
         return;
     }
 
-    var deco = try ui.textDecoration(self.content, self.size.resolve(), self.font);
+    var deco = try ui.textDecoration(self.content, self.size.resolve(), self.font, self.wrap);
     deco.text.color = self.color.resolve();
-    _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
+    const inner_w: Element.sizing.Axis = if (self.wrap) .grow() else .fit();
+    _ = try ui.open(self.key.indexed(BODY_INDEX), .{ .width = inner_w, .height = .fit() }, deco);
     ui.close();
 
     ui.close();
 }
 
-fn closeSlow(
-    self: *const Text,
-    ui: *UI,
-    s: *State.TextSelect,
-    need_hit_test: bool,
-    press_here: bool,
-) !void {
+fn closeSlow(self: *const Text, ui: *UI, s: *State.TextSelect, need_hit_test: bool, press_here: bool) !void {
     const scale = ui.content_scale;
     const face = try ui.font.getFace(self.font);
     const size = self.size.resolve();
-    const shaped = try face.shape(self.content, size.value * scale);
-    const line_h = (try face.lineHeight(size.value * scale)) / scale;
+    const wrap_px: f32 = if (self.wrap) @max(0, s.box.w * scale) else 0;
+    const shaped = try face.shapeWrapped(self.content, size.value * scale, wrap_px);
+    const line_h = shaped.line_height / scale;
 
     if (need_hit_test) {
         const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
-        const local_x = mx - s.box.x;
-        const byte = util.byteOffsetAtX(shaped.glyphs, self.content, local_x, scale);
+        const my: f32 = @floatCast(ui.input.mouse_pos[1]);
+        const local: util.Pos = .{ .x = mx - s.box.x, .y = my - s.box.y };
+        const byte = util.byteAtPos(shaped, local, scale);
         if (press_here) {
             s.dragging = true;
             s.anchor_byte = byte;
@@ -101,33 +104,59 @@ fn closeSlow(
     const sel_hi = @max(anchor, cursor);
 
     if (sel_lo != sel_hi) {
-        const xr = util.xRangeAtBytes(shaped.glyphs, sel_lo, sel_hi, scale);
+        ui.state.selection_text = self.content[sel_lo..sel_hi];
 
         var hc = self.highlight_color.resolve();
         hc[3] = 0.4;
 
-        _ = try ui.open(self.key.indexed(2), .{
+        const spans = try util.lineSpansForRange(ui.allocator, shaped, sel_lo, sel_hi, scale);
+        defer ui.allocator.free(spans);
+
+        _ = try ui.open(self.key.indexed(SPANS_ROOT), .{
             .width = .grow(),
             .height = .grow(),
             .position = .absolute,
-            .direction = .row,
+            .direction = .column,
         }, .none);
-        _ = try ui.open(self.key.indexed(3), .{
-            .width = .fixed(xr.lo),
-            .height = .fixed(0),
-        }, .none);
-        ui.close();
-        _ = try ui.open(self.key.indexed(4), .{
-            .width = .fixed(xr.hi - xr.lo),
-            .height = .fixed(line_h),
-        }, .{ .rect = .{ .color = hc } });
-        ui.close();
+
+        for (spans, 0..) |sp, i| {
+            const base = SPANS_TOWER_BASE + i * TOWER_STRIDE;
+            _ = try ui.open(self.key.indexed(base), .{
+                .width = .grow(),
+                .height = .fixed(0),
+                .position = .absolute,
+                .direction = .column,
+            }, .none);
+            _ = try ui.open(self.key.indexed(base + 1), .{
+                .width = .fixed(0),
+                .height = .fixed(sp.y),
+            }, .none);
+            ui.close();
+            _ = try ui.open(self.key.indexed(base + 2), .{
+                .width = .grow(),
+                .height = .fixed(line_h),
+                .direction = .row,
+            }, .none);
+            _ = try ui.open(self.key.indexed(base + 3), .{
+                .width = .fixed(sp.x),
+                .height = .fixed(0),
+            }, .none);
+            ui.close();
+            _ = try ui.open(self.key.indexed(base + 4), .{
+                .width = .fixed(sp.w),
+                .height = .fixed(line_h),
+            }, .{ .rect = .{ .color = hc } });
+            ui.close();
+            ui.close();
+            ui.close();
+        }
         ui.close();
     }
 
-    var deco = try ui.textDecoration(self.content, size, self.font);
+    var deco = try ui.textDecoration(self.content, size, self.font, self.wrap);
     deco.text.color = self.color.resolve();
-    _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
+    const inner_w: Element.sizing.Axis = if (self.wrap) .grow() else .fit();
+    _ = try ui.open(self.key.indexed(BODY_INDEX), .{ .width = inner_w, .height = .fit() }, deco);
     ui.close();
 
     ui.close();

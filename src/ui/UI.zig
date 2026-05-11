@@ -116,9 +116,20 @@ pub fn lineHeight(self: *UI, size: Size, font: ?[]const u8) !f32 {
     return (try face.lineHeight(size.value * scale)) / scale;
 }
 
-pub fn textDecoration(self: *UI, content: []const u8, size: Size, font: ?[]const u8) !Decoration {
+pub fn textDecoration(self: *UI, content: []const u8, size: Size, font: ?[]const u8, wrap: bool) !Decoration {
     const face = try self.font.getFace(font);
     const scale = self.content_scale;
+    if (wrap) {
+        const lh = (try face.lineHeight(size.value * scale)) / scale;
+        return .{ .text = .{
+            .content = content,
+            .size = size.value,
+            .font = font,
+            .intrinsic_w = 0,
+            .intrinsic_h = lh,
+            .wrap = true,
+        } };
+    }
     const measured = try face.measure(content, size.value * scale);
     return .{ .text = .{
         .content = content,
@@ -126,6 +137,7 @@ pub fn textDecoration(self: *UI, content: []const u8, size: Size, font: ?[]const
         .font = font,
         .intrinsic_w = measured.width / scale,
         .intrinsic_h = measured.height / scale,
+        .wrap = false,
     } };
 }
 
@@ -192,13 +204,45 @@ pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32,
 }
 
 pub fn resolve(self: *UI) !void {
-    self.layout_ctx.computeSizes();
-    try self.layout_ctx.computeLayout(.{
+    const scroll: layout.Context.ScrollLookup = .{
         .ctx = @ptrCast(&self.state),
         .getFn = @ptrCast(&State.getScroll),
-    });
+    };
+
+    self.layout_ctx.computeSizes();
+    try self.layout_ctx.computeLayout(scroll);
+
+    // After a first layout pass, recompute intrinsic_h for every wrap-text element using its just-assigned box width.
+    if (try self.reflowWrappedText()) {
+        self.layout_ctx.computeSizes();
+        try self.layout_ctx.computeLayout(scroll);
+    }
+
     try self.layout_ctx.buildZOrder();
     self.syncStateBounds();
+}
+
+/// Returns true if any height changed, in which case the caller should re-run layout so ancestors fit the new heights.
+fn reflowWrappedText(self: *UI) !bool {
+    var changed = false;
+    for (self.decorations.items, 0..) |dec, slot| {
+        if (dec != .text) continue;
+        const t = dec.text;
+        if (!t.wrap or t.content.len == 0) continue;
+
+        const el = self.layout_ctx.pool.get(@intCast(slot));
+        const wrap_px = el.box.w * self.content_scale;
+        if (wrap_px <= 0) continue;
+
+        const face = try self.font.getFace(t.font);
+        const shaped = try face.shapeWrapped(t.content, t.size * self.content_scale, wrap_px);
+        const new_h = shaped.height / self.content_scale;
+        if (new_h != el.intrinsic_h) {
+            el.intrinsic_h = new_h;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 fn syncStateBounds(self: *UI) void {
@@ -235,6 +279,11 @@ pub fn focused(self: *UI, id: Element.Id) bool {
     return self.state.focused == id;
 }
 
+pub fn selectionText(self: *UI) ?[]const u8 {
+    if (self.state.selection_text.len == 0) return null;
+    return self.state.selection_text;
+}
+
 pub fn isHoveredWithin(self: *UI, ancestor_id: Element.Id) bool {
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
 }
@@ -256,6 +305,7 @@ fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element
 
 pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale: f32) !void {
     self.content_scale = content_scale;
+    self.state.selection_text = &.{};
     self.input.collect(input, now_ms);
 
     if (self.input.mouse_pressed) {
@@ -424,92 +474,97 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
             },
             .text => |t| if (t.content.len > 0) {
                 const face = try self.font.getFace(t.font);
-                const shaped = try face.shape(t.content, t.size * content_scale);
-                const glyphs = shaped.glyphs;
-                if (glyphs.len > 0) {
+                const wrap_px: f32 = if (t.wrap) @max(0, el.box.w * content_scale) else 0;
+                const shaped = try face.shapeWrapped(t.content, t.size * content_scale, wrap_px);
+                if (shaped.lines.len > 0) {
                     const ascender = shaped.ascender / content_scale;
-                    const baseline = el.box.y + ascender;
-                    const size_logical = t.size; // logical px
+                    const size_logical = t.size;
 
                     const inv_size = 1.0 / size_logical;
                     const jac = [4]f32{ inv_size, 0, 0, -inv_size };
 
-                    const verts_buf = try allocator.alloc(gpu.SlugVertex, glyphs.len * 4);
+                    var total_glyphs: usize = 0;
+                    for (shaped.lines) |ln| total_glyphs += ln.glyphs.len;
+                    if (total_glyphs == 0) continue;
+
+                    const verts_buf = try allocator.alloc(gpu.SlugVertex, total_glyphs * 4);
                     defer allocator.free(verts_buf);
-                    const idx_buf = try allocator.alloc(u32, glyphs.len * 6);
+                    const idx_buf = try allocator.alloc(u32, total_glyphs * 6);
                     defer allocator.free(idx_buf);
                     var quad_count: u32 = 0;
 
-                    for (glyphs) |gl| {
-                        const rec = gl.record;
-                        if (rec.is_empty) continue;
+                    for (shaped.lines) |line| {
+                        const baseline = el.box.y + ascender + line.y / content_scale;
+                        for (line.glyphs) |gl| {
+                            const rec = gl.record;
+                            if (rec.is_empty) continue;
 
-                        const em_corners = [4][2]f32{
-                            .{ rec.em_min[0], rec.em_max[1] }, // tl
-                            .{ rec.em_max[0], rec.em_max[1] }, // tr
-                            .{ rec.em_max[0], rec.em_min[1] }, // br
-                            .{ rec.em_min[0], rec.em_min[1] }, // bl
-                        };
-
-                        const origin_x = el.box.x + gl.x / content_scale;
-
-                        var screen_corners: [4][2]f32 = undefined;
-                        var min_sx: f32 = std.math.inf(f32);
-                        var max_sx: f32 = -std.math.inf(f32);
-                        var min_sy: f32 = std.math.inf(f32);
-                        var max_sy: f32 = -std.math.inf(f32);
-                        for (em_corners, 0..) |em, ci| {
-                            const sx = origin_x + em[0] * size_logical;
-                            const sy = baseline - em[1] * size_logical;
-                            screen_corners[ci] = .{ sx, sy };
-                            min_sx = @min(min_sx, sx);
-                            max_sx = @max(max_sx, sx);
-                            min_sy = @min(min_sy, sy);
-                            max_sy = @max(max_sy, sy);
-                        }
-
-                        if (clip) |c| {
-                            if (min_sx >= c[0] + c[2] or
-                                max_sx <= c[0] or
-                                min_sy >= c[1] + c[3] or
-                                max_sy <= c[1]) continue;
-                        }
-
-                        // Bit-packed glyph data for tex.zw.
-                        const tex_z_bits: u32 =
-                            @as(u32, rec.glyph_loc_x) | (@as(u32, rec.glyph_loc_y) << 16);
-                        const tex_w_bits: u32 =
-                            @as(u32, rec.band_max_x) | (@as(u32, rec.band_max_y) << 16);
-                        const tex_z: f32 = @bitCast(tex_z_bits);
-                        const tex_w: f32 = @bitCast(tex_w_bits);
-
-                        const bnd = [4]f32{
-                            rec.band_scale[0],  rec.band_scale[1],
-                            rec.band_offset[0], rec.band_offset[1],
-                        };
-
-                        const v_base = quad_count * 4;
-                        for (0..4) |ci| {
-                            verts_buf[v_base + ci] = .{
-                                .pos = .{
-                                    screen_corners[ci][0],
-                                    screen_corners[ci][1],
-                                    TEXT_QUAD_NORMALS[ci][0],
-                                    TEXT_QUAD_NORMALS[ci][1],
-                                },
-                                .tex = .{ em_corners[ci][0], em_corners[ci][1], tex_z, tex_w },
-                                .jac = jac,
-                                .bnd = bnd,
-                                .col = t.color,
+                            const em_corners = [4][2]f32{
+                                .{ rec.em_min[0], rec.em_max[1] },
+                                .{ rec.em_max[0], rec.em_max[1] },
+                                .{ rec.em_max[0], rec.em_min[1] },
+                                .{ rec.em_min[0], rec.em_min[1] },
                             };
+
+                            const origin_x = el.box.x + gl.x / content_scale;
+
+                            var screen_corners: [4][2]f32 = undefined;
+                            var min_sx: f32 = std.math.inf(f32);
+                            var max_sx: f32 = -std.math.inf(f32);
+                            var min_sy: f32 = std.math.inf(f32);
+                            var max_sy: f32 = -std.math.inf(f32);
+                            for (em_corners, 0..) |em, ci| {
+                                const sx = origin_x + em[0] * size_logical;
+                                const sy = baseline - em[1] * size_logical;
+                                screen_corners[ci] = .{ sx, sy };
+                                min_sx = @min(min_sx, sx);
+                                max_sx = @max(max_sx, sx);
+                                min_sy = @min(min_sy, sy);
+                                max_sy = @max(max_sy, sy);
+                            }
+
+                            if (clip) |c| {
+                                if (min_sx >= c[0] + c[2] or
+                                    max_sx <= c[0] or
+                                    min_sy >= c[1] + c[3] or
+                                    max_sy <= c[1]) continue;
+                            }
+
+                            const tex_z_bits: u32 =
+                                @as(u32, rec.glyph_loc_x) | (@as(u32, rec.glyph_loc_y) << 16);
+                            const tex_w_bits: u32 =
+                                @as(u32, rec.band_max_x) | (@as(u32, rec.band_max_y) << 16);
+                            const tex_z: f32 = @bitCast(tex_z_bits);
+                            const tex_w: f32 = @bitCast(tex_w_bits);
+
+                            const bnd = [4]f32{
+                                rec.band_scale[0],  rec.band_scale[1],
+                                rec.band_offset[0], rec.band_offset[1],
+                            };
+
+                            const v_base = quad_count * 4;
+                            for (0..4) |ci| {
+                                verts_buf[v_base + ci] = .{
+                                    .pos = .{
+                                        screen_corners[ci][0],
+                                        screen_corners[ci][1],
+                                        TEXT_QUAD_NORMALS[ci][0],
+                                        TEXT_QUAD_NORMALS[ci][1],
+                                    },
+                                    .tex = .{ em_corners[ci][0], em_corners[ci][1], tex_z, tex_w },
+                                    .jac = jac,
+                                    .bnd = bnd,
+                                    .col = t.color,
+                                };
+                            }
+                            idx_buf[quad_count * 6 + 0] = v_base + 0;
+                            idx_buf[quad_count * 6 + 1] = v_base + 1;
+                            idx_buf[quad_count * 6 + 2] = v_base + 2;
+                            idx_buf[quad_count * 6 + 3] = v_base + 0;
+                            idx_buf[quad_count * 6 + 4] = v_base + 2;
+                            idx_buf[quad_count * 6 + 5] = v_base + 3;
+                            quad_count += 1;
                         }
-                        idx_buf[quad_count * 6 + 0] = v_base + 0;
-                        idx_buf[quad_count * 6 + 1] = v_base + 1;
-                        idx_buf[quad_count * 6 + 2] = v_base + 2;
-                        idx_buf[quad_count * 6 + 3] = v_base + 0;
-                        idx_buf[quad_count * 6 + 4] = v_base + 2;
-                        idx_buf[quad_count * 6 + 5] = v_base + 3;
-                        quad_count += 1;
                     }
 
                     if (quad_count > 0) {

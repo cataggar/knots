@@ -21,8 +21,10 @@ pub const Demo = struct {
         pending_async: usize = 0,
         hover_strength: f32 = 0,
         dropped_paths: std.ArrayList([]const u8) = .empty,
+        notes_buf: std.ArrayList(u8) = .empty,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
+            self.notes_buf.deinit(allocator);
             for (self.dropped_paths.items) |p| allocator.free(p);
             self.dropped_paths.deinit(allocator);
             self.canvas_cmds.deinit(allocator);
@@ -114,5 +116,10 @@ pub const all = [_]Demo{
         .name = "Drops",
         .description = "Drag files onto the window and consume them via app.window.consumeDrops.",
         .render = @import("demos/drops.zig").render,
+    },
+    .{
+        .name = "Text wrap",
+        .description = "Text and TextInput with wrap=true.",
+        .render = @import("demos/text_wrap.zig").render,
     },
 };

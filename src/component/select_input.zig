@@ -112,7 +112,7 @@ pub fn SelectInput(comptime T: type) type {
                 .{ self.placeholder, self.placeholder_color.resolve() };
 
             {
-                var deco = try ui.textDecoration(display_text, size, null);
+                var deco = try ui.textDecoration(display_text, size, null, false);
                 deco.text.color = text_color;
                 _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
                 ui.close();
@@ -120,7 +120,7 @@ pub fn SelectInput(comptime T: type) type {
 
             {
                 const arrow_str: []const u8 = if (s.open) "O" else ">";
-                var arrow_deco = try ui.textDecoration(arrow_str, .{ .value = size.value * 0.8 }, null);
+                var arrow_deco = try ui.textDecoration(arrow_str, .{ .value = size.value * 0.8 }, null, false);
                 arrow_deco.text.color = self.color.resolve();
                 _ = try ui.open(self.key.indexed(2), .{ .width = .fit(), .height = .fit() }, arrow_deco);
                 ui.close();
@@ -173,7 +173,7 @@ pub fn SelectInput(comptime T: type) type {
                         }, opt_bg);
 
                         {
-                            var opt_deco = try ui.textDecoration(option, size, null);
+                            var opt_deco = try ui.textDecoration(option, size, null, false);
                             opt_deco.text.color = self.color.resolve();
                             _ = try ui.open(self.key.indexed(4 + self.labels.len + i), .{ .width = .fit(), .height = .fit() }, opt_deco);
                             ui.close();
