@@ -27,7 +27,7 @@ fn body(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
 
     try app.e(.{
-        Rect{ .width = .fixed(220), .height = .fit(), .key = .src(@src()) },
+        Rect{ .width = .fixed(220), .key = .src(@src()) },
         .{
             SelectInput(Effect){
                 .key = .src(@src()),
@@ -44,7 +44,7 @@ fn body(app: *knots.App) !void {
             .width = .grow(),
             .height = .fixed(360),
             .key = .src(@src()),
-            .style = .{ .color = .bg, .corner_radius = .sm },
+            .style = .{ .color = .elevated, .corner_radius = .sm },
         },
         .{
             Canvas{

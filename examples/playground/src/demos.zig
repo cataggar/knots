@@ -22,6 +22,7 @@ pub const Demo = struct {
         hover_strength: f32 = 0,
         dropped_paths: std.ArrayList([]const u8) = .empty,
         notes_buf: std.ArrayList(u8) = .empty,
+        theme_idx: u32 = 0,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
             self.notes_buf.deinit(allocator);
@@ -116,5 +117,10 @@ pub const all = [_]Demo{
         .name = "Text wrap",
         .description = "Text and TextInput with wrap=true.",
         .render = @import("demos/text_wrap.zig").render,
+    },
+    .{
+        .name = "Theme",
+        .description = "Switch UI theme at runtime between dark, light and the playground's custom theme.",
+        .render = @import("demos/theme.zig").render,
     },
 };

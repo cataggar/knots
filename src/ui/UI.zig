@@ -16,6 +16,7 @@ const Decoration = @import("decoration.zig").Decoration;
 const Key = @import("Key.zig");
 const Style = @import("Style.zig");
 const Size = @import("Size.zig");
+const Theme = @import("Theme.zig");
 const scrollbar = @import("scrollbar.zig");
 
 const Allocator = std.mem.Allocator;
@@ -44,6 +45,7 @@ pub const Config = struct {
     /// state survive transient absences (animations, conditional render) at
     /// the cost of holding stale entries longer. 1 = old single-frame behavior.
     state_ttl_frames: u32 = State.DEFAULT_TTL_FRAMES,
+    theme: Theme = Theme.light,
 };
 
 allocator: Allocator,
@@ -57,6 +59,7 @@ hit_counter: u32,
 scroll_geoms: std.ArrayList(scrollbar.SlotGeom),
 content_scale: f32,
 anim_active: bool,
+theme: Theme,
 
 const UI = @This();
 
@@ -73,6 +76,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .scroll_geoms = .empty,
         .content_scale = 1.0,
         .anim_active = false,
+        .theme = cfg.theme,
     };
 }
 

@@ -24,7 +24,7 @@ fn body(app: *knots.App) !void {
     const arena = app.arena();
 
     try app.e(.{
-        Rect{ .width = .grow(), .height = .fit(), .dir = .row, .gap = 12, .@"align" = .center, .key = .src(@src()) },
+        Rect{ .width = .grow(), .dir = .row, .gap = 12, .@"align" = .center, .key = .src(@src()) },
         .{
             Button{
                 .key = .src(@src()),

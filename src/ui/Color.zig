@@ -19,10 +19,10 @@ pub const Input = union(enum) {
     dimmed,
     color: Color,
 
-    pub fn resolve(self: Input) [4]f32 {
+    pub fn resolve(self: Input, theme: *const Theme) [4]f32 {
         return switch (self) {
             .color => |c| c.value,
-            inline else => |_, tag| @field(Theme.definition, @tagName(tag)).value,
+            inline else => |_, tag| @field(theme.*, @tagName(tag)).value,
         };
     }
 

@@ -51,9 +51,9 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
         ui.anim(id, "hover", if (is_hovered) 1.0 else 0.0, ha.opts)
     else if (is_hovered) 1.0 else 0.0;
 
-    var deco_rect = self.style.toRect();
+    var deco_rect = self.style.toRect(&ui.theme);
     if (self.hover_style) |hs| {
-        const hover_rect = self.style.merge(hs).toRect();
+        const hover_rect = self.style.merge(hs).toRect(&ui.theme);
         deco_rect.color = math.lerp(@as(math.Vec4, deco_rect.color), @as(math.Vec4, hover_rect.color), t);
         deco_rect.corner_radius = math.lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
         deco_rect.border_width = math.lerp(deco_rect.border_width, hover_rect.border_width, t);

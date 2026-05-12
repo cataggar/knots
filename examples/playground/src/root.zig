@@ -25,6 +25,9 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
             .title = "Playground",
             .canvas_selector = "#canvas",
         },
+        .ui = .{
+            .theme = knots.ui.Theme.parseWithBase(knots.ui.Theme.dark, @import("theme.zon")),
+        },
     });
 
     return Self{

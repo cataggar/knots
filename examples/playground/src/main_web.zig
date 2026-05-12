@@ -1,8 +1,6 @@
 const std = @import("std");
 const playground = @import("playground");
 
-pub const knots_theme = @import("theme.zon");
-
 pub const std_options: std.Options = .{
     .logFn = webLog,
 };

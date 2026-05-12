@@ -52,7 +52,7 @@ fn body(app: *knots.App) !void {
     try app.e(Spacer{ .height = .fixed(10), .key = .src(@src()) });
     try caption(app, "row 4: fit content - children dictate width", .src(@src()));
     try app.e(.{
-        Rect{ .width = .fit(), .height = .fit(), .dir = .row, .gap = 6, .padding = .init(6, 6, 6, 6), .style = .{ .color = .muted, .corner_radius = .sm }, .key = .src(@src()) },
+        Rect{ .width = .fit(), .gap = 6, .padding = .init(6, 6, 6, 6), .style = .{ .color = .muted, .corner_radius = .sm }, .key = .src(@src()) },
         .{
             Rect{ .width = .fixed(40), .height = .fixed(20), .style = .{ .color = .accented, .corner_radius = .sm }, .key = .src(@src()) },
             Rect{ .width = .fixed(70), .height = .fixed(20), .style = .{ .color = .accented, .corner_radius = .sm }, .key = .src(@src()) },

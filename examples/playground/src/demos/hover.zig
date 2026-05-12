@@ -20,7 +20,7 @@ fn body(app: *knots.App) !void {
     try app.e(Text{ .content = "Button hover_anim (default brighten):", .size = .xs, .color = .dimmed, .key = .src(@src()) });
     try app.e(Spacer{ .height = .fixed(6), .key = .src(@src()) });
     try app.e(.{
-        Rect{ .width = .grow(), .height = .fit(), .dir = .row, .gap = 8, .key = .src(@src()) },
+        Rect{ .width = .grow(), .dir = .row, .gap = 8, .key = .src(@src()) },
         .{
             Button{
                 .key = .src(@src()),

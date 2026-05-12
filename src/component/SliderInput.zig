@@ -4,7 +4,6 @@ const Element = @import("layout").Element;
 const App = @import("knots").App;
 const ui_mod = @import("ui");
 const Style = ui_mod.Style;
-const Theme = ui_mod.Theme;
 const Color = ui_mod.Color;
 const Key = ui_mod.Key;
 const Decoration = ui_mod.Decoration;
@@ -58,7 +57,7 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
 
     const halo_alpha = 0.25 * hover_t + 0.40 * drag_t;
     const halo_r = self.knob_radius * (1.8 + 0.4 * drag_t);
-    const base_knob_color = self.knob_color.resolve();
+    const base_knob_color = self.knob_color.resolve(&ui.theme);
     const halo_color: [4]f32 = .{ base_knob_color[0], base_knob_color[1], base_knob_color[2], halo_alpha };
 
     const element_height = @max(self.track_height, self.knob_radius * 2);
@@ -69,8 +68,8 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
         .interactive = true,
     }, .{ .slider = .{
         .progress = progress,
-        .track_color = self.track_color.resolve(),
-        .fill_color = self.fill_color.resolve(),
+        .track_color = self.track_color.resolve(&ui.theme),
+        .fill_color = self.fill_color.resolve(&ui.theme),
         .track_height = self.track_height,
         .corner_radius = self.corner_radius,
         .knob_radius = effective_knob_radius,

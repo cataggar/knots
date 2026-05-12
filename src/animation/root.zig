@@ -44,10 +44,7 @@ pub const Collapsible = struct {
         }, .none);
         defer app.ui.close();
 
-        _ = try app.ui.open(measure_key, .{
-            .width = self.width,
-            .height = .fit(),
-        }, .none);
+        _ = try app.ui.open(measure_key, .{ .width = self.width }, .none);
         defer app.ui.close();
         try self.child(app);
     }

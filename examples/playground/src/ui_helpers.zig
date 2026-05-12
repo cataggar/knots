@@ -36,6 +36,8 @@ pub fn panel(
             .color = .dimmed,
             .size = .sm,
             .key = .str("panel.desc:" ++ title),
+            .wrap = true,
+            .width = .grow(),
         },
         Spacer{ .height = .fixed(16), .key = .str("panel.s2:" ++ title) },
     });

@@ -29,7 +29,7 @@ pub fn open(self: *const Text, app: *App) !Element.Id {
     const ui = &app.ui;
     if (!self.selectable) {
         var decoration = try ui.textDecoration(self.content, self.size.resolve(), self.font, self.wrap);
-        decoration.text.color = self.color.resolve();
+        decoration.text.color = self.color.resolve(&ui.theme);
         return try ui.open(self.key, .{
             .width = self.width,
             .height = self.height,
@@ -67,7 +67,7 @@ pub fn close(self: *const Text, app: *App) !void {
     }
 
     var deco = try ui.textDecoration(self.content, self.size.resolve(), self.font, self.wrap);
-    deco.text.color = self.color.resolve();
+    deco.text.color = self.color.resolve(&ui.theme);
     const inner_w: Element.sizing.Axis = if (self.wrap) .grow() else .fit();
     _ = try ui.open(self.key.indexed(BODY_INDEX), .{ .width = inner_w, .height = .fit() }, deco);
     ui.close();
@@ -106,7 +106,7 @@ fn closeSlow(self: *const Text, ui: *UI, s: *State.TextSelect, need_hit_test: bo
     if (sel_lo != sel_hi) {
         ui.state.selection_text = self.content[sel_lo..sel_hi];
 
-        var hc = self.highlight_color.resolve();
+        var hc = self.highlight_color.resolve(&ui.theme);
         hc[3] = 0.4;
 
         const spans = try util.lineSpansForRange(ui.allocator, shaped, sel_lo, sel_hi, scale);
@@ -154,7 +154,7 @@ fn closeSlow(self: *const Text, ui: *UI, s: *State.TextSelect, need_hit_test: bo
     }
 
     var deco = try ui.textDecoration(self.content, size, self.font, self.wrap);
-    deco.text.color = self.color.resolve();
+    deco.text.color = self.color.resolve(&ui.theme);
     const inner_w: Element.sizing.Axis = if (self.wrap) .grow() else .fit();
     _ = try ui.open(self.key.indexed(BODY_INDEX), .{ .width = inner_w, .height = .fit() }, deco);
     ui.close();

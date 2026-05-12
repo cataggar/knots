@@ -5,7 +5,6 @@ const App = @import("knots").App;
 const UI = @import("ui").UI;
 const State = @import("ui").State;
 const Style = @import("ui").Style;
-const Theme = @import("ui").Theme;
 const Color = @import("ui").Color;
 const Size = @import("ui").Size;
 const Key = @import("ui").Key;
@@ -50,7 +49,7 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
     height.min = try ui.lineHeight(self.size.resolve(), null);
 
     const decoration: Decoration = if (current_style.hasDecoration())
-        .{ .rect = current_style.toRect() }
+        .{ .rect = current_style.toRect(&ui.theme) }
     else
         .none;
     const overflow: Element.Overflow = if (self.wrap) .visible else .scroll_x;
@@ -69,11 +68,11 @@ pub fn close(self: *const TextInput, app: *App) !void {
     const id = self.key.hash();
     const is_focused = ui.focused(id);
     const items = self.buf.items;
-    const resolved_color = self.color.resolve();
+    const resolved_color = self.color.resolve(&ui.theme);
     const size = self.size.resolve();
 
     const display, const color = if (!is_focused and items.len == 0)
-        .{ self.placeholder, self.placeholder_color.resolve() }
+        .{ self.placeholder, self.placeholder_color.resolve(&ui.theme) }
     else
         .{ items, resolved_color };
 
@@ -97,9 +96,9 @@ pub fn close(self: *const TextInput, app: *App) !void {
         const has_sel = sel_lo != sel_hi;
 
         if (has_sel) {
-            const sel_color = comptime blk: {
+            const sel_color = blk: {
                 const base: Color.Input = .primary;
-                var c = base.resolve();
+                var c = base.resolve(&ui.theme);
                 c[3] = 0.4;
                 break :blk c;
             };

@@ -30,7 +30,7 @@ const Rect = @This();
 
 pub fn open(self: *const Rect, app: *App) !Element.Id {
     const decoration: Decoration = if (self.style.hasDecoration())
-        .{ .rect = self.style.toRect() }
+        .{ .rect = self.style.toRect(&app.ui.theme) }
     else
         .none;
     return try app.ui.open(self.key, .{

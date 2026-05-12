@@ -10,15 +10,14 @@ pub const Radius = union(enum) {
     xl,
     fixed: f32,
 
-    pub inline fn resolve(self: Radius) f32 {
-        const base = definition.radius;
+    pub inline fn resolve(self: Radius, base_radius: f32) f32 {
         return switch (self) {
             .none => 0,
-            .xs => base * 0.25,
-            .sm => base * 0.5,
-            .md => base,
-            .lg => base * 1.5,
-            .xl => base * 2.0,
+            .xs => base_radius * 0.25,
+            .sm => base_radius * 0.5,
+            .md => base_radius,
+            .lg => base_radius * 1.5,
+            .xl => base_radius * 2.0,
             .fixed => |v| v,
         };
     }
@@ -50,17 +49,15 @@ scrollbar_corner_radius: f32,
 
 const Theme = @This();
 
-pub const dark = parseTheme(@import("themes/dark.zon"));
-pub const light = parseTheme(@import("themes/light.zon"));
+pub const dark: Theme = parse(@import("themes/dark.zon"));
+pub const light: Theme = parse(@import("themes/light.zon"));
 
-pub const definition = if (@hasDecl(@import("root"), "knots_theme")) parseThemeWithBase(dark, @import("root").knots_theme) else light;
-
-fn parseTheme(def: anytype) Theme {
+pub fn parse(comptime def: anytype) Theme {
     const res: Theme = undefined;
-    return parseThemeWithBase(res, def);
+    return parseWithBase(res, def);
 }
 
-fn parseThemeWithBase(base: anytype, def: anytype) Theme {
+pub fn parseWithBase(comptime base: Theme, comptime def: anytype) Theme {
     var res = base;
     inline for (std.meta.fields(@TypeOf(def))) |field| {
         const v = @field(def, field.name);

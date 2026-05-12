@@ -34,11 +34,11 @@ pub fn hasDecoration(self: Style) bool {
 }
 
 /// Convert to layout Decoration.Rect
-pub fn toRect(self: Style) Decoration.Rect {
+pub fn toRect(self: Style, theme: *const Theme) Decoration.Rect {
     return .{
-        .color = self.color.resolve(),
-        .corner_radius = self.corner_radius.resolve(),
+        .color = self.color.resolve(theme),
+        .corner_radius = self.corner_radius.resolve(theme.radius),
         .border_width = self.border_width,
-        .border_color = self.border_color.resolve(),
+        .border_color = self.border_color.resolve(theme),
     };
 }

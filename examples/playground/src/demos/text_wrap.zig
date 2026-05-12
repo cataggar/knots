@@ -30,13 +30,7 @@ pub fn render(app: *knots.App) !void {
 
 fn body(app: *knots.App) !void {
     try app.e(.{
-        Rect{
-            .width = .grow(),
-            .height = .fit(),
-            .dir = .column,
-            .gap = 16,
-            .key = .src(@src()),
-        },
+        Rect{ .width = .grow(), .dir = .column, .gap = 16, .key = .src(@src()) },
         .{
             fixedWidthSection,
             growWidthSection,
@@ -60,7 +54,6 @@ fn fixedWidthSection(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .fixed(220),
-            .height = .fit(),
             .padding = .init(10, 10, 10, 10),
             .style = .{ .color = .muted, .corner_radius = .sm },
             .key = .src(@src()),
@@ -77,24 +70,16 @@ fn fixedWidthSection(app: *knots.App) !void {
 fn growWidthSection(app: *knots.App) !void {
     try caption(app, "grow() in a row, text reflows when the window resizes", .src(@src()));
     try app.e(.{
-        Rect{
-            .width = .grow(),
-            .height = .fit(),
-            .dir = .row,
-            .gap = 12,
-            .key = .src(@src()),
-        },
+        Rect{ .width = .grow(), .gap = 12, .key = .src(@src()) },
         .{
             Rect{
                 .width = .grow(),
-                .height = .fit(),
                 .padding = .init(10, 10, 10, 10),
                 .style = .{ .color = .muted, .corner_radius = .sm },
                 .key = .src(@src()),
             },
             Rect{
                 .width = .fixed(120),
-                .height = .fit(),
                 .padding = .init(10, 10, 10, 10),
                 .style = .{ .color = .accented, .corner_radius = .sm },
                 .key = .src(@src()),
@@ -103,13 +88,7 @@ fn growWidthSection(app: *knots.App) !void {
     });
 
     try app.e(.{
-        Rect{
-            .width = .grow(),
-            .height = .fit(),
-            .dir = .row,
-            .gap = 12,
-            .key = .src(@src()),
-        },
+        Rect{ .width = .grow(), .gap = 12, .key = .src(@src()) },
         .{
             growParagraph,
             Rect{
@@ -126,7 +105,6 @@ fn growParagraph(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fit(),
             .padding = .init(10, 10, 10, 10),
             .style = .{ .color = .muted, .corner_radius = .sm },
             .key = .src(@src()),
@@ -145,7 +123,6 @@ fn newlinesSection(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .fixed(320),
-            .height = .fit(),
             .padding = .init(10, 10, 10, 10),
             .style = .{ .color = .muted, .corner_radius = .sm },
             .key = .src(@src()),
@@ -165,7 +142,6 @@ fn multiLineInputSection(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .fixed(360),
-            .height = .fit(),
             .padding = .init(8, 8, 8, 8),
             .style = .{ .color = .muted, .corner_radius = .sm },
             .key = .src(@src()),

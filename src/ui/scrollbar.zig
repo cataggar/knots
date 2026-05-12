@@ -28,9 +28,9 @@ pub fn idFor(container_id: Element.Id) Element.Id {
     return container_id ^ THUMB_ID_SALT;
 }
 
-pub fn compute(el: *const Element, offset: math.Vec2) ?Geom {
-    const thickness = Theme.definition.scrollbar_thickness;
-    const min_thumb = Theme.definition.scrollbar_min_thumb;
+pub fn compute(el: *const Element, offset: math.Vec2, theme: *const Theme) ?Geom {
+    const thickness = theme.scrollbar_thickness;
+    const min_thumb = theme.scrollbar_min_thumb;
 
     switch (el.overflow) {
         .scroll_y => {
@@ -86,7 +86,7 @@ pub fn route(ui: *UI) !void {
     for (ui.layout_ctx.scroll_slots.items) |slot| {
         const el = &elements[slot];
         const offset = ui.state.getScroll(el.id);
-        const geom = compute(el, .{ offset[0], offset[1] }) orelse continue;
+        const geom = compute(el, .{ offset[0], offset[1] }, &ui.theme) orelse continue;
 
         if (has_wheel and el.box.contains(p)) wheel_target = .{ .slot = slot };
 
@@ -150,7 +150,7 @@ pub fn route(ui: *UI) !void {
 pub fn recordForTessellate(ui: *UI, slot: Element.Slot, parent_clip: ?math.Rect, layer: u8) !void {
     const el = &ui.layout_ctx.pool.elements.items[slot];
     const offset = ui.state.getScroll(el.id);
-    const geom = compute(el, .{ offset[0], offset[1] }) orelse return;
+    const geom = compute(el, .{ offset[0], offset[1] }, &ui.theme) orelse return;
     try ui.scroll_geoms.append(ui.allocator, .{
         .slot = slot,
         .layer = layer,
@@ -161,10 +161,10 @@ pub fn recordForTessellate(ui: *UI, slot: Element.Slot, parent_clip: ?math.Rect,
 
 pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
     const elements = ui.layout_ctx.pool.elements.items;
-    const cr = Theme.definition.scrollbar_corner_radius;
-    const base: math.Vec4 = Theme.definition.scrollbar_thumb_color.value;
-    const hi: math.Vec4 = Theme.definition.scrollbar_thumb_hover_color.value;
-    const track_color: [4]f32 = Theme.definition.scrollbar_track_color.value;
+    const cr = ui.theme.scrollbar_corner_radius;
+    const base: math.Vec4 = ui.theme.scrollbar_thumb_color.value;
+    const hi: math.Vec4 = ui.theme.scrollbar_thumb_hover_color.value;
+    const track_color: [4]f32 = ui.theme.scrollbar_track_color.value;
 
     for (ui.scroll_geoms.items) |sg| {
         if (sg.layer != layer) continue;
@@ -248,7 +248,7 @@ test "scrollbar drag moves scroll offset proportionally" {
         }
     }
 
-    const geom = compute(root_el.?, .{ 0, 0 }).?;
+    const geom = compute(root_el.?, .{ 0, 0 }, &ui.theme).?;
     const thumb_top_y = geom.thumb.y();
 
     try ui.resolveWindow(.{

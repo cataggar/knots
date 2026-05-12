@@ -29,7 +29,6 @@ fn body(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .fixed(420),
-            .height = .fit(),
             .dir = .column,
             .gap = 12,
             .key = .src(@src()),
@@ -63,7 +62,7 @@ fn body(app: *knots.App) !void {
 
 fn labeled(app: *knots.App, comptime label: []const u8, body_fn: *const fn (*knots.App) anyerror!void) !void {
     try app.e(.{
-        Rect{ .width = .grow(), .height = .fit(), .dir = .column, .gap = 4, .key = .str("form.field:" ++ label) },
+        Rect{ .width = .grow(), .dir = .column, .gap = 4, .key = .str("form.field:" ++ label) },
         .{Text{ .content = label, .size = .xs, .color = .dimmed, .key = .str("form.label:" ++ label) }},
     });
     try body_fn(app);

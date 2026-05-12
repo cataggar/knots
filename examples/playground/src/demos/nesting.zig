@@ -17,7 +17,6 @@ fn body(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fit(),
             .padding = .init(12, 12, 12, 12),
             .key = .src(@src()),
             .style = .{ .color = .muted, .corner_radius = .xl, .border_width = 2, .border_color = .@"error" },
@@ -30,7 +29,6 @@ fn level1(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fit(),
             .padding = .init(12, 12, 12, 12),
             .key = .src(@src()),
             .style = .{ .color = .muted, .corner_radius = .lg, .border_width = 2, .border_color = .success },
@@ -43,7 +41,6 @@ fn level2(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fit(),
             .padding = .init(12, 12, 12, 12),
             .key = .src(@src()),
             .style = .{ .color = .muted, .corner_radius = .md, .border_width = 2, .border_color = .primary },
@@ -56,7 +53,6 @@ fn level3(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fit(),
             .padding = .init(10, 10, 10, 10),
             .@"align" = .center,
             .justify = .center,

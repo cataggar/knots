@@ -29,7 +29,6 @@ fn body(app: *knots.App) !void {
         Spacer{ .height = .fixed(12), .key = .src(@src()) },
         Rect{
             .width = .grow(),
-            .height = .fit(),
             .dir = .row,
             .gap = 8,
             .key = .src(@src()),

@@ -16,12 +16,7 @@ pub fn render(app: *knots.App) !void {
 
 fn body(app: *knots.App) !void {
     try app.e(.{
-        Rect{
-            .width = .fit(),
-            .height = .fit(),
-            .dir = .layer,
-            .key = .src(@src()),
-        },
+        Rect{ .dir = .layer, .key = .src(@src()) },
         .{
             Rect{ .width = .fixed(96), .height = .fixed(96), .style = .{ .color = .info, .corner_radius = .{ .fixed = 48 } }, .key = .src(@src()) },
             Rect{ .width = .fixed(64), .height = .fixed(64), .style = .{ .color = .success, .corner_radius = .{ .fixed = 32 } }, .key = .src(@src()) },
