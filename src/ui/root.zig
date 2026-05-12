@@ -8,8 +8,10 @@ pub const Theme = @import("Theme.zig");
 pub const Color = @import("Color.zig");
 pub const Size = @import("Size.zig");
 pub const animation = @import("animation.zig");
+pub const scrollbar = @import("scrollbar.zig");
 
 test {
     _ = State;
     _ = UI;
+    _ = scrollbar;
 }

@@ -41,6 +41,13 @@ toned: Color = Color.hex("#38383d"),
 dimmed: Color = Color.hex("#5c5c63"),
 radius: f32 = 6,
 
+scrollbar_thickness: f32 = 8,
+scrollbar_min_thumb: f32 = 24,
+scrollbar_track_color: Color = Color.hex("#1e1e2180"),
+scrollbar_thumb_color: Color = Color.hex("#5c5c63"),
+scrollbar_thumb_hover_color: Color = Color.hex("#ededf2"),
+scrollbar_corner_radius: f32 = 4,
+
 const Theme = @This();
 
 pub const definition = if (@hasDecl(@import("root"), "knots_theme")) parseTheme(@import("root").knots_theme) else Theme{};
@@ -55,8 +62,8 @@ fn parseTheme(def: anytype) Theme {
     var res = Theme{};
     inline for (std.meta.fields(@TypeOf(def))) |field| {
         const v = @field(def, field.name);
-        if (std.mem.eql(u8, "radius", field.name)) {
-            res.radius = v;
+        if (@TypeOf(v) == comptime_float or @TypeOf(v) == comptime_int or @TypeOf(v) == f32) {
+            @field(res, field.name) = v;
             continue;
         }
 

@@ -104,6 +104,7 @@ z_slots: std.ArrayList(Element.Slot) = .empty,
 z_offsets: [257]u32 = @splat(0),
 id_to_slot: IdToSlotMap = .empty,
 has_scroll: bool = false,
+scroll_slots: std.ArrayList(Element.Slot) = .empty,
 
 // Sparse side-tables, grid templates live on parent slots, placements on child slots.
 grid_templates: std.AutoHashMapUnmanaged(Element.Slot, Grid.Template) = .empty,
@@ -127,6 +128,7 @@ pub fn deinit(self: *Context) void {
     self.id_to_slot.deinit(self.allocator);
     self.grid_templates.deinit(self.allocator);
     self.grid_placements.deinit(self.allocator);
+    self.scroll_slots.deinit(self.allocator);
     self.pool.deinit(self.allocator);
 }
 
@@ -140,6 +142,7 @@ pub fn reset(self: *Context) void {
     self.root_slot = Element.INVALID_SLOT;
     self.z_used = .initEmpty();
     self.has_scroll = false;
+    self.scroll_slots.clearRetainingCapacity();
 }
 
 pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slot {
@@ -148,29 +151,37 @@ pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slo
     if (config.grid_template) |t| try self.grid_templates.put(self.allocator, slot, t);
     if (config.grid_placement) |p| try self.grid_placements.put(self.allocator, slot, p);
 
-    if (self.stack.items.len > 0) {
-        const parent_slot = self.stack.items[self.stack.items.len - 1];
-        const parent = self.pool.get(parent_slot);
+    const slot_el = blk: {
+        if (self.stack.items.len > 0) {
+            const parent_slot = self.stack.items[self.stack.items.len - 1];
+            const parent = self.pool.get(parent_slot);
 
-        if (parent.first_child == Element.INVALID_SLOT) {
-            parent.first_child = slot;
+            if (parent.first_child == Element.INVALID_SLOT)
+                parent.first_child = slot
+            else
+                self.pool.get(parent.last_child).next_sibling = slot;
+
+            parent.last_child = slot;
+
+            const child = self.pool.get(slot);
+            child.parent = parent_slot;
+            if (parent.z_index > child.z_index) child.z_index = parent.z_index;
+            self.z_used.set(child.z_index);
+            parent.child_count += 1;
+            break :blk child;
         } else {
-            self.pool.get(parent.last_child).next_sibling = slot;
+            self.root_slot = slot;
+            const root = self.pool.get(slot);
+            self.z_used.set(root.z_index);
+            break :blk root;
         }
-        parent.last_child = slot;
+    };
 
-        const child = self.pool.get(slot);
-        child.parent = parent_slot;
-        if (parent.z_index > child.z_index) child.z_index = parent.z_index;
-        self.z_used.set(child.z_index);
-        parent.child_count += 1;
-        if (child.overflow.isScroll()) self.has_scroll = true;
-    } else {
-        self.root_slot = slot;
-        const root = self.pool.get(slot);
-        self.z_used.set(root.z_index);
-        if (root.overflow.isScroll()) self.has_scroll = true;
+    if (slot_el.overflow.isScroll()) {
+        self.has_scroll = true;
+        try self.scroll_slots.append(self.allocator, slot);
     }
+
     try self.stack.append(self.allocator, slot);
     return slot;
 }
@@ -182,7 +193,10 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
     if (config.grid_placement) |p| try self.grid_placements.put(self.allocator, slot, p);
     const el = self.pool.get(slot);
     self.z_used.set(el.z_index);
-    if (el.overflow.isScroll()) self.has_scroll = true;
+    if (el.overflow.isScroll()) {
+        self.has_scroll = true;
+        try self.scroll_slots.append(self.allocator, slot);
+    }
     try self.stack.append(self.allocator, slot);
     return slot;
 }

@@ -17,7 +17,11 @@ pub const TextSelect = struct {
 };
 
 pub const Scroll = struct {
+    pub const Axis = enum(u8) { none, x, y };
+
     offset: math.Vec2 = .{ 0, 0 },
+    drag_axis: Axis = .none,
+    drag_grab: f32 = 0,
 };
 
 pub const SelectInput = struct {

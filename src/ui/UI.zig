@@ -16,6 +16,7 @@ const Decoration = @import("decoration.zig").Decoration;
 const Key = @import("Key.zig");
 const Style = @import("Style.zig");
 const Size = @import("Size.zig");
+const scrollbar = @import("scrollbar.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -53,6 +54,7 @@ state: State,
 input: Input,
 hit_records: std.ArrayList(HitRecord),
 hit_counter: u32,
+scroll_geoms: std.ArrayList(scrollbar.SlotGeom),
 content_scale: f32,
 anim_active: bool,
 
@@ -68,6 +70,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .font = try .init(allocator, cfg.fonts),
         .hit_records = .empty,
         .hit_counter = 0,
+        .scroll_geoms = .empty,
         .content_scale = 1.0,
         .anim_active = false,
     };
@@ -79,6 +82,7 @@ pub fn deinit(self: *UI) void {
     self.font.deinit();
     self.state.deinit();
     self.hit_records.deinit(self.allocator);
+    self.scroll_geoms.deinit(self.allocator);
 }
 
 pub fn open(self: *UI, key: Key, element: Element.Config, decoration: Decoration) !Element.Id {
@@ -156,6 +160,7 @@ pub fn reset(self: *UI) void {
     self.decorations.clearRetainingCapacity();
     self.hit_records.clearRetainingCapacity();
     self.hit_counter = 0;
+    self.scroll_geoms.clearRetainingCapacity();
     self.anim_active = false;
 }
 
@@ -309,6 +314,8 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
     self.state.selection_text = &.{};
     self.input.collect(input, now_ms);
 
+    if (self.layout_ctx.has_scroll) try scrollbar.route(self);
+
     if (self.input.mouse_pressed) {
         self.state.active = self.state.hovered;
         self.state.focused = self.state.hovered;
@@ -324,10 +331,6 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
         if (dx * dx + dy * dy > press_drag_threshold_sq) self.state.press_drag = true;
     }
     if (self.input.mouse_released) self.state.active = Element.INVALID_ID;
-
-    if (self.layout_ctx.has_scroll and (input.scroll_delta[0] != 0 or input.scroll_delta[1] != 0)) {
-        try self.routeScroll(self.layout_ctx.pool.elements.items, input);
-    }
 }
 
 /// Advance the per widget state TTL clock. Call once per frame after the
@@ -344,6 +347,17 @@ fn clearOtherTextSelect(hovered: Element.Id, id: Element.Id, s: *State.TextSelec
     s.anchor_byte = 0;
     s.cursor_byte = 0;
     s.dragging = false;
+}
+
+pub fn appendHit(self: *UI, id: Element.Id, bounds: math.Rect, clip: ?math.Rect, layer: u8) !void {
+    try self.hit_records.append(self.allocator, .{
+        .id = id,
+        .bounds = bounds,
+        .clip = clip,
+        .layer = layer,
+        .insertion_order = self.hit_counter,
+    });
+    self.hit_counter += 1;
 }
 
 pub fn resolveHit(self: *UI) void {
@@ -368,25 +382,6 @@ pub fn resolveHit(self: *UI) void {
     }
 
     self.state.hovered = best_id;
-}
-
-fn routeScroll(self: *UI, elements: []Element, input: window.Input) !void {
-    var j: Element.Slot = @intCast(elements.len);
-    const p: math.Vec2 = .{ @floatCast(self.input.mouse_pos[0]), @floatCast(self.input.mouse_pos[1]) };
-    while (j > 0) {
-        j -= 1;
-        const el = self.layout_ctx.pool.get(j);
-        if (!el.overflow.isScroll()) continue;
-        if (el.box.contains(p)) {
-            const delta: math.Vec2 = switch (el.overflow) {
-                .scroll_x => .{ input.scroll_delta[0], 0 },
-                .scroll_y => .{ 0, input.scroll_delta[1] },
-                else => unreachable,
-            };
-            try self.state.addScroll(el.id, el, delta);
-            return;
-        }
-    }
 }
 
 pub fn tessellate(self: *UI, allocator: Allocator, draw_list: *DrawList) !void {
@@ -417,16 +412,9 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
         const clip: ?math.Rect = if (clip_rects.items.len > 0) clip_rects.items[clip_rects.items.len - 1] else null;
         const clip_arr: ?[4]f32 = if (clip) |c| @as([4]f32, c.v) else null;
 
-        if (el.interactive) {
-            try self.hit_records.append(self.allocator, .{
-                .id = el.id,
-                .bounds = el.box,
-                .clip = clip,
-                .layer = layer,
-                .insertion_order = self.hit_counter,
-            });
-            self.hit_counter += 1;
-        }
+        if (el.overflow.isScroll()) try scrollbar.recordForTessellate(self, slot, clip, layer);
+
+        if (el.interactive) try self.appendHit(el.id, el.box, clip, layer);
 
         switch (self.decorations.items[slot]) {
             .none => {},
@@ -773,6 +761,8 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
             try clip_owners.append(allocator, slot);
         }
     }
+
+    try scrollbar.render(self, draw_list, layer);
 }
 
 test "scroll routing uses previous frame elements" {
@@ -831,7 +821,7 @@ test "scroll routing uses previous frame elements" {
     }
 
     const child_id = Key.str("child").hash();
-    var child_box: ?Element.Rect = null;
+    var child_box: ?math.Rect = null;
     for (ui.layout_ctx.pool.elements.items) |el| {
         if (el.id == child_id) {
             child_box = el.box;
