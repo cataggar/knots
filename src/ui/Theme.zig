@@ -24,42 +24,44 @@ pub const Radius = union(enum) {
     }
 };
 
-primary: Color = Color.hex("#6382ee"),
-secondary: Color = Color.hex("#7763cc"),
-success: Color = Color.hex("#42b080"),
-info: Color = Color.hex("#42a5dc"),
-warning: Color = Color.hex("#eeb333"),
-@"error": Color = Color.hex("#dc4d4d"),
-bg: Color = Color.hex("#121214"),
-muted: Color = Color.hex("#1e1e21"),
-elevated: Color = Color.hex("#1e1e21"),
-accented: Color = Color.hex("#ededf2"),
-inverted: Color = Color.hex("#121214"),
-text: Color = Color.hex("#eaeaed"),
-highlighted: Color = Color.hex("#ffffff"),
-toned: Color = Color.hex("#38383d"),
-dimmed: Color = Color.hex("#5c5c63"),
-radius: f32 = 6,
+primary: Color,
+secondary: Color,
+success: Color,
+info: Color,
+warning: Color,
+@"error": Color,
+bg: Color,
+muted: Color,
+elevated: Color,
+accented: Color,
+inverted: Color,
+text: Color,
+highlighted: Color,
+toned: Color,
+dimmed: Color,
+radius: f32,
 
-scrollbar_thickness: f32 = 8,
-scrollbar_min_thumb: f32 = 24,
-scrollbar_track_color: Color = Color.hex("#1e1e2180"),
-scrollbar_thumb_color: Color = Color.hex("#5c5c63"),
-scrollbar_thumb_hover_color: Color = Color.hex("#ededf2"),
-scrollbar_corner_radius: f32 = 4,
+scrollbar_thickness: f32,
+scrollbar_min_thumb: f32,
+scrollbar_track_color: Color,
+scrollbar_thumb_color: Color,
+scrollbar_thumb_hover_color: Color,
+scrollbar_corner_radius: f32,
 
 const Theme = @This();
 
-pub const definition = if (@hasDecl(@import("root"), "knots_theme")) parseTheme(@import("root").knots_theme) else Theme{};
+pub const dark = parseTheme(@import("themes/dark.zon"));
+pub const light = parseTheme(@import("themes/light.zon"));
 
-const ColorFormat = union(enum) {
-    hex: []const u8,
-    rgba: [4]f32,
-    rgb: [3]f32,
-};
+pub const definition = if (@hasDecl(@import("root"), "knots_theme")) parseThemeWithBase(dark, @import("root").knots_theme) else light;
 
 fn parseTheme(def: anytype) Theme {
-    var res = Theme{};
+    const res: Theme = undefined;
+    return parseThemeWithBase(res, def);
+}
+
+fn parseThemeWithBase(base: anytype, def: anytype) Theme {
+    var res = base;
     inline for (std.meta.fields(@TypeOf(def))) |field| {
         const v = @field(def, field.name);
         if (@TypeOf(v) == comptime_float or @TypeOf(v) == comptime_int or @TypeOf(v) == f32) {

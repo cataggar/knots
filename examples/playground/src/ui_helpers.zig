@@ -17,7 +17,7 @@ pub fn panel(
         .overflow = .scroll_y,
         .key = .str("panel:" ++ title),
         .style = .{
-            .color = .bg,
+            .color = .elevated,
             .corner_radius = .lg,
             .border_width = 1,
             .border_color = .toned,

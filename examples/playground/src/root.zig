@@ -56,6 +56,7 @@ fn frameCb(app: *knots.App) !void {
             .padding = .init(16, 16, 16, 16),
             .dir = .column,
             .key = .src(@src()),
+            .style = .{ .color = .bg },
         },
         .{
             renderHeader,
@@ -92,7 +93,7 @@ fn renderHeader(app: *knots.App) !void {
             .@"align" = .center,
             .key = .src(@src()),
             .style = .{
-                .color = .bg,
+                .color = .elevated,
                 .corner_radius = .lg,
                 .border_width = 1,
                 .border_color = .toned,
@@ -127,7 +128,7 @@ fn renderNav(app: *knots.App) !void {
             .overflow = .scroll_y,
             .key = .src(@src()),
             .style = .{
-                .color = .bg,
+                .color = .elevated,
                 .corner_radius = .lg,
                 .border_width = 1,
                 .border_color = .toned,
