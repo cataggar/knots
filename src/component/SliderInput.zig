@@ -29,9 +29,9 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
 
     if (ui.pressing(id) and ui.input.mouse_down) {
         const bounds = slider_state.bounds;
-        if (bounds.w > 0) {
+        if (bounds.w() > 0) {
             const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
-            const t = std.math.clamp((mx - bounds.x) / bounds.w, 0, 1);
+            const t = std.math.clamp((mx - bounds.x()) / bounds.w(), 0, 1);
             const new_value = self.min + t * (self.max - self.min);
             if (new_value != self.value.*) {
                 self.value.* = new_value;

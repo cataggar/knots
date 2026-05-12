@@ -8,10 +8,10 @@ fn approxEq(a: f32, b: f32) !void {
 }
 
 fn expectRect(el: *Element, x: f32, y: f32, w: f32, h: f32) !void {
-    try approxEq(el.box.x, x);
-    try approxEq(el.box.y, y);
-    try approxEq(el.box.w, w);
-    try approxEq(el.box.h, h);
+    try approxEq(el.box.x(), x);
+    try approxEq(el.box.y(), y);
+    try approxEq(el.box.w(), w);
+    try approxEq(el.box.h(), h);
 }
 
 fn noScroll(_: *anyopaque, _: Element.Id) [2]f32 {

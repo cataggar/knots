@@ -144,6 +144,12 @@ pub fn build(b: *std.Build) void {
     });
     window_impl_mod.addImport("window", window_mod);
 
+    const math_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/math/root.zig"),
+    });
+
     const text_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -160,6 +166,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "gpu_backend", .module = gpu_backend_mod },
             .{ .name = "text", .module = text_mod },
             .{ .name = "window", .module = window_mod },
+            .{ .name = "math", .module = math_mod },
         },
     });
 
@@ -187,6 +194,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/layout/root.zig"),
+        .imports = &.{.{ .name = "math", .module = math_mod }},
     });
 
     const ui_mod = b.createModule(.{
@@ -199,6 +207,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "window", .module = window_mod },
             .{ .name = "gpu", .module = gpu_mod },
             .{ .name = "render", .module = render_mod },
+            .{ .name = "math", .module = math_mod },
         },
     });
 
@@ -210,6 +219,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "layout", .module = layout_mod },
             .{ .name = "ui", .module = ui_mod },
             .{ .name = "text", .module = text_mod },
+            .{ .name = "math", .module = math_mod },
         },
     });
 
@@ -229,6 +239,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/animation/root.zig"),
         .imports = &.{
             .{ .name = "layout", .module = layout_mod },
+            .{ .name = "math", .module = math_mod },
         },
     });
 
@@ -269,17 +280,20 @@ pub fn build(b: *std.Build) void {
     const layout_tests = b.addTest(.{ .root_module = layout_mod });
     const ui_tests = b.addTest(.{ .root_module = ui_mod });
     const text_tests = b.addTest(.{ .root_module = text_mod });
+    const math_tests = b.addTest(.{ .root_module = math_mod });
 
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const run_layout_tests = b.addRunArtifact(layout_tests);
     const run_ui_tests = b.addRunArtifact(ui_tests);
     const run_text_tests = b.addRunArtifact(text_tests);
+    const run_math_tests = b.addRunArtifact(math_tests);
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_layout_tests.step);
     test_step.dependOn(&run_ui_tests.step);
     test_step.dependOn(&run_text_tests.step);
+    test_step.dependOn(&run_math_tests.step);
 }
 
 fn embedSpirV(b: *std.Build, mod: *std.Build.Module, name: []const u8, path: std.Build.LazyPath) void {

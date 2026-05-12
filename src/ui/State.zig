@@ -1,5 +1,6 @@
 const std = @import("std");
 const Element = @import("layout").Element;
+const math = @import("math");
 const animation = @import("animation.zig");
 
 pub const TextInput = struct {
@@ -12,22 +13,22 @@ pub const TextSelect = struct {
     anchor_byte: u32 = 0,
     cursor_byte: u32 = 0,
     dragging: bool = false,
-    box: Element.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    box: math.Rect = .zero,
 };
 
 pub const Scroll = struct {
-    offset: [2]f32 = .{ 0, 0 },
+    offset: math.Vec2 = .{ 0, 0 },
 };
 
 pub const SelectInput = struct {
     open: bool = false,
     selected: ?u32 = null,
-    anchor_box: Element.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
-    viewport_box: Element.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    anchor_box: math.Rect = .zero,
+    viewport_box: math.Rect = .zero,
 };
 
 pub const Slider = struct {
-    bounds: Element.Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    bounds: math.Rect = .zero,
 };
 
 pub const Measured = struct {
@@ -234,15 +235,15 @@ pub fn endFrame(self: *State) !void {
 
 pub fn getScroll(self: *State, id: Element.Id) [2]f32 {
     const s = self.storage.getOrCreate(.scroll, self.allocator, id, self.frame) catch return .{ 0, 0 };
-    return s.offset;
+    return .{ s.offset[0], s.offset[1] };
 }
 
-pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: [2]f32) !void {
-    const max_x = @max(0, el.content_w - el.box.w);
-    const max_y = @max(0, el.content_h - el.box.h);
+pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: math.Vec2) !void {
+    const content: math.Vec2 = .{ el.content_w, el.content_h };
+    const box: math.Vec2 = .{ el.box.w(), el.box.h() };
+    const max_off = @max(math.splat(math.Vec2, 0), content - box);
     const s = try self.storage.getOrCreate(.scroll, self.allocator, id, self.frame);
-    s.offset[0] = std.math.clamp(s.offset[0] + delta[0], 0, max_x);
-    s.offset[1] = std.math.clamp(s.offset[1] + delta[1], 0, max_y);
+    s.offset = std.math.clamp(s.offset + delta, math.splat(math.Vec2, 0), max_off);
 }
 
 const testing = std.testing;

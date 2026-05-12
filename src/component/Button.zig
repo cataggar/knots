@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const math = @import("math");
+
 const ui_mod = @import("ui");
 const Size = @import("ui").Size;
 const Key = @import("ui").Key;
@@ -52,10 +54,10 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
     var deco_rect = self.style.toRect();
     if (self.hover_style) |hs| {
         const hover_rect = self.style.merge(hs).toRect();
-        deco_rect.color = animation.lerpVec4(deco_rect.color, hover_rect.color, t);
-        deco_rect.corner_radius = animation.lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
-        deco_rect.border_width = animation.lerp(deco_rect.border_width, hover_rect.border_width, t);
-        deco_rect.border_color = animation.lerpVec4(deco_rect.border_color, hover_rect.border_color, t);
+        deco_rect.color = math.lerp(@as(math.Vec4, deco_rect.color), @as(math.Vec4, hover_rect.color), t);
+        deco_rect.corner_radius = math.lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
+        deco_rect.border_width = math.lerp(deco_rect.border_width, hover_rect.border_width, t);
+        deco_rect.border_color = math.lerp(@as(math.Vec4, deco_rect.border_color), @as(math.Vec4, hover_rect.border_color), t);
     } else if (t > 0.0) {
         const brighten = if (self.hover_anim) |ha| ha.brighten else default_brighten;
         const f = t * brighten;

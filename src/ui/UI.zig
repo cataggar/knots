@@ -1,6 +1,7 @@
 const layout = @import("layout");
 const text = @import("text");
 const window = @import("window");
+const math = @import("math");
 
 const Element = layout.Element;
 const std = @import("std");
@@ -28,8 +29,8 @@ const TEXT_QUAD_NORMALS = [4][2]f32{
 
 pub const HitRecord = struct {
     id: Element.Id,
-    bounds: [4]f32,
-    clip: ?[4]f32,
+    bounds: math.Rect,
+    clip: ?math.Rect,
     layer: u8,
     insertion_order: u32,
 };
@@ -101,8 +102,8 @@ pub fn openRoot(self: *UI, key: Key, x: f32, y: f32, config: Element.Config, dec
     const slot = try self.layout_ctx.openRoot(id, config);
     try self.decorations.append(self.allocator, decoration);
     const el = self.layout_ctx.pool.get(slot);
-    el.box.x = x;
-    el.box.y = y;
+    el.box.setX(x);
+    el.box.setY(y);
     if (decoration == .text) {
         el.intrinsic_w = decoration.text.intrinsic_w;
         el.intrinsic_h = decoration.text.intrinsic_h;
@@ -198,7 +199,7 @@ pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32,
     const elapsed: i64 = now - s.t0_ms;
     const raw_t: f32 = @as(f32, @floatFromInt(elapsed)) / @as(f32, @floatFromInt(s.duration_ms));
     const t = std.math.clamp(raw_t, 0.0, 1.0);
-    s.current = animation.lerp(s.start_value, s.target, s.ease.eval(t));
+    s.current = math.lerp(s.start_value, s.target, s.ease.eval(t));
     if (t < 1.0) self.anim_active = true;
     return s.current;
 }
@@ -231,7 +232,7 @@ fn reflowWrappedText(self: *UI) !bool {
         if (!t.wrap or t.content.len == 0) continue;
 
         const el = self.layout_ctx.pool.get(@intCast(slot));
-        const wrap_px = el.box.w * self.content_scale;
+        const wrap_px = el.box.w() * self.content_scale;
         if (wrap_px <= 0) continue;
 
         const face = try self.font.getFace(t.font);
@@ -251,8 +252,8 @@ fn syncStateBounds(self: *UI) void {
         if (self.state.get(.text_select, el.id)) |s| s.box = el.box;
         if (self.state.get(.slider, el.id)) |s| s.bounds = el.box;
         if (self.state.get(.measured, el.id)) |s| {
-            s.width = el.box.w;
-            s.height = el.box.h;
+            s.width = el.box.w();
+            s.height = el.box.h();
         }
         if (el.z_index == 0) {
             if (self.state.get(.select_input, el.id)) |s| {
@@ -346,25 +347,15 @@ fn clearOtherTextSelect(hovered: Element.Id, id: Element.Id, s: *State.TextSelec
 }
 
 pub fn resolveHit(self: *UI) void {
-    const mx = self.input.mouse_pos[0];
-    const my = self.input.mouse_pos[1];
+    const p: math.Vec2 = .{ @floatCast(self.input.mouse_pos[0]), @floatCast(self.input.mouse_pos[1]) };
 
     var best_id: Element.Id = Element.INVALID_ID;
     var best_layer: u8 = 0;
     var best_order: u32 = 0;
 
     for (self.hit_records.items) |rec| {
-        const in_bounds = mx >= rec.bounds[0] and
-            mx < rec.bounds[0] + rec.bounds[2] and
-            my >= rec.bounds[1] and
-            my < rec.bounds[1] + rec.bounds[3];
-        if (!in_bounds) continue;
-
-        if (rec.clip) |c| {
-            const in_clip = mx >= c[0] and mx < c[0] + c[2] and
-                my >= c[1] and my < c[1] + c[3];
-            if (!in_clip) continue;
-        }
+        if (!rec.bounds.contains(p)) continue;
+        if (rec.clip) |c| if (!c.contains(p)) continue;
 
         if (best_id == Element.INVALID_ID or
             rec.layer > best_layer or
@@ -381,16 +372,13 @@ pub fn resolveHit(self: *UI) void {
 
 fn routeScroll(self: *UI, elements: []Element, input: window.Input) !void {
     var j: Element.Slot = @intCast(elements.len);
+    const p: math.Vec2 = .{ @floatCast(self.input.mouse_pos[0]), @floatCast(self.input.mouse_pos[1]) };
     while (j > 0) {
         j -= 1;
         const el = self.layout_ctx.pool.get(j);
         if (!el.overflow.isScroll()) continue;
-        const hit = self.input.mouse_pos[0] >= el.box.x and
-            self.input.mouse_pos[0] < el.box.x + el.box.w and
-            self.input.mouse_pos[1] >= el.box.y and
-            self.input.mouse_pos[1] < el.box.y + el.box.h;
-        if (hit) {
-            const delta: [2]f32 = switch (el.overflow) {
+        if (el.box.contains(p)) {
+            const delta: math.Vec2 = switch (el.overflow) {
                 .scroll_x => .{ input.scroll_delta[0], 0 },
                 .scroll_y => .{ 0, input.scroll_delta[1] },
                 else => unreachable,
@@ -414,7 +402,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
     const content_scale = self.content_scale;
     const elements = self.layout_ctx.pool.elements.items;
 
-    var clip_rects: std.ArrayList([4]f32) = .empty;
+    var clip_rects: std.ArrayList(math.Rect) = .empty;
     var clip_owners: std.ArrayList(Element.Slot) = .empty;
 
     for (slots) |slot| {
@@ -426,12 +414,13 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
             _ = clip_rects.pop();
         }
 
-        const clip: ?[4]f32 = if (clip_rects.items.len > 0) clip_rects.items[clip_rects.items.len - 1] else null;
+        const clip: ?math.Rect = if (clip_rects.items.len > 0) clip_rects.items[clip_rects.items.len - 1] else null;
+        const clip_arr: ?[4]f32 = if (clip) |c| @as([4]f32, c.v) else null;
 
         if (el.interactive) {
             try self.hit_records.append(self.allocator, .{
                 .id = el.id,
-                .bounds = .{ el.box.x, el.box.y, el.box.w, el.box.h },
+                .bounds = el.box,
                 .clip = clip,
                 .layer = layer,
                 .insertion_order = self.hit_counter,
@@ -443,16 +432,9 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
             .none => {},
             .rect => |r| {
                 if (clip) |c|
-                    if (el.box.x >= c[0] + c[2] or
-                        el.box.x + el.box.w <= c[0] or
-                        el.box.y >= c[1] + c[3] or
-                        el.box.y + el.box.h <= c[1])
-                    {
+                    if (!c.overlaps(el.box)) {
                         if (el.overflow != .visible) {
-                            const new_clip: [4]f32 = if (clip_rects.items.len > 0)
-                                layout.Context.intersectClip(clip_rects.items[clip_rects.items.len - 1], .{ el.box.x, el.box.y, el.box.w, el.box.h })
-                            else
-                                .{ el.box.x, el.box.y, el.box.w, el.box.h };
+                            const new_clip = c.intersect(el.box);
                             try clip_rects.append(allocator, new_clip);
                             try clip_owners.append(allocator, slot);
                         }
@@ -460,8 +442,8 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     };
 
                 const inst = gpu.Instance{
-                    .pos = .{ el.box.x, el.box.y },
-                    .size = .{ el.box.w, el.box.h },
+                    .pos = .{ el.box.x(), el.box.y() },
+                    .size = .{ el.box.w(), el.box.h() },
                     .uv0 = .{ 0, 0 },
                     .uv1 = .{ 0, 0 },
                     .color = r.color,
@@ -470,11 +452,11 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .border_width = r.border_width,
                     .prim_type = 0.0,
                 };
-                try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
+                try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip_arr);
             },
             .text => |t| if (t.content.len > 0) {
                 const face = try self.font.getFace(t.font);
-                const wrap_px: f32 = if (t.wrap) @max(0, el.box.w * content_scale) else 0;
+                const wrap_px: f32 = if (t.wrap) @max(0, el.box.w() * content_scale) else 0;
                 const shaped = try face.shapeWrapped(t.content, t.size * content_scale, wrap_px);
                 if (shaped.lines.len > 0) {
                     const ascender = shaped.ascender / content_scale;
@@ -494,40 +476,26 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     var quad_count: u32 = 0;
 
                     for (shaped.lines) |line| {
-                        const baseline = el.box.y + ascender + line.y / content_scale;
+                        const baseline = el.box.y() + ascender + line.y / content_scale;
                         for (line.glyphs) |gl| {
                             const rec = gl.record;
                             if (rec.is_empty) continue;
 
-                            const em_corners = [4][2]f32{
-                                .{ rec.em_min[0], rec.em_max[1] },
-                                .{ rec.em_max[0], rec.em_max[1] },
-                                .{ rec.em_max[0], rec.em_min[1] },
-                                .{ rec.em_min[0], rec.em_min[1] },
-                            };
+                            const em_x: math.Vec4 = .{ rec.em_min[0], rec.em_max[0], rec.em_max[0], rec.em_min[0] };
+                            const em_y: math.Vec4 = .{ rec.em_max[1], rec.em_max[1], rec.em_min[1], rec.em_min[1] };
+                            const size_v: math.Vec4 = @splat(size_logical);
+                            const origin_x_v: math.Vec4 = @splat(el.box.x() + gl.x / content_scale);
+                            const baseline_v: math.Vec4 = @splat(baseline);
 
-                            const origin_x = el.box.x + gl.x / content_scale;
-
-                            var screen_corners: [4][2]f32 = undefined;
-                            var min_sx: f32 = std.math.inf(f32);
-                            var max_sx: f32 = -std.math.inf(f32);
-                            var min_sy: f32 = std.math.inf(f32);
-                            var max_sy: f32 = -std.math.inf(f32);
-                            for (em_corners, 0..) |em, ci| {
-                                const sx = origin_x + em[0] * size_logical;
-                                const sy = baseline - em[1] * size_logical;
-                                screen_corners[ci] = .{ sx, sy };
-                                min_sx = @min(min_sx, sx);
-                                max_sx = @max(max_sx, sx);
-                                min_sy = @min(min_sy, sy);
-                                max_sy = @max(max_sy, sy);
-                            }
+                            const sx_v = origin_x_v + em_x * size_v;
+                            const sy_v = baseline_v - em_y * size_v;
 
                             if (clip) |c| {
-                                if (min_sx >= c[0] + c[2] or
-                                    max_sx <= c[0] or
-                                    min_sy >= c[1] + c[3] or
-                                    max_sy <= c[1]) continue;
+                                const glyph_bounds = math.Rect.fromMinMax(
+                                    .{ @reduce(.Min, sx_v), @reduce(.Min, sy_v) },
+                                    .{ @reduce(.Max, sx_v), @reduce(.Max, sy_v) },
+                                );
+                                if (!c.overlaps(glyph_bounds)) continue;
                             }
 
                             const tex_z_bits: u32 =
@@ -543,15 +511,15 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                             };
 
                             const v_base = quad_count * 4;
-                            for (0..4) |ci| {
+                            inline for (0..4) |ci| {
                                 verts_buf[v_base + ci] = .{
                                     .pos = .{
-                                        screen_corners[ci][0],
-                                        screen_corners[ci][1],
+                                        sx_v[ci],
+                                        sy_v[ci],
                                         TEXT_QUAD_NORMALS[ci][0],
                                         TEXT_QUAD_NORMALS[ci][1],
                                     },
-                                    .tex = .{ em_corners[ci][0], em_corners[ci][1], tex_z, tex_w },
+                                    .tex = .{ em_x[ci], em_y[ci], tex_z, tex_w },
                                     .jac = jac,
                                     .bnd = bnd,
                                     .col = t.color,
@@ -571,14 +539,14 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                         try draw_list.pushText(
                             verts_buf[0 .. quad_count * 4],
                             idx_buf[0 .. quad_count * 6],
-                            clip,
+                            clip_arr,
                         );
                     }
                 }
             },
             .canvas => |c| {
-                const ox = el.box.x;
-                const oy = el.box.y;
+                const ox = el.box.x();
+                const oy = el.box.y();
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
                 const flat_hs = [2]f32{ 1e4, 1e4 };
 
@@ -596,7 +564,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .border_width = 0,
                                 .prim_type = 0.0,
                             };
-                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
+                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip_arr);
                         },
                         .fill_rect_gradient => |fr| {
                             const hw = fr.w / 2.0;
@@ -609,7 +577,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .{ .pos = .{ fcx + hw, fcy + hh }, .uv = .{ hw, hh }, .color = fr.colors[2], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
                                 .{ .pos = .{ fcx - hw, fcy + hh }, .uv = .{ -hw, hh }, .color = fr.colors[3], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
                             };
-                            try draw_list.push(&vertices, &.{ 0, 1, 2, 0, 2, 3 }, null, clip);
+                            try draw_list.push(&vertices, &.{ 0, 1, 2, 0, 2, 3 }, null, clip_arr);
                         },
                         .stroke_rect => |sr| {
                             const inst = gpu.Instance{
@@ -623,7 +591,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .border_width = sr.thickness,
                                 .prim_type = 0.0,
                             };
-                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
+                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip_arr);
                         },
                         .fill_circle => |fc| {
                             const cr = fc.radius;
@@ -638,7 +606,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .border_width = 0,
                                 .prim_type = 0.0,
                             };
-                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
+                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip_arr);
                         },
                         .stroke_circle => |sc| {
                             const cr = sc.radius;
@@ -653,7 +621,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .border_width = sc.thickness,
                                 .prim_type = 0.0,
                             };
-                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
+                            try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip_arr);
                         },
                         .line => |l| {
                             const dx = l.to[0] - l.from[0];
@@ -673,7 +641,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .{ .pos = .{ x1 - nx, y1 - ny }, .uv = zero2, .color = l.color, .corner_radius = 0, .half_size = flat_hs, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
                                 .{ .pos = .{ x0 - nx, y0 - ny }, .uv = zero2, .color = l.color, .corner_radius = 0, .half_size = flat_hs, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
                             };
-                            try draw_list.push(&vertices, &.{ 0, 1, 2, 0, 2, 3 }, null, clip);
+                            try draw_list.push(&vertices, &.{ 0, 1, 2, 0, 2, 3 }, null, clip_arr);
                         },
                         .fill_triangle => |t| {
                             const zero2 = [2]f32{ 0, 0 };
@@ -682,7 +650,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 .{ .pos = .{ ox + t.points[1][0], oy + t.points[1][1] }, .uv = zero2, .color = t.color, .corner_radius = 0, .half_size = flat_hs, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
                                 .{ .pos = .{ ox + t.points[2][0], oy + t.points[2][1] }, .uv = zero2, .color = t.color, .corner_radius = 0, .half_size = flat_hs, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
                             };
-                            try draw_list.push(&vertices, &.{ 0, 1, 2 }, null, clip);
+                            try draw_list.push(&vertices, &.{ 0, 1, 2 }, null, clip_arr);
                         },
                         .fill_convex_polygon => |p| {
                             if (p.points.len < 3) continue;
@@ -700,7 +668,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 fan_indices[i * 3 + 1] = @as(u32, @intCast(i)) + 1;
                                 fan_indices[i * 3 + 2] = @as(u32, @intCast(i)) + 2;
                             }
-                            try draw_list.push(verts, fan_indices, null, clip);
+                            try draw_list.push(verts, fan_indices, null, clip_arr);
                         },
                     }
                 }
@@ -708,8 +676,8 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
             .image => |img| {
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
                 const inst = gpu.Instance{
-                    .pos = .{ el.box.x, el.box.y },
-                    .size = .{ el.box.w, el.box.h },
+                    .pos = .{ el.box.x(), el.box.y() },
+                    .size = .{ el.box.w(), el.box.h() },
                     .uv0 = .{ 0, 0 },
                     .uv1 = .{ 1, 1 },
                     .color = img.tint,
@@ -718,13 +686,13 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .border_width = 0,
                     .prim_type = 2.0,
                 };
-                try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture_id, clip);
+                try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture_id, clip_arr);
             },
             .slider => |s| {
-                const bx = el.box.x;
-                const by = el.box.y;
-                const bw = el.box.w;
-                const bh = el.box.h;
+                const bx = el.box.x();
+                const by = el.box.y();
+                const bw = el.box.w();
+                const bh = el.box.h();
                 const cr = s.corner_radius;
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
 
@@ -739,7 +707,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .border_width = 0,
                     .prim_type = 0.0,
                 };
-                try draw_list.pushInstances(&[_]gpu.Instance{track}, null, clip);
+                try draw_list.pushInstances(&[_]gpu.Instance{track}, null, clip_arr);
 
                 if (s.progress > 0) {
                     const fill = gpu.Instance{
@@ -753,17 +721,16 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                         .border_width = 0,
                         .prim_type = 0.0,
                     };
-                    try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip);
+                    try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip_arr);
                 }
             },
         }
 
         if (el.overflow != .visible) {
-            const child_clip = [4]f32{ el.box.x, el.box.y, el.box.w, el.box.h };
-            const new_clip: [4]f32 = if (clip_rects.items.len > 0)
-                layout.Context.intersectClip(clip_rects.items[clip_rects.items.len - 1], child_clip)
+            const new_clip: math.Rect = if (clip_rects.items.len > 0)
+                clip_rects.items[clip_rects.items.len - 1].intersect(el.box)
             else
-                child_clip;
+                el.box;
             try clip_rects.append(allocator, new_clip);
             try clip_owners.append(allocator, slot);
         }
@@ -835,7 +802,7 @@ test "scroll routing uses previous frame elements" {
     }
 
     const box = child_box.?;
-    try std.testing.expectApproxEqAbs(box.y, -50.0, 0.001);
+    try std.testing.expectApproxEqAbs(box.y(), -50.0, 0.001);
 }
 
 test "anim returns target immediately on first touch" {

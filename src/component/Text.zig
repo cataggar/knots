@@ -58,7 +58,7 @@ pub fn close(self: *const Text, app: *App) !void {
     const len: u32 = @intCast(self.content.len);
     const press_here = ui.input.mouse_pressed and ui.hovering(id);
     const is_drag = ui.pressing(id) and ui.input.mouse_down;
-    const need_hit_test = (press_here or is_drag) and s.box.w > 0 and s.box.h > 0;
+    const need_hit_test = (press_here or is_drag) and s.box.w() > 0 and s.box.h() > 0;
     const has_prior_selection = @min(s.anchor_byte, len) != @min(s.cursor_byte, len);
 
     if (need_hit_test or has_prior_selection) {
@@ -79,14 +79,14 @@ fn closeSlow(self: *const Text, ui: *UI, s: *State.TextSelect, need_hit_test: bo
     const scale = ui.content_scale;
     const face = try ui.font.getFace(self.font);
     const size = self.size.resolve();
-    const wrap_px: f32 = if (self.wrap) @max(0, s.box.w * scale) else 0;
+    const wrap_px: f32 = if (self.wrap) @max(0, s.box.w() * scale) else 0;
     const shaped = try face.shapeWrapped(self.content, size.value * scale, wrap_px);
     const line_h = shaped.line_height / scale;
 
     if (need_hit_test) {
         const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
         const my: f32 = @floatCast(ui.input.mouse_pos[1]);
-        const local: util.Pos = .{ .x = mx - s.box.x, .y = my - s.box.y };
+        const local: util.Pos = .{ .x = mx - s.box.x(), .y = my - s.box.y() };
         const byte = util.byteAtPos(shaped, local, scale);
         if (press_here) {
             s.dragging = true;

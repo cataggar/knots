@@ -33,8 +33,8 @@ const AxisInfo = struct {
         if (el.direction == .row) {
             return .{
                 .is_row = true,
-                .main_size = el.box.w,
-                .cross_size = el.box.h - el.padding.top() - el.padding.bottom(),
+                .main_size = el.box.w(),
+                .cross_size = el.box.h() - el.padding.top() - el.padding.bottom(),
                 .pad_main_start = el.padding.left(),
                 .pad_main_end = el.padding.right(),
                 .pad_cross_start = el.padding.top(),
@@ -42,8 +42,8 @@ const AxisInfo = struct {
         } else {
             return .{
                 .is_row = false,
-                .main_size = el.box.h,
-                .cross_size = el.box.w - el.padding.left() - el.padding.right(),
+                .main_size = el.box.h(),
+                .cross_size = el.box.w() - el.padding.left() - el.padding.right(),
                 .pad_main_start = el.padding.top(),
                 .pad_main_end = el.padding.bottom(),
                 .pad_cross_start = el.padding.left(),
@@ -56,15 +56,15 @@ const AxisInfo = struct {
     }
 
     fn childMainSize(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.box.w else child.box.h;
+        return if (self.is_row) child.box.w() else child.box.h();
     }
 
     fn setChildMainSize(self: AxisInfo, child: *Element, v: f32) void {
-        if (self.is_row) child.box.w = v else child.box.h = v;
+        if (self.is_row) child.box.setW(v) else child.box.setH(v);
     }
 
     fn setChildCrossSize(self: AxisInfo, child: *Element, v: f32) void {
-        if (self.is_row) child.box.h = v else child.box.w = v;
+        if (self.is_row) child.box.setH(v) else child.box.setW(v);
     }
 
     fn childMainKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
@@ -76,7 +76,7 @@ const AxisInfo = struct {
     }
 
     fn childCrossSize(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.box.h else child.box.w;
+        return if (self.is_row) child.box.h() else child.box.w();
     }
 
     fn childMainMin(self: AxisInfo, child: *const Element) f32 {
@@ -221,14 +221,6 @@ pub fn zSlots(self: *const Context, z: u8) []const Element.Slot {
     return self.z_slots.items[self.z_offsets[z]..self.z_offsets[@as(u9, z) + 1]];
 }
 
-pub fn intersectClip(a: [4]f32, b: [4]f32) [4]f32 {
-    const x = @max(a[0], b[0]);
-    const y = @max(a[1], b[1]);
-    const x2 = @min(a[0] + a[2], b[0] + b[2]);
-    const y2 = @min(a[1] + a[3], b[1] + b[3]);
-    return .{ x, y, @max(0, x2 - x), @max(0, y2 - y) };
-}
-
 /// Returns true iff `slot` is in the subtree rooted at `ancestor`.
 /// Uses the pre-order (= insertion order) and `subtree_end` set in `close()`:
 /// `slot` is a strict descendant iff `ancestor < slot < subtree_end(ancestor)`.
@@ -245,23 +237,23 @@ pub fn computeSizes(self: *Context) void {
         const el = self.pool.get(i);
 
         {
-            el.box.w = switch (el.width.kind) {
+            const initial: f32 = switch (el.width.kind) {
                 .fixed => el.width.value,
                 .percent => 0,
                 .grow => 0,
                 .fit => fitWidth(self, i, el),
             };
-            el.box.w = std.math.clamp(el.box.w, el.width.min, el.width.max);
+            el.box.setW(std.math.clamp(initial, el.width.min, el.width.max));
         }
 
         {
-            el.box.h = switch (el.height.kind) {
+            const initial: f32 = switch (el.height.kind) {
                 .fixed => el.height.value,
                 .percent => 0,
                 .grow => 0,
                 .fit => fitHeight(self, i, el),
             };
-            el.box.h = std.math.clamp(el.box.h, el.height.min, el.height.max);
+            el.box.setH(std.math.clamp(initial, el.height.min, el.height.max));
         }
     }
 }
@@ -292,8 +284,8 @@ fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
         const child = self.pool.get(child_slot);
         if (child.position != .absolute) {
             switch (el.direction) {
-                .row => total += child.box.w,
-                .column, .layer => total = @max(total, child.box.w + pad_w),
+                .row => total += child.box.w(),
+                .column, .layer => total = @max(total, child.box.w() + pad_w),
                 .grid => unreachable,
             }
             child_count += 1;
@@ -331,8 +323,8 @@ fn fitHeight(self: *Context, slot: Element.Slot, el: *Element) f32 {
         const child = self.pool.get(child_slot);
         if (child.position != .absolute) {
             switch (el.direction) {
-                .column => total += child.box.h,
-                .row, .layer => total = @max(total, child.box.h + pad_h),
+                .column => total += child.box.h(),
+                .row, .layer => total = @max(total, child.box.h() + pad_h),
                 .grid => unreachable,
             }
             child_count += 1;
@@ -358,7 +350,7 @@ pub fn computeLayout(self: *Context, scroll: ScrollLookup) LayoutError!void {
     for (self.pool.elements.items, 0..) |*el, idx| {
         const slot: Element.Slot = @intCast(idx);
         if (slot != self.root_slot and el.parent == Element.INVALID_SLOT) {
-            try self.computeLayoutNode(slot, el.box.x, el.box.y, scroll);
+            try self.computeLayoutNode(slot, el.box.x(), el.box.y(), scroll);
         }
     }
 }
@@ -366,10 +358,10 @@ pub fn computeLayout(self: *Context, scroll: ScrollLookup) LayoutError!void {
 fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, scroll: ScrollLookup) LayoutError!void {
     const el = self.pool.get(root_slot);
 
-    el.box.x = x;
-    el.box.y = y;
-    el.content_w = el.box.w;
-    el.content_h = el.box.h;
+    el.box.setX(x);
+    el.box.setY(y);
+    el.content_w = el.box.w();
+    el.content_h = el.box.h();
 
     switch (el.direction) {
         .grid => return self.computeGridLayout(root_slot, el, scroll),
@@ -389,32 +381,32 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
 }
 
 fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup) LayoutError!void {
-    const content_w = @max(0, el.box.w - el.padding.left() - el.padding.right());
-    const content_h = @max(0, el.box.h - el.padding.top() - el.padding.bottom());
-    const origin_x = el.box.x + el.padding.left();
-    const origin_y = el.box.y + el.padding.top();
+    const content_w = @max(0, el.box.w() - el.padding.left() - el.padding.right());
+    const content_h = @max(0, el.box.h() - el.padding.top() - el.padding.bottom());
+    const origin_x = el.box.x() + el.padding.left();
+    const origin_y = el.box.y() + el.padding.top();
 
     var child_slot = el.first_child;
     while (child_slot != Element.INVALID_SLOT) {
         const child = self.pool.get(child_slot);
         if (child.position != .absolute) {
             if (child.width.kind == .grow)
-                child.box.w = std.math.clamp(content_w, child.width.min, child.width.max);
+                child.box.setW(std.math.clamp(content_w, child.width.min, child.width.max));
             if (child.height.kind == .grow)
-                child.box.h = std.math.clamp(content_h, child.height.min, child.height.max);
+                child.box.setH(std.math.clamp(content_h, child.height.min, child.height.max));
 
             const ax_off: f32 = switch (el.alignment) {
                 .start, .stretch => 0,
-                .center => (content_h - child.box.h) / 2,
-                .end => content_h - child.box.h,
+                .center => (content_h - child.box.h()) / 2,
+                .end => content_h - child.box.h(),
             };
-            child.box.x = origin_x;
-            child.box.y = origin_y + ax_off;
+            child.box.setX(origin_x);
+            child.box.setY(origin_y + ax_off);
 
-            try self.computeLayoutNode(child_slot, child.box.x, child.box.y, scroll);
+            try self.computeLayoutNode(child_slot, child.box.x(), child.box.y(), scroll);
         } else {
-            if (child.width.kind == .grow) child.box.w = content_w;
-            if (child.height.kind == .grow) child.box.h = content_h;
+            if (child.width.kind == .grow) child.box.setW(content_w);
+            if (child.height.kind == .grow) child.box.setH(content_h);
             try self.computeLayoutNode(child_slot, origin_x, origin_y, scroll);
         }
         child_slot = child.next_sibling;
@@ -447,8 +439,8 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     const rows = tpl.rows;
     if (cols.len == 0 or rows.len == 0) return;
 
-    const content_w = @max(0, el.box.w - el.padding.left() - el.padding.right());
-    const content_h = @max(0, el.box.h - el.padding.top() - el.padding.bottom());
+    const content_w = @max(0, el.box.w() - el.padding.left() - el.padding.right());
+    const content_h = @max(0, el.box.h() - el.padding.top() - el.padding.bottom());
 
     var sbfa = std.heap.stackFallback(@sizeOf(f32) * GRID_INLINE_TRACKS * 4, self.allocator);
     const allocator = sbfa.get();
@@ -473,8 +465,8 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     row_offsets[0] = 0;
     for (row_sizes, 0..) |s, i| row_offsets[i + 1] = row_offsets[i] + s + el.gap;
 
-    const origin_x = el.box.x + el.padding.left();
-    const origin_y = el.box.y + el.padding.top();
+    const origin_x = el.box.x() + el.padding.left();
+    const origin_y = el.box.y() + el.padding.top();
     const ncols: u32 = @intCast(cols.len);
     const nrows: u32 = @intCast(rows.len);
 
@@ -506,12 +498,12 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
         for (row_sizes[r .. r + rs]) |s| h += s;
         if (rs > 1) h += el.gap * @as(f32, @floatFromInt(rs - 1));
 
-        child.box.x = origin_x + col_offsets[c];
-        child.box.y = origin_y + row_offsets[r];
-        child.box.w = std.math.clamp(w, child.width.min, child.width.max);
-        child.box.h = std.math.clamp(h, child.height.min, child.height.max);
+        child.box.setX(origin_x + col_offsets[c]);
+        child.box.setY(origin_y + row_offsets[r]);
+        child.box.setW(std.math.clamp(w, child.width.min, child.width.max));
+        child.box.setH(std.math.clamp(h, child.height.min, child.height.max));
 
-        try self.computeLayoutNode(child_slot, child.box.x, child.box.y, scroll);
+        try self.computeLayoutNode(child_slot, child.box.x(), child.box.y(), scroll);
         child_slot = child.next_sibling;
     }
 }
@@ -637,20 +629,20 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
         }
         const cross_offset = axis.pad_cross_start + switch (el.alignment) {
             .start, .stretch => @as(f32, 0),
-            .center => (axis.cross_size - if (axis.is_row) child.box.h else child.box.w) / 2,
-            .end => axis.cross_size - if (axis.is_row) child.box.h else child.box.w,
+            .center => (axis.cross_size - if (axis.is_row) child.box.h() else child.box.w()) / 2,
+            .end => axis.cross_size - if (axis.is_row) child.box.h() else child.box.w(),
         };
 
         if (axis.is_row) {
-            child.box.x = el.box.x + cursor - scroll_offset[0];
-            child.box.y = el.box.y + cross_offset - scroll_offset[1];
+            child.box.setX(el.box.x() + cursor - scroll_offset[0]);
+            child.box.setY(el.box.y() + cross_offset - scroll_offset[1]);
         } else {
-            child.box.x = el.box.x + cross_offset - scroll_offset[0];
-            child.box.y = el.box.y + cursor - scroll_offset[1];
+            child.box.setX(el.box.x() + cross_offset - scroll_offset[0]);
+            child.box.setY(el.box.y() + cursor - scroll_offset[1]);
         }
         cursor += axis.childMainSize(child) + item_gap;
 
-        try self.computeLayoutNode(child_slot, child.box.x, child.box.y, scroll);
+        try self.computeLayoutNode(child_slot, child.box.x(), child.box.y(), scroll);
         child_slot = child.next_sibling;
     }
 
@@ -659,12 +651,12 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
     while (child_slot != Element.INVALID_SLOT) {
         const child = self.pool.get(child_slot);
         if (child.position == .absolute) {
-            const content_w = el.box.w - el.padding.left() - el.padding.right();
-            const content_h = el.box.h - el.padding.top() - el.padding.bottom();
-            if (child.width.kind == .grow) child.box.w = content_w;
-            if (child.height.kind == .grow) child.box.h = content_h;
-            const cx = el.box.x + el.padding.left();
-            const cy = el.box.y + el.padding.top();
+            const content_w = el.box.w() - el.padding.left() - el.padding.right();
+            const content_h = el.box.h() - el.padding.top() - el.padding.bottom();
+            if (child.width.kind == .grow) child.box.setW(content_w);
+            if (child.height.kind == .grow) child.box.setH(content_h);
+            const cx = el.box.x() + el.padding.left();
+            const cy = el.box.y() + el.padding.top();
             try self.computeLayoutNode(child_slot, cx, cy, scroll);
         }
         child_slot = child.next_sibling;

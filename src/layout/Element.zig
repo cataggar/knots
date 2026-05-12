@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = @import("math");
 const Grid = @import("Grid.zig");
 
 pub const Id = u64;
@@ -57,13 +58,6 @@ pub const Justify = enum {
     end,
     space_between,
     space_around,
-};
-
-pub const Rect = struct {
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
 };
 
 pub const Padding = struct {
@@ -134,7 +128,7 @@ position: Position,
 z_index: u8,
 
 // computed by layout passes
-box: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+box: math.Rect = .zero,
 intrinsic_w: f32 = 0,
 intrinsic_h: f32 = 0,
 content_w: f32 = 0,

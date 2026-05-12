@@ -136,17 +136,17 @@ pub fn SelectInput(comptime T: type) type {
                 const item_h = line_h + 12 + 2;
                 const dropdown_h = item_h * @as(f32, @floatFromInt(self.labels.len)) + 4;
 
-                const viewport_h = viewport.y + viewport.h;
-                const space_below = viewport_h - (anchor.y + anchor.h);
-                const space_above = anchor.y - viewport.y;
+                const viewport_h = viewport.y() + viewport.h();
+                const space_below = viewport_h - (anchor.y() + anchor.h());
+                const space_above = anchor.y() - viewport.y();
 
                 const open_above = dropdown_h > space_below and space_above > space_below;
                 const max_h = if (open_above) space_above else space_below;
-                const popup_y = if (open_above) anchor.y - @min(dropdown_h, max_h) else anchor.y + anchor.h;
+                const popup_y = if (open_above) anchor.y() - @min(dropdown_h, max_h) else anchor.y() + anchor.h();
 
-                _ = try ui.openRoot(self.key.indexed(3), anchor.x, popup_y, .{
+                _ = try ui.openRoot(self.key.indexed(3), anchor.x(), popup_y, .{
                     .direction = .column,
-                    .width = .fixed(anchor.w),
+                    .width = .fixed(anchor.w()),
                     .height = .{ .kind = .fit, .max = max_h },
                     .overflow = .scroll_y,
                     .z_index = 1,

@@ -26,15 +26,3 @@ pub fn channelId(widget_id: Element.Id, channel: []const u8) Element.Id {
     return if (final == Element.INVALID_ID) final -% 1 else final;
 }
 
-pub inline fn lerp(a: f32, b: f32, t: f32) f32 {
-    return a + (b - a) * t;
-}
-
-pub fn lerpVec4(a: [4]f32, b: [4]f32, t: f32) [4]f32 {
-    return .{
-        lerp(a[0], b[0], t),
-        lerp(a[1], b[1], t),
-        lerp(a[2], b[2], t),
-        lerp(a[3], b[3], t),
-    };
-}
