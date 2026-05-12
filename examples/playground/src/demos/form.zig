@@ -115,7 +115,6 @@ fn volumeInput(app: *knots.App) !void {
             SliderInput{
                 .key = .src(@src()),
                 .value = &self.demo_state.form_volume,
-                .fill_color = .{ 0.4, 0.7, 0.9, 1.0 },
             },
         },
     });

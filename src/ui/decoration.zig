@@ -36,7 +36,12 @@ pub const Decoration = union(enum) {
         progress: f32,
         track_color: [4]f32,
         fill_color: [4]f32,
+        track_height: f32 = 4,
         corner_radius: f32 = 2,
+        knob_radius: f32 = 0,
+        knob_color: [4]f32 = .{ 1, 1, 1, 1 },
+        halo_radius: f32 = 0,
+        halo_color: [4]f32 = .{ 1, 1, 1, 0 },
     };
 
     pub const DrawCmd = union(enum) {

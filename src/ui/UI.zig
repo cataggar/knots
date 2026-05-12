@@ -694,11 +694,13 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                 const bw = el.box.w();
                 const bh = el.box.h();
                 const cr = s.corner_radius;
+                const th = @min(s.track_height, bh);
+                const ty = by + (bh - th) * 0.5;
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
 
                 const track = gpu.Instance{
-                    .pos = .{ bx, by },
-                    .size = .{ bw, bh },
+                    .pos = .{ bx, ty },
+                    .size = .{ bw, th },
                     .uv0 = .{ 0, 0 },
                     .uv1 = .{ 0, 0 },
                     .color = s.track_color,
@@ -711,8 +713,8 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
 
                 if (s.progress > 0) {
                     const fill = gpu.Instance{
-                        .pos = .{ bx, by },
-                        .size = .{ bw * s.progress, bh },
+                        .pos = .{ bx, ty },
+                        .size = .{ bw * s.progress, th },
                         .uv0 = .{ 0, 0 },
                         .uv1 = .{ 0, 0 },
                         .color = s.fill_color,
@@ -722,6 +724,42 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                         .prim_type = 0.0,
                     };
                     try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip_arr);
+                }
+
+                if (s.halo_radius > 0 and s.halo_color[3] > 0) {
+                    const hr = s.halo_radius;
+                    const hcx = bx + bw * s.progress;
+                    const hcy = by + bh * 0.5;
+                    const halo = gpu.Instance{
+                        .pos = .{ hcx - hr, hcy - hr },
+                        .size = .{ hr * 2, hr * 2 },
+                        .uv0 = .{ 0, 0 },
+                        .uv1 = .{ 0, 0 },
+                        .color = s.halo_color,
+                        .border_color = zero4,
+                        .corner_radius = hr,
+                        .border_width = 0,
+                        .prim_type = 0.0,
+                    };
+                    try draw_list.pushInstances(&[_]gpu.Instance{halo}, null, clip_arr);
+                }
+
+                if (s.knob_radius > 0) {
+                    const kr = s.knob_radius;
+                    const kcx = bx + bw * s.progress;
+                    const kcy = by + bh * 0.5;
+                    const knob = gpu.Instance{
+                        .pos = .{ kcx - kr, kcy - kr },
+                        .size = .{ kr * 2, kr * 2 },
+                        .uv0 = .{ 0, 0 },
+                        .uv1 = .{ 0, 0 },
+                        .color = s.knob_color,
+                        .border_color = zero4,
+                        .corner_radius = kr,
+                        .border_width = 0,
+                        .prim_type = 0.0,
+                    };
+                    try draw_list.pushInstances(&[_]gpu.Instance{knob}, null, clip_arr);
                 }
             },
         }

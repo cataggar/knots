@@ -68,11 +68,6 @@ pub const all = [_]Demo{
         .render = @import("demos/control_flow.zig").render,
     },
     .{
-        .name = "Slider",
-        .description = "SliderInput drives a live readout and a colored bar.",
-        .render = @import("demos/slider.zig").render,
-    },
-    .{
         .name = "Form",
         .description = "Text inputs, dropdown and slider wired into a single form.",
         .render = @import("demos/form.zig").render,
