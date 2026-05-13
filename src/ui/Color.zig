@@ -8,6 +8,12 @@ pub const Input = union(enum) {
     info,
     warning,
     @"error",
+    on_primary,
+    on_secondary,
+    on_success,
+    on_info,
+    on_warning,
+    on_error,
     bg,
     muted,
     elevated,
@@ -30,6 +36,18 @@ pub const Input = union(enum) {
         return switch (self) {
             .color => |c| c.value[3] == 0,
             else => false,
+        };
+    }
+
+    pub fn onColor(self: Input) ?Input {
+        return switch (self) {
+            .primary => .on_primary,
+            .secondary => .on_secondary,
+            .success => .on_success,
+            .info => .on_info,
+            .warning => .on_warning,
+            .@"error" => .on_error,
+            else => null,
         };
     }
 };

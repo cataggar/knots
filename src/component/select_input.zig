@@ -38,9 +38,9 @@ pub fn SelectInput(comptime T: type) type {
         size: Size.Input = .md,
         color: Color.Input = .text,
         placeholder_color: Color.Input = .dimmed,
-        style: Style = .{ .color = .muted },
-        focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
-        option_style: Style = .{ .color = .elevated },
+        style: Style = .{ .color = .toned },
+        focused_style: Style = .{ .color = .muted, .border_color = .primary, .border_width = 1 },
+        option_style: Style = .{ .color = .muted },
         option_hover_color: Color.Input = .toned,
         onSelect: ?*const fn (*App, T, u32) anyerror!void = null,
 

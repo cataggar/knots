@@ -5,6 +5,7 @@ const math = @import("math");
 const ui_mod = @import("ui");
 const Size = @import("ui").Size;
 const Key = @import("ui").Key;
+const Color = @import("ui").Color;
 
 const UI = ui_mod.UI;
 const Style = ui_mod.Style;
@@ -85,12 +86,14 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
         if (is_hovered) try cb(app);
 
     if (self.text) |text| {
+        const text_color: Color.Input = self.style.color.onColor() orelse .text;
         const txt = Text{
             .content = text.content,
             .font = text.font,
             .key = self.key.indexed(1),
             .selectable = false,
             .size = text.size,
+            .color = text_color,
         };
         _ = try txt.open(app);
         try txt.close(app);
