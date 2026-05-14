@@ -1,6 +1,6 @@
 .{
     .name = .knots,
-    .version = "0.0.2",
+    .version = "0.0.3",
     .dependencies = .{
         .glfw = .{
             .url = "git+https://codeberg.org/shahwali/glfw-bindings.git#0c85f77bf9f2002650935411ddf68e3bad8d15dc",
