@@ -5,6 +5,7 @@ pub const Spacer = @import("Spacer.zig");
 pub const TextInput = @import("TextInput.zig");
 pub const SelectInput = @import("select_input.zig").SelectInput;
 pub const SliderInput = @import("SliderInput.zig");
+pub const ColorPicker = @import("ColorPicker.zig");
 pub const Checkbox = @import("Checkbox.zig");
 pub const Canvas = @import("Canvas.zig");
 pub const Image = @import("Image.zig");

@@ -274,11 +274,16 @@ fn syncStateBounds(self: *UI) void {
         if (self.state.get(.text_select, el.id)) |s| s.box = el.box;
         if (self.state.get(.slider, el.id)) |s| s.bounds = el.box;
         if (self.state.get(.measured, el.id)) |s| {
+            s.box = el.box;
             s.width = el.box.w();
             s.height = el.box.h();
         }
         if (el.z_index == 0) {
             if (self.state.get(.select_input, el.id)) |s| {
+                s.anchor_box = el.box;
+                s.viewport_box = root_box;
+            }
+            if (self.state.get(.color_picker, el.id)) |s| {
                 s.anchor_box = el.box;
                 s.viewport_box = root_box;
             }

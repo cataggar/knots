@@ -8,6 +8,7 @@ const Text = knots.component.Text;
 const TextInput = knots.component.TextInput;
 const SelectInput = knots.component.SelectInput;
 const SliderInput = knots.component.SliderInput;
+const ColorPicker = knots.component.ColorPicker;
 const Checkbox = knots.component.Checkbox;
 const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
@@ -40,11 +41,12 @@ fn body(app: *knots.App) !void {
             roleField,
             notificationsField,
             volumeField,
+            colorField,
             Spacer{ .height = .fixed(4), .key = .src(@src()) },
             Button{
                 .width = .fixed(120),
                 .height = .fixed(34),
-                .style = .{ .color = .primary, .corner_radius = .sm },
+                .style = .{ .color = .{ .color = self.demo_state.form_color }, .corner_radius = .sm },
                 .hover_anim = .{},
                 .key = .src(@src()),
                 .onClick = submit,
@@ -64,7 +66,7 @@ fn body(app: *knots.App) !void {
 
 fn labeled(app: *knots.App, comptime label: []const u8, body_fn: *const fn (*knots.App) anyerror!void) !void {
     try app.e(.{
-        Rect{ .width = .grow(), .dir = .column, .gap = 4, .key = .str("form.field:" ++ label) },
+        Rect{ .width = .grow(), .dir = .column, .gap = 2, .key = .str("form.field:" ++ label) },
         .{Text{ .content = label, .size = .xs, .color = .dimmed, .key = .str("form.label:" ++ label) }},
     });
     try body_fn(app);
@@ -127,6 +129,18 @@ fn volumeInput(app: *knots.App) !void {
                 .value = &self.demo_state.form_volume,
             },
         },
+    });
+}
+
+fn colorField(app: *knots.App) !void {
+    try labeled(app, "accent color", colorInput);
+}
+
+fn colorInput(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    try app.e(ColorPicker{
+        .key = .src(@src()),
+        .value = &self.demo_state.form_color,
     });
 }
 

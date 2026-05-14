@@ -35,7 +35,23 @@ pub const Slider = struct {
     bounds: math.Rect = .zero,
 };
 
+pub const ColorPicker = struct {
+    open: bool = false,
+    hue: f32 = 0,
+    saturation: f32 = 0,
+    value: f32 = 0,
+    alpha: f32 = 1,
+    editing_hex: bool = false,
+    hex_buf: [9]u8 = [_]u8{0} ** 9,
+    hex_len: usize = 0,
+    original_color: [4]f32 = .{ 0, 0, 0, 1 },
+    has_original: bool = false,
+    anchor_box: math.Rect = .zero,
+    viewport_box: math.Rect = .zero,
+};
+
 pub const Measured = struct {
+    box: math.Rect = .zero,
     width: f32 = 0,
     height: f32 = 0,
 };
@@ -72,6 +88,7 @@ pub const Ttls = struct {
     scroll: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     select_input: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     slider: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    color_picker: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     measured: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     anim: u32 = DEFAULT_ANIM_TTL_FRAMES,
 };
@@ -141,6 +158,7 @@ pub const Storage = struct {
         scroll: Pool(Scroll) = .{},
         select_input: Pool(SelectInput) = .{},
         slider: Pool(Slider) = .{},
+        color_picker: Pool(ColorPicker) = .{},
         measured: Pool(Measured) = .{},
         anim: Pool(Anim) = .{},
     };
