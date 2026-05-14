@@ -69,6 +69,8 @@ pub fn SelectInput(comptime T: type) type {
                         break;
                     }
                 }
+
+                if (ui.input.containsKey(.escape)) s.open = false;
             }
 
             if (s.open and ui.input.mouse_pressed) {
@@ -119,10 +121,40 @@ pub fn SelectInput(comptime T: type) type {
             }
 
             {
-                const arrow_str: []const u8 = if (s.open) "O" else ">";
-                var arrow_deco = try ui.textDecoration(arrow_str, .{ .value = size.value * 0.8 }, self.font, false);
-                arrow_deco.text.color = self.color.resolve(&ui.theme);
-                _ = try ui.open(self.key.indexed(2), .{ .width = .fit(), .height = .fit() }, arrow_deco);
+                const icon_size: f32 = @max(10, size.value * 0.55);
+                const mid = icon_size * 0.5;
+                const icon_color = self.color.resolve(&ui.theme);
+                const cmds = try app.arena().alloc(Decoration.DrawCmd, 2);
+
+                if (s.open) {
+                    cmds[0] = .{ .line = .{
+                        .from = .{ icon_size * 0.2, icon_size * 0.62 },
+                        .to = .{ mid, icon_size * 0.34 },
+                        .color = icon_color,
+                        .thickness = 1.75,
+                    } };
+                    cmds[1] = .{ .line = .{
+                        .from = .{ mid, icon_size * 0.34 },
+                        .to = .{ icon_size * 0.8, icon_size * 0.62 },
+                        .color = icon_color,
+                        .thickness = 1.75,
+                    } };
+                } else {
+                    cmds[0] = .{ .line = .{
+                        .from = .{ icon_size * 0.2, icon_size * 0.38 },
+                        .to = .{ mid, icon_size * 0.66 },
+                        .color = icon_color,
+                        .thickness = 1.75,
+                    } };
+                    cmds[1] = .{ .line = .{
+                        .from = .{ mid, icon_size * 0.66 },
+                        .to = .{ icon_size * 0.8, icon_size * 0.38 },
+                        .color = icon_color,
+                        .thickness = 1.75,
+                    } };
+                }
+
+                _ = try ui.open(self.key.indexed(2), .{ .width = .fixed(icon_size), .height = .fixed(icon_size) }, .{ .canvas = .{ .cmds = cmds } });
                 ui.close();
             }
 

@@ -15,6 +15,7 @@ pub const Demo = struct {
         form_email: std.ArrayList(u8) = .empty,
         form_password: std.ArrayList(u8) = .empty,
         form_role: u32 = 0,
+        form_notifications_enabled: bool = true,
         form_volume: f32 = 0.7,
         canvas_effect: u32 = 0,
         canvas_cmds: std.ArrayList(knots.component.Canvas.DrawCmd) = .empty,
@@ -22,7 +23,7 @@ pub const Demo = struct {
         hover_strength: f32 = 0,
         dropped_paths: std.ArrayList([]const u8) = .empty,
         notes_buf: std.ArrayList(u8) = .empty,
-        theme_idx: u32 = 0,
+        theme_idx: u32 = 1,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
             self.notes_buf.deinit(allocator);

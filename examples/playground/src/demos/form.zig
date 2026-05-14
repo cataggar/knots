@@ -8,6 +8,7 @@ const Text = knots.component.Text;
 const TextInput = knots.component.TextInput;
 const SelectInput = knots.component.SelectInput;
 const SliderInput = knots.component.SliderInput;
+const Checkbox = knots.component.Checkbox;
 const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 
@@ -17,7 +18,7 @@ pub fn render(app: *knots.App) !void {
     try ui_helpers.panel(
         app,
         "Form",
-        "TextInputs, a SelectInput, a slider and a submit button working together. Submit logs the values.",
+        "TextInputs, a SelectInput, a checkbox, a slider and a submit button working together. Submit logs the values.",
         body,
     );
 }
@@ -37,6 +38,7 @@ fn body(app: *knots.App) !void {
             emailField,
             passwordField,
             roleField,
+            notificationsField,
             volumeField,
             Spacer{ .height = .fixed(4), .key = .src(@src()) },
             Button{
@@ -102,6 +104,15 @@ fn roleInput(app: *knots.App) !void {
     try app.e(SelectInput(Role){ .key = .src(@src()), .onSelect = onRoleSelect });
 }
 
+fn notificationsField(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    try app.e(Checkbox{
+        .key = .src(@src()),
+        .checked = &self.demo_state.form_notifications_enabled,
+        .label = "send notifications",
+    });
+}
+
 fn volumeField(app: *knots.App) !void {
     try labeled(app, "notification volume", volumeInput);
 }
@@ -122,11 +133,12 @@ fn volumeInput(app: *knots.App) !void {
 fn submit(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     std.log.info(
-        "form submit -> email='{s}' password='{s}' role={d} volume={d:.2}",
+        "form submit -> email='{s}' password='{s}' role={d} notifications={} volume={d:.2}",
         .{
             self.demo_state.form_email.items,
             self.demo_state.form_password.items,
             self.demo_state.form_role,
+            self.demo_state.form_notifications_enabled,
             self.demo_state.form_volume,
         },
     );
