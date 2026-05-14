@@ -6,5 +6,6 @@ color: [4]f32,
 border_color: [4]f32,
 corner_radius: f32,
 border_width: f32,
+/// 0.0 = SDF rect, 1.0 = text, 2.0 = image, 3.0 = raw vertex color
 prim_type: f32,
 _pad: f32 = 0,

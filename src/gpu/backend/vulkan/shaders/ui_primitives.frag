@@ -28,6 +28,7 @@ vec3 linearToSrgb(vec3 c) {
 }
 
 void main() {
+    vec4 sampled = texture(sampler2D(atlas, atlas_sampler), in_uv);
     vec4 col;
     if (in_prim_type < 0.5) {
         float d = sdRoundedBox(in_uv, in_half_size, in_corner_radius);
@@ -40,11 +41,12 @@ void main() {
         vec4 mixed = mix(in_color, in_border_color, border_alpha * fill_alpha);
         col = vec4(mixed.rgb, mixed.a * fill_alpha);
     } else if (in_prim_type < 1.5) {
-        float coverage = texture(sampler2D(atlas, atlas_sampler), in_uv).r;
+        float coverage = sampled.r;
         col = vec4(in_color.rgb, in_color.a * coverage);
-    } else {
-        vec4 sampled = texture(sampler2D(atlas, atlas_sampler), in_uv);
+    } else if (in_prim_type < 2.5) {
         col = vec4(sampled.rgb * in_color.rgb, in_color.a);
+    } else {
+        col = in_color;
     }
 
     if (apply_srgb_encode) {

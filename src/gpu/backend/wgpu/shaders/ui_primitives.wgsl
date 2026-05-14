@@ -88,7 +88,7 @@ fn vs_instance_main(@builtin(vertex_index) vid: u32, inst: InstanceInput) -> Ver
         out.half_size = inst.size * 0.5;
         out.uv = inst.size * (corner - vec2f(0.5, 0.5));
     } else {
-        // Text/image: atlas UV interpolated across the quad.
+        // Text/image/raw vertex color: atlas UV interpolated where relevant.
         out.half_size = vec2f(0.0, 0.0);
         out.uv = mix(inst.uv0, inst.uv1, corner);
     }
@@ -116,8 +116,10 @@ fn shadeLinear(in: VertexOutput) -> vec4f {
     } else if in.prim_type < 1.5 {
         let coverage = sampled.r;
         return vec4f(in.color.rgb, in.color.a * coverage);
-    } else {
+    } else if in.prim_type < 2.5 {
         return vec4f(sampled.rgb * in.color.rgb, in.color.a);
+    } else {
+        return in.color;
     }
 }
 

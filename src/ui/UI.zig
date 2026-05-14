@@ -576,11 +576,12 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                             const hh = fr.h / 2.0;
                             const fcx = ox + fr.x + hw;
                             const fcy = oy + fr.y + hh;
+                            const prim_type: f32 = if (fr.corner_radius == 0) 3.0 else 0.0;
                             const vertices = [4]gpu.Vertex{
-                                .{ .pos = .{ fcx - hw, fcy - hh }, .uv = .{ -hw, -hh }, .color = fr.colors[0], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
-                                .{ .pos = .{ fcx + hw, fcy - hh }, .uv = .{ hw, -hh }, .color = fr.colors[1], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
-                                .{ .pos = .{ fcx + hw, fcy + hh }, .uv = .{ hw, hh }, .color = fr.colors[2], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
-                                .{ .pos = .{ fcx - hw, fcy + hh }, .uv = .{ -hw, hh }, .color = fr.colors[3], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = 0.0 },
+                                .{ .pos = .{ fcx - hw, fcy - hh }, .uv = .{ -hw, -hh }, .color = fr.colors[0], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = prim_type },
+                                .{ .pos = .{ fcx + hw, fcy - hh }, .uv = .{ hw, -hh }, .color = fr.colors[1], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = prim_type },
+                                .{ .pos = .{ fcx + hw, fcy + hh }, .uv = .{ hw, hh }, .color = fr.colors[2], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = prim_type },
+                                .{ .pos = .{ fcx - hw, fcy + hh }, .uv = .{ -hw, hh }, .color = fr.colors[3], .corner_radius = fr.corner_radius, .half_size = .{ hw, hh }, .border_width = 0, .border_color = zero4, .prim_type = prim_type },
                             };
                             try draw_list.push(&vertices, &.{ 0, 1, 2, 0, 2, 3 }, null, clip_arr);
                         },
