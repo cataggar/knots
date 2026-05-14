@@ -11,6 +11,7 @@ const KeyEvent = @import("root.zig").KeyEvent;
 const Size = @import("root.zig").Size;
 const ResizeEvent = @import("root.zig").ResizeEvent;
 const DisplayMode = @import("root.zig").DisplayMode;
+const FrameHandler = @import("root.zig").FrameHandler;
 
 const SCROLL_SPEED: comptime_float = 10;
 
@@ -28,6 +29,7 @@ pending_drop_count: u8 = 0,
 canvas_selector: ?[:0]const u8,
 content_scale: f32 = 1.0,
 display_mode: DisplayMode = .windowed,
+frame_handler: ?FrameHandler = null,
 
 const Window = @This();
 
@@ -58,6 +60,26 @@ pub inline fn waitEvents(self: *const Window) void {
 
 pub inline fn postEmptyEvent(self: *const Window) void {
     self.backend.postEmptyEvent();
+}
+
+pub inline fn setFrameHandler(self: *Window, handler: FrameHandler) void {
+    self.frame_handler = handler;
+}
+
+pub inline fn clearFrameHandler(self: *Window) void {
+    self.frame_handler = null;
+}
+
+pub fn requestFrame(self: *Window) void {
+    if (self.frame_handler) |handler| {
+        handler.request(handler.ctx);
+    }
+}
+
+pub fn stepFrame(self: *Window) void {
+    if (self.frame_handler) |handler| {
+        handler.step(handler.ctx);
+    }
 }
 
 pub fn isOpen(self: *const Window) bool {
@@ -134,10 +156,6 @@ pub fn collectInput(self: *Window) Input {
         .ctrl_held = ctrl_held,
         .super_held = super_held,
     };
-}
-
-pub inline fn peekResize(self: *Window) ?ResizeEvent {
-    return self.backend.peekResize(self);
 }
 
 pub fn consumeResize(self: *Window) ?ResizeEvent {

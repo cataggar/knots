@@ -157,19 +157,14 @@ pub const Backend = struct {
         }
     }
 
-    pub fn peekResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
         if (!owner.resized) return null;
+        owner.resized = false;
         return .{
             .logical = self.getSize(),
             .physical = self.getFramebufferSize(),
             .content_scale = self.computeContentScale(),
         };
-    }
-
-    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
-        const ev = self.peekResize(owner) orelse return null;
-        owner.resized = false;
-        return ev;
     }
 
     pub fn consumeDrops(self: *Self, _: *window.Window, allocator: std.mem.Allocator, n: usize) ![][]const u8 {
@@ -229,11 +224,12 @@ fn mouseButtonCallback(win: ?*glfw.c.GLFWwindow, button: c_int, action: c_int, _
 fn framebufferSizeCallback(win: ?*glfw.c.GLFWwindow, _: c_int, _: c_int) callconv(.c) void {
     const owner = ownerOf(win) orelse return;
     owner.markResized();
+    owner.stepFrame();
 }
 
 fn refreshCallback(win: ?*glfw.c.GLFWwindow) callconv(.c) void {
     const owner = ownerOf(win) orelse return;
-    owner.markResized();
+    owner.stepFrame();
 }
 
 fn charCallback(win: ?*glfw.c.GLFWwindow, codepoint: c_uint) callconv(.c) void {

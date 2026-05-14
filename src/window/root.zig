@@ -166,6 +166,16 @@ pub const ResizeEvent = struct {
     content_scale: f32,
 };
 
+pub const FrameHandler = struct {
+    ctx: *anyopaque,
+    request: *const fn (*anyopaque) void,
+    step: *const fn (*anyopaque) void,
+};
+
+pub const live_resize_tick_hz: u32 = 60;
+pub const live_resize_tick_seconds: f64 = 1.0 / @as(f64, @floatFromInt(live_resize_tick_hz));
+pub const live_resize_tick_ms: u32 = 1000 / live_resize_tick_hz;
+
 pub const DisplayMode = union(enum) {
     windowed: void,
     fullscreen: struct {

@@ -7,6 +7,7 @@ const events = @import("events.zig");
 const keymap = @import("keymap.zig");
 
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral("KnotsWindow");
+const live_resize_timer_id: usize = 1;
 var class_registered: bool = false;
 
 pub const Backend = struct {
@@ -16,6 +17,7 @@ pub const Backend = struct {
     cursor_visible: bool = true,
     is_fullscreen: bool = false,
     should_close: bool = false,
+    live_resize_timer_active: bool = false,
     saved_placement: win32.WINDOWPLACEMENT = std.mem.zeroes(win32.WINDOWPLACEMENT),
     saved_style: win32.WINDOW_STYLE = .{},
     drop_paths_buf: [64][260]u8 = undefined,
@@ -156,19 +158,14 @@ pub const Backend = struct {
         }
     }
 
-    pub fn peekResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
         if (!owner.resized) return null;
+        owner.resized = false;
         return .{
             .logical = self.getSize(),
             .physical = self.getFramebufferSize(),
             .content_scale = self.computeContentScale(),
         };
-    }
-
-    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
-        const ev = self.peekResize(owner) orelse return null;
-        owner.resized = false;
-        return ev;
     }
 
     pub fn consumeDrops(self: *Self, _: *window.Window, allocator: std.mem.Allocator, n: usize) ![][]const u8 {
@@ -265,9 +262,38 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
         },
         win32.WM_DESTROY => return 0,
         win32.WM_SIZE => {
-            if (ownerOf(hwnd)) |o| o.markResized();
-
+            if (ownerOf(hwnd)) |o| {
+                o.markResized();
+                o.requestFrame();
+            }
             return 0;
+        },
+        win32.WM_ENTERSIZEMOVE => {
+            if (ownerOf(hwnd)) |o| {
+                o.backend.live_resize_timer_active = true;
+                _ = win32.SetTimer(hwnd, live_resize_timer_id, window.live_resize_tick_ms, null);
+            }
+            return 0;
+        },
+        win32.WM_EXITSIZEMOVE => {
+            if (ownerOf(hwnd)) |o| {
+                if (o.backend.live_resize_timer_active) {
+                    _ = win32.KillTimer(hwnd, live_resize_timer_id);
+                    o.backend.live_resize_timer_active = false;
+                }
+                o.markResized();
+                o.stepFrame();
+            }
+            return 0;
+        },
+        win32.WM_TIMER => {
+            if (wparam == live_resize_timer_id) {
+                if (ownerOf(hwnd)) |o| {
+                    if (o.backend.live_resize_timer_active and o.resized) o.stepFrame();
+                }
+                return 0;
+            }
+            return win32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         win32.WM_LBUTTONDOWN => {
             _ = win32.SetCapture(hwnd);

@@ -177,10 +177,6 @@ pub const Backend = struct {
         self.pending_resize = ev;
     }
 
-    pub fn peekResize(self: *Self, _: *window.Window) ?window.ResizeEvent {
-        return self.pending_resize;
-    }
-
     pub fn consumeResize(self: *Self, _: *window.Window) ?window.ResizeEvent {
         const ev = self.pending_resize orelse return null;
         self.pending_resize = null;

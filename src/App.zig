@@ -10,8 +10,6 @@ const CompletionQueue = @import("CompletionQueue.zig");
 const Timer = @import("Timer.zig");
 const ReturnType = @import("util.zig").ReturnType;
 
-const is_emscripten = builtin.target.os.tag == .emscripten;
-
 pub const Signal = enum {
     redraw,
     exit,
@@ -40,7 +38,10 @@ timer: Timer,
 cfg: Config,
 pending_renderer_cfg: ?render.Renderer.Config = null,
 pending_reconfigure: bool = false,
-frame_cb: ?Callback = null,
+frame_cb: Callback = undefined,
+frame_active: bool = false,
+frame_pending: bool = false,
+frame_event_error: ?anyerror = null,
 
 const App = @This();
 
@@ -91,16 +92,25 @@ pub fn deinit(self: *App) void {
 pub fn start(self: *App, frameCb: Callback) !void {
     self.window.startCapture();
     self.frame_cb = frameCb;
+    self.window.setFrameHandler(.{
+        .ctx = self,
+        .request = requestFrameHook,
+        .step = stepFrameHook,
+    });
     self.timer.start(self.io);
     self.window.pollEvents();
 
     switch (builtin.os.tag) {
-        inline .emscripten => {
-            const ctx = try self.allocator.create(EmscriptenContext);
-            ctx.* = .{ .app = self, .frameCb = frameCb };
-            std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(ctx), 0, 0);
+        inline .emscripten => std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(self), 0, 0),
+        inline else => {
+            defer self.window.clearFrameHandler();
+            while (self.window.isOpen()) {
+                try self.stepFrame();
+                try self.takeFrameEventError();
+                self.window.waitEvents();
+                try self.takeFrameEventError();
+            }
         },
-        inline else => while (self.window.isOpen()) try self.tickFrame(frameCb),
     }
 }
 
@@ -110,12 +120,12 @@ pub fn start(self: *App, frameCb: Callback) !void {
 ///  3. `frameCb`: User code.
 ///  4. `endFrame`: TTL sweep over per-widget state.
 ///  5. `resolve` |> `tessellate` |> `resolveHit`: compute layout, build draw list, hit-test against the new tree.
-fn tickFrame(self: *App, frameCb: Callback) !void {
+fn renderFrame(self: *App, frameCb: Callback) !void {
     defer _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
 
     self.timer.tick(self.io);
 
-    if (self.window.peekResize()) |ev| {
+    if (self.window.consumeResize()) |ev| {
         if (ev.physical.width == 0 or ev.physical.height == 0) return;
         try self.renderer.resize(ev.physical.width, ev.physical.height);
     }
@@ -133,7 +143,7 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     if (self.ui.anim_active) try self.signal(.redraw);
 
     while (self.signals.pop()) |s| switch (s) {
-        .redraw => self.window.postEmptyEvent(),
+        .redraw => self.window.requestFrame(),
         .exit => {
             @branchHint(.cold);
             self.window.close();
@@ -146,18 +156,47 @@ fn tickFrame(self: *App, frameCb: Callback) !void {
     try self.ui.tessellate(self.frame_arena.allocator(), draw_list);
     self.ui.resolveHit();
     try self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale);
-    self.window.waitEvents();
 }
 
-const EmscriptenContext = struct {
-    app: *App,
-    frameCb: Callback,
-};
-
 fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
-    const ctx: *EmscriptenContext = @ptrCast(@alignCast(ud orelse return));
-    ctx.app.tickFrame(ctx.frameCb) catch |err| {
+    const self: *App = @ptrCast(@alignCast(ud orelse return));
+    self.stepFrame() catch |err| {
         std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr);
+    };
+}
+
+fn stepFrame(self: *App) !void {
+    if (self.frame_active) {
+        self.frame_pending = true;
+        return;
+    }
+    self.frame_active = true;
+    defer self.frame_active = false;
+
+    try self.renderFrame(self.frame_cb);
+    while (self.frame_pending) {
+        self.frame_pending = false;
+        try self.renderFrame(self.frame_cb);
+    }
+}
+
+fn takeFrameEventError(self: *App) !void {
+    if (self.frame_event_error) |err| {
+        self.frame_event_error = null;
+        return err;
+    }
+}
+
+fn requestFrameHook(ctx: *anyopaque) void {
+    const self: *App = @ptrCast(@alignCast(ctx));
+    self.window.postEmptyEvent();
+}
+
+fn stepFrameHook(ctx: *anyopaque) void {
+    const self: *App = @ptrCast(@alignCast(ctx));
+    if (self.frame_event_error != null) return;
+    self.stepFrame() catch |err| {
+        self.frame_event_error = err;
     };
 }
 

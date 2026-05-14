@@ -32,6 +32,7 @@ pub const NSEventModifierFlagCommand: c_ulong = 1 << 20;
 pub const NSDragOperationCopy: c_ulong = 1;
 
 pub extern const NSDefaultRunLoopMode: c.id;
+pub extern const NSEventTrackingRunLoopMode: c.id;
 pub extern const NSPasteboardTypeFileURL: c.id;
 
 pub fn boolParam(b: bool) c.BOOL {
@@ -49,6 +50,10 @@ pub fn sharedApp() objc.Object {
 
 pub fn defaultRunLoopMode() objc.Object {
     return .{ .value = NSDefaultRunLoopMode };
+}
+
+pub fn eventTrackingRunLoopMode() objc.Object {
+    return .{ .value = NSEventTrackingRunLoopMode };
 }
 
 pub fn nsstring(s: []const u8) objc.Object {

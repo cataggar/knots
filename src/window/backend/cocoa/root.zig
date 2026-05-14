@@ -20,6 +20,7 @@ pub const Backend = struct {
     display_mode: window.DisplayMode = .windowed,
     saved_frame: ak.NSRect = .{ .origin = .{ .x = 0, .y = 0 }, .size = .{ .width = 0, .height = 0 } },
     saved_style_mask: c_ulong = 0,
+    live_resize_timer: ?objc.Object = null,
 
     // fixme: should be dynamic size
     drop_paths_buf: [64][1024]u8 = undefined,
@@ -165,19 +166,14 @@ pub const Backend = struct {
         self.display_mode = mode;
     }
 
-    pub fn peekResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
+    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
         if (!owner.resized) return null;
+        owner.resized = false;
         return .{
             .logical = self.getSize(),
             .physical = self.getFramebufferSize(),
             .content_scale = self.computeContentScale(),
         };
-    }
-
-    pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
-        const ev = self.peekResize(owner) orelse return null;
-        owner.resized = false;
-        return ev;
     }
 
     pub fn consumeDrops(self: *Self, _: *window.Window, allocator: std.mem.Allocator, n: usize) ![][]const u8 {
