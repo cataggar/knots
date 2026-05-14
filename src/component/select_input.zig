@@ -36,6 +36,7 @@ pub fn SelectInput(comptime T: type) type {
         width: Element.sizing.Axis = .grow(),
         height: Element.sizing.Axis = .fit(),
         size: Size.Input = .md,
+        font: ?[]const u8 = null,
         color: Color.Input = .text,
         placeholder_color: Color.Input = .dimmed,
         style: Style = .{ .color = .toned },
@@ -78,7 +79,7 @@ pub fn SelectInput(comptime T: type) type {
             const current_style = if (s.open) self.focused_style else self.style;
 
             var h = self.height;
-            h.min = try ui.lineHeight(self.size.resolve(), null);
+            h.min = try ui.lineHeight(self.size.resolve(), self.font);
 
             const decoration: Decoration = if (current_style.hasDecoration())
                 .{ .rect = current_style.toRect(&ui.theme) }
@@ -111,7 +112,7 @@ pub fn SelectInput(comptime T: type) type {
                 .{ self.placeholder, self.placeholder_color.resolve(&ui.theme) };
 
             {
-                var deco = try ui.textDecoration(display_text, size, null, false);
+                var deco = try ui.textDecoration(display_text, size, self.font, false);
                 deco.text.color = text_color;
                 _ = try ui.open(self.key.indexed(1), .{ .width = .fit(), .height = .fit() }, deco);
                 ui.close();
@@ -119,7 +120,7 @@ pub fn SelectInput(comptime T: type) type {
 
             {
                 const arrow_str: []const u8 = if (s.open) "O" else ">";
-                var arrow_deco = try ui.textDecoration(arrow_str, .{ .value = size.value * 0.8 }, null, false);
+                var arrow_deco = try ui.textDecoration(arrow_str, .{ .value = size.value * 0.8 }, self.font, false);
                 arrow_deco.text.color = self.color.resolve(&ui.theme);
                 _ = try ui.open(self.key.indexed(2), .{ .width = .fit(), .height = .fit() }, arrow_deco);
                 ui.close();
@@ -131,7 +132,7 @@ pub fn SelectInput(comptime T: type) type {
                 const anchor = s.anchor_box;
                 const viewport = s.viewport_box;
 
-                const line_h = try ui.lineHeight(size, null);
+                const line_h = try ui.lineHeight(size, self.font);
                 const item_h = line_h + 12 + 2;
                 const dropdown_h = item_h * @as(f32, @floatFromInt(self.labels.len)) + 4;
 
@@ -171,7 +172,7 @@ pub fn SelectInput(comptime T: type) type {
                         }, opt_bg);
 
                         {
-                            var opt_deco = try ui.textDecoration(option, size, null, false);
+                            var opt_deco = try ui.textDecoration(option, size, self.font, false);
                             opt_deco.text.color = self.color.resolve(&ui.theme);
                             _ = try ui.open(self.key.indexed(4 + self.labels.len + i), .{ .width = .fit(), .height = .fit() }, opt_deco);
                             ui.close();

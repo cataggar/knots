@@ -21,9 +21,7 @@ key: Key,
 const Text = @This();
 
 const BODY_INDEX: usize = 1; // text decoration
-const SPANS_ROOT: usize = 2; // selection container
-const SPANS_TOWER_BASE: usize = 16; // selection line i overlay tower
-const TOWER_STRIDE: usize = 8;
+const SPANS_BASE: usize = 16; // selection line overlays start here, one per line
 
 pub fn open(self: *const Text, app: *App) !Element.Id {
     const ui = &app.ui;
@@ -112,45 +110,10 @@ fn closeSlow(self: *const Text, ui: *UI, s: *State.TextSelect, need_hit_test: bo
         const spans = try util.lineSpansForRange(ui.allocator, shaped, sel_lo, sel_hi, scale);
         defer ui.allocator.free(spans);
 
-        _ = try ui.open(self.key.indexed(SPANS_ROOT), .{
-            .width = .grow(),
-            .height = .grow(),
-            .position = .absolute,
-            .direction = .column,
-        }, .none);
-
         for (spans, 0..) |sp, i| {
-            const base = SPANS_TOWER_BASE + i * TOWER_STRIDE;
-            _ = try ui.open(self.key.indexed(base), .{
-                .width = .grow(),
-                .height = .fixed(0),
-                .position = .absolute,
-                .direction = .column,
-            }, .none);
-            _ = try ui.open(self.key.indexed(base + 1), .{
-                .width = .fixed(0),
-                .height = .fixed(sp.y),
-            }, .none);
-            ui.close();
-            _ = try ui.open(self.key.indexed(base + 2), .{
-                .width = .grow(),
-                .height = .fixed(line_h),
-                .direction = .row,
-            }, .none);
-            _ = try ui.open(self.key.indexed(base + 3), .{
-                .width = .fixed(sp.x),
-                .height = .fixed(0),
-            }, .none);
-            ui.close();
-            _ = try ui.open(self.key.indexed(base + 4), .{
-                .width = .fixed(sp.w),
-                .height = .fixed(line_h),
-            }, .{ .rect = .{ .color = hc } });
-            ui.close();
-            ui.close();
+            _ = try ui.openAt(self.key.indexed(SPANS_BASE + i), sp.x, sp.y, sp.w, line_h, .{}, .{ .rect = .{ .color = hc } });
             ui.close();
         }
-        ui.close();
     }
 
     var deco = try ui.textDecoration(self.content, size, self.font, self.wrap);

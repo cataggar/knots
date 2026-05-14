@@ -40,11 +40,10 @@ pub const HitRecord = struct {
 pub const Config = struct {
     /// Default is Roboto regular + Material icons regular.
     fonts: []const text.Font.FontKey = &.{.{ "default", @embedFile("fonts/default.ttf") }},
-    /// Per-widget state (text input cursor, scroll, selection, etc.) is evicted
-    /// after this many frames without a `getOrCreate` touch. Higher values let
-    /// state survive transient absences (animations, conditional render) at
-    /// the cost of holding stale entries longer. 1 = old single-frame behavior.
-    state_ttl_frames: u32 = State.DEFAULT_TTL_FRAMES,
+    /// Per-pool eviction TTLs in frames. Long-lived widget state (cursor,
+    /// scroll, dropdown-open, selection) survives conditional hiding (Tabs,
+    /// Accordion, Tree); short-lived state (anim) is evicted promptly.
+    state_ttls: State.Ttls = .{},
     theme: Theme = Theme.light,
 };
 
@@ -68,7 +67,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .allocator = allocator,
         .layout_ctx = .init(allocator),
         .decorations = .empty,
-        .state = .init(allocator, cfg.state_ttl_frames),
+        .state = .init(allocator, cfg.state_ttls),
         .input = .{},
         .font = try .init(allocator, cfg.fonts),
         .hit_records = .empty,
@@ -117,6 +116,20 @@ pub fn openRoot(self: *UI, key: Key, x: f32, y: f32, config: Element.Config, dec
         el.intrinsic_h = decoration.text.intrinsic_h;
     }
     return id;
+}
+
+/// Open an absolutely-positioned element inside the current parent at parent-local
+/// offset (x, y) with size (w, h). The caller still pairs this with `close()`.
+/// Use this for overlay rects (cursor, selection, drag handles, tab indicators)
+/// that need precise placement on top of sibling content without escaping the parent.
+/// For popups that need to escape clipping or the layout tree, use `openRoot`.
+pub fn openAt(self: *UI, key: Key, x: f32, y: f32, w: f32, h: f32, config: Element.Config, decoration: Decoration) !Element.Id {
+    var cfg = config;
+    cfg.position = .absolute;
+    cfg.width = .fixed(w);
+    cfg.height = .fixed(h);
+    cfg.offset = .{ x, y };
+    return self.open(key, cfg, decoration);
 }
 
 pub fn lineHeight(self: *UI, size: Size, font: ?[]const u8) !f32 {

@@ -367,6 +367,35 @@ test "col span covers multiple tracks" {
     try expectRect(ctx.pool.get(2), 200, 0, 100, 50);
 }
 
+test "grid: absolute children use parent-local offset" {
+    var ctx = initCtx();
+    defer ctx.deinit();
+
+    const cols = [_]Grid.Track{.{ .fr = 1 }};
+    const rows = [_]Grid.Track{.{ .fr = 1 }};
+    _ = try ctx.open(0, .{
+        .width = .fixed(200),
+        .height = .fixed(100),
+        .direction = .grid,
+        .grid_template = .{ .cols = &cols, .rows = &rows },
+        .padding = .init(10, 20, 10, 20),
+    });
+    defer ctx.close();
+    {
+        _ = try ctx.open(1, .{
+            .width = .fixed(30),
+            .height = .fixed(20),
+            .position = .absolute,
+            .offset = .{ 7, 9 },
+        });
+        defer ctx.close();
+    }
+
+    try runLayout(&ctx);
+
+    try expectRect(ctx.pool.get(1), 27, 19, 30, 20);
+}
+
 test "grow children fill parent independently" {
     var ctx = initCtx();
     defer ctx.deinit();

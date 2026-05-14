@@ -421,7 +421,7 @@ fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup) Layout
         } else {
             if (child.width.kind == .grow) child.box.setW(content_w);
             if (child.height.kind == .grow) child.box.setH(content_h);
-            try self.computeLayoutNode(child_slot, origin_x, origin_y, scroll);
+            try self.computeLayoutNode(child_slot, origin_x + child.offset[0], origin_y + child.offset[1], scroll);
         }
         child_slot = child.next_sibling;
     }
@@ -518,6 +518,17 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
         child.box.setH(std.math.clamp(h, child.height.min, child.height.max));
 
         try self.computeLayoutNode(child_slot, child.box.x(), child.box.y(), scroll);
+        child_slot = child.next_sibling;
+    }
+
+    child_slot = el.first_child;
+    while (child_slot != Element.INVALID_SLOT) {
+        const child = self.pool.get(child_slot);
+        if (child.position == .absolute) {
+            if (child.width.kind == .grow) child.box.setW(content_w);
+            if (child.height.kind == .grow) child.box.setH(content_h);
+            try self.computeLayoutNode(child_slot, origin_x + child.offset[0], origin_y + child.offset[1], scroll);
+        }
         child_slot = child.next_sibling;
     }
 }
@@ -660,7 +671,7 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
         child_slot = child.next_sibling;
     }
 
-    // Position absolute children: fill parent's content area and place at parent origin + padding.
+    // Position absolute children: fill parent's content area and place at parent origin + padding + offset.
     child_slot = el.first_child;
     while (child_slot != Element.INVALID_SLOT) {
         const child = self.pool.get(child_slot);
@@ -669,8 +680,8 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
             const content_h = el.box.h() - el.padding.top() - el.padding.bottom();
             if (child.width.kind == .grow) child.box.setW(content_w);
             if (child.height.kind == .grow) child.box.setH(content_h);
-            const cx = el.box.x() + el.padding.left();
-            const cy = el.box.y() + el.padding.top();
+            const cx = el.box.x() + el.padding.left() + child.offset[0];
+            const cy = el.box.y() + el.padding.top() + child.offset[1];
             try self.computeLayoutNode(child_slot, cx, cy, scroll);
         }
         child_slot = child.next_sibling;

@@ -15,9 +15,8 @@ const glyph = @import("text").glyph;
 const util = @import("util.zig");
 
 const BODY_INDEX: usize = 1; // text decoration
-const CURSOR_TOWER: usize = 8; // cursor overlay tower (5 elements use 8,9,10,11,12)
-const SELECTION_TOWER_BASE: usize = 16; // selection line i overlay tower
-const TOWER_STRIDE: usize = 8;
+const CURSOR_INDEX: usize = 2; // cursor overlay
+const SELECTION_BASE: usize = 16; // selection line overlays start here, one per line
 
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .fit(),
@@ -105,11 +104,13 @@ pub fn close(self: *const TextInput, app: *App) !void {
             const spans = try util.lineSpansForRange(ui.allocator, shaped, sel_lo, sel_hi, scale);
             defer ui.allocator.free(spans);
             for (spans, 0..) |sp, i| {
-                try emitOverlayRect(self, ui, SELECTION_TOWER_BASE + i * TOWER_STRIDE, sp.x, sp.y, sp.w, line_h, sel_color);
+                _ = try ui.openAt(self.key.indexed(SELECTION_BASE + i), sp.x, sp.y, sp.w, line_h, .{}, .{ .rect = .{ .color = sel_color } });
+                ui.close();
             }
         } else {
             const p = util.posAtByte(shaped, s.cursor, scale);
-            try emitOverlayRect(self, ui, CURSOR_TOWER, p.x, p.y, 1, line_h, resolved_color);
+            _ = try ui.openAt(self.key.indexed(CURSOR_INDEX), p.x, p.y, 1, line_h, .{}, .{ .rect = .{ .color = resolved_color } });
+            ui.close();
         }
 
         if (has_sel) ui.state.selection_text = items[sel_lo..sel_hi];
@@ -123,37 +124,6 @@ pub fn close(self: *const TextInput, app: *App) !void {
         ui.close();
     }
 
-    ui.close();
-}
-
-fn emitOverlayRect(self: *const TextInput, ui: *UI, base: usize, x: f32, y: f32, w: f32, h: f32, color: [4]f32) !void {
-    _ = try ui.open(self.key.indexed(base), .{
-        .width = .grow(),
-        .height = .grow(),
-        .position = .absolute,
-        .direction = .column,
-    }, .none);
-    _ = try ui.open(self.key.indexed(base + 1), .{
-        .width = .fixed(0),
-        .height = .fixed(y),
-    }, .none);
-    ui.close();
-    _ = try ui.open(self.key.indexed(base + 2), .{
-        .width = .grow(),
-        .height = .fixed(h),
-        .direction = .row,
-    }, .none);
-    _ = try ui.open(self.key.indexed(base + 3), .{
-        .width = .fixed(x),
-        .height = .fixed(0),
-    }, .none);
-    ui.close();
-    _ = try ui.open(self.key.indexed(base + 4), .{
-        .width = .fixed(w),
-        .height = .fixed(h),
-    }, .{ .rect = .{ .color = color } });
-    ui.close();
-    ui.close();
     ui.close();
 }
 

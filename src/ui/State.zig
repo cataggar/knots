@@ -61,7 +61,20 @@ const IdContext = struct {
     }
 };
 
-pub const DEFAULT_TTL_FRAMES: u32 = 60;
+pub const DEFAULT_ANIM_TTL_FRAMES: u32 = 60;
+pub const DEFAULT_WIDGET_TTL_FRAMES: u32 = 1800;
+
+/// Per-pool eviction TTLs in frames. Long-lived widget state (cursor, scroll, dropdown-open, selection)
+/// survives conditional hiding. Short-lived state (anim) is evicted promptly once untouched.
+pub const Ttls = struct {
+    text_input: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    text_select: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    scroll: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    select_input: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    slider: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    measured: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    anim: u32 = DEFAULT_ANIM_TTL_FRAMES,
+};
 
 /// Hash map of (id, T) pairs with TTL-based eviction.
 ///
@@ -156,9 +169,9 @@ pub const Storage = struct {
         self.poolFor(name).remove(id);
     }
 
-    pub fn evictStale(self: *Storage, allocator: std.mem.Allocator, frame: u32, ttl: u32, scratch: *std.ArrayList(Element.Id)) !void {
+    pub fn evictStale(self: *Storage, allocator: std.mem.Allocator, frame: u32, ttls: Ttls, scratch: *std.ArrayList(Element.Id)) !void {
         inline for (std.meta.fields(StoragePools)) |f| {
-            try @field(self.pools, f.name).evictStale(allocator, frame, ttl, scratch);
+            try @field(self.pools, f.name).evictStale(allocator, frame, @field(ttls, f.name), scratch);
         }
     }
 
@@ -184,15 +197,15 @@ press_drag: bool = false,
 selection_text: []const u8 = &.{},
 storage: Storage = .{},
 frame: u32 = 0,
-ttl: u32 = DEFAULT_TTL_FRAMES,
+ttls: Ttls = .{},
 evict_scratch: std.ArrayList(Element.Id) = .empty,
 
 const State = @This();
 
-pub fn init(allocator: std.mem.Allocator, ttl: u32) State {
+pub fn init(allocator: std.mem.Allocator, ttls: Ttls) State {
     return .{
         .allocator = allocator,
-        .ttl = ttl,
+        .ttls = ttls,
     };
 }
 
@@ -233,7 +246,7 @@ pub fn forEach(
 /// any entry touched this frame has `last_seen == self.frame` and survives.
 /// We advance only after the sweep so the next frame's stamp is one greater.
 pub fn endFrame(self: *State) !void {
-    try self.storage.evictStale(self.allocator, self.frame, self.ttl, &self.evict_scratch);
+    try self.storage.evictStale(self.allocator, self.frame, self.ttls, &self.evict_scratch);
     self.frame +%= 1;
 }
 
@@ -252,8 +265,20 @@ pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: math.V
 
 const testing = std.testing;
 
+fn uniformTtls(ttl: u32) Ttls {
+    return .{
+        .text_input = ttl,
+        .text_select = ttl,
+        .scroll = ttl,
+        .select_input = ttl,
+        .slider = ttl,
+        .measured = ttl,
+        .anim = ttl,
+    };
+}
+
 test "getOrCreate returns default state" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     const s = try state.getOrCreate(.text_input, testing.allocator, 42);
@@ -263,14 +288,14 @@ test "getOrCreate returns default state" {
 }
 
 test "get returns null before creation" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     try testing.expectEqual(state.get(.text_input, 42), null);
 }
 
 test "getOrCreate is idempotent" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     const a = try state.getOrCreate(.text_input, testing.allocator, 42);
@@ -281,7 +306,7 @@ test "getOrCreate is idempotent" {
 }
 
 test "separate ids are independent" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     const a = try state.getOrCreate(.text_input, testing.allocator, 1);
@@ -294,7 +319,7 @@ test "separate ids are independent" {
 }
 
 test "ttl=1: untouched entry evicted after one endFrame, touched entry survives" {
-    var state = init(testing.allocator, 1);
+    var state = init(testing.allocator, uniformTtls(1));
     defer state.deinit();
 
     _ = try state.getOrCreate(.text_input, testing.allocator, 1);
@@ -310,7 +335,7 @@ test "ttl=1: untouched entry evicted after one endFrame, touched entry survives"
 }
 
 test "endFrame preserves mutated values across frames" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     const s = try state.getOrCreate(.text_input, testing.allocator, 99);
@@ -325,7 +350,7 @@ test "endFrame preserves mutated values across frames" {
 test "state survives ttl skipped frames" {
     // ttl=N: entry stays alive for N endFrame calls without a touch, and is
     // evicted on the (N+1)th.
-    var state = init(testing.allocator, 5);
+    var state = init(testing.allocator, uniformTtls(5));
     defer state.deinit();
 
     const s = try state.getOrCreate(.text_input, testing.allocator, 1);
@@ -340,8 +365,25 @@ test "state survives ttl skipped frames" {
     try testing.expectEqual(state.get(.text_input, 1), null);
 }
 
+test "per-pool ttls evict independently" {
+    var state = init(testing.allocator, .{
+        .text_input = 3,
+        .anim = 1,
+    });
+    defer state.deinit();
+
+    _ = try state.getOrCreate(.text_input, testing.allocator, 1);
+    _ = try state.getOrCreate(.anim, testing.allocator, 1);
+
+    try state.endFrame();
+    try state.endFrame();
+
+    try testing.expect(state.get(.text_input, 1) != null);
+    try testing.expectEqual(state.get(.anim, 1), null);
+}
+
 test "re-touching resets the eviction clock" {
-    var state = init(testing.allocator, 3);
+    var state = init(testing.allocator, uniformTtls(3));
     defer state.deinit();
 
     _ = try state.getOrCreate(.text_input, testing.allocator, 1);
@@ -357,7 +399,7 @@ test "re-touching resets the eviction clock" {
 }
 
 test "remove deletes entry" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     _ = try state.getOrCreate(.text_input, testing.allocator, 10);
@@ -366,7 +408,7 @@ test "remove deletes entry" {
 }
 
 test "forEach visits each id once" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     _ = try state.getOrCreate(.text_input, testing.allocator, 1);
@@ -392,7 +434,7 @@ test "forEach visits each id once" {
 }
 
 test "pools are independent per type" {
-    var state = init(testing.allocator, DEFAULT_TTL_FRAMES);
+    var state = init(testing.allocator, uniformTtls(DEFAULT_ANIM_TTL_FRAMES));
     defer state.deinit();
 
     const t = try state.getOrCreate(.text_input, testing.allocator, 1);

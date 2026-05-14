@@ -126,6 +126,8 @@ interactive: bool,
 overflow: Overflow,
 position: Position,
 z_index: u8,
+// Parent-local offset applied during layout. Only honored when position == .absolute.
+offset: [2]f32,
 
 // computed by layout passes
 box: math.Rect = .zero,
@@ -149,6 +151,7 @@ pub const Config = struct {
     overflow: Overflow = .visible,
     position: Position = .static,
     z_index: u8 = 0,
+    offset: [2]f32 = .{ 0, 0 },
     grid_template: ?Grid.Template = null,
     grid_placement: ?Grid.Placement = null,
 
@@ -165,6 +168,7 @@ pub const Config = struct {
             .overflow = self.overflow,
             .position = self.position,
             .z_index = self.z_index,
+            .offset = self.offset,
         };
     }
 };
