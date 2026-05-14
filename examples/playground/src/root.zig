@@ -12,7 +12,7 @@ const Color = knots.ui.Color;
 io: std.Io,
 allocator: std.mem.Allocator,
 app: knots.App,
-renderer_settings: knots.debug.RendererSettings,
+debug_devtools: knots.debug.DevTools,
 active_demo: usize = 0,
 demo_state: demos.Demo.State,
 
@@ -32,14 +32,14 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
         .io = io,
         .allocator = allocator,
         .app = app,
-        .renderer_settings = try .init(allocator, app.renderer.cfg.gpu_backend, app.renderer.cfg.present_mode),
+        .debug_devtools = try .init(allocator, app.renderer.cfg.gpu_backend, app.renderer.cfg.present_mode),
         .demo_state = .{},
     };
 }
 
 pub fn deinit(self: *Self) void {
     self.demo_state.deinit(self.allocator);
-    self.renderer_settings.deinit(self.allocator);
+    self.debug_devtools.deinit(self.allocator);
     self.app.deinit();
 }
 
@@ -48,6 +48,7 @@ pub fn start(self: *Self) !void {
 }
 
 fn frameCb(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
     const size = app.window.getSize();
 
     try app.e(.{
@@ -75,6 +76,8 @@ fn frameCb(app: *knots.App) !void {
             },
         },
     });
+
+    try app.e(.{self.debug_devtools});
 }
 
 fn renderActiveDemo(app: *knots.App) !void {
@@ -83,7 +86,6 @@ fn renderActiveDemo(app: *knots.App) !void {
 }
 
 fn renderHeader(app: *knots.App) !void {
-    const self: *Self = @fieldParentPtr("app", app);
     const arena = app.arena();
     try app.e(.{
         Rect{
@@ -106,13 +108,6 @@ fn renderHeader(app: *knots.App) !void {
                 .size = .xl,
                 .key = .src(@src()),
             },
-            Rect{
-                .key = .src(@src()),
-                .@"align" = .center,
-                .justify = .center,
-                .gap = 4,
-            },
-            .{self.renderer_settings},
         },
     });
 }

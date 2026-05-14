@@ -47,6 +47,14 @@ pub const Config = struct {
     theme: Theme = Theme.light,
 };
 
+pub const Stats = struct {
+    elements: usize = 0,
+    hit_records: usize = 0,
+    scroll_containers: usize = 0,
+    decorations: usize = 0,
+    layers: usize = 0,
+};
+
 allocator: Allocator,
 layout_ctx: layout.Context,
 decorations: std.ArrayList(Decoration),
@@ -59,6 +67,7 @@ scroll_geoms: std.ArrayList(scrollbar.SlotGeom),
 content_scale: f32,
 anim_active: bool,
 theme: Theme,
+last_stats: Stats,
 
 const UI = @This();
 
@@ -76,6 +85,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .content_scale = 1.0,
         .anim_active = false,
         .theme = cfg.theme,
+        .last_stats = .{},
     };
 }
 
@@ -293,15 +303,13 @@ fn syncStateBounds(self: *UI) void {
             s.width = el.box.w();
             s.height = el.box.h();
         }
-        if (el.z_index == 0) {
-            if (self.state.get(.select_input, el.id)) |s| {
-                s.anchor_box = el.box;
-                s.viewport_box = root_box;
-            }
-            if (self.state.get(.color_picker, el.id)) |s| {
-                s.anchor_box = el.box;
-                s.viewport_box = root_box;
-            }
+        if (self.state.get(.select_input, el.id)) |s| {
+            s.anchor_box = el.box;
+            s.viewport_box = root_box;
+        }
+        if (self.state.get(.color_picker, el.id)) |s| {
+            s.anchor_box = el.box;
+            s.viewport_box = root_box;
         }
     }
 }
@@ -420,7 +428,18 @@ pub fn resolveHit(self: *UI) bool {
 
     const changed = self.state.hovered != best_id;
     self.state.hovered = best_id;
+    self.updateStats();
     return changed;
+}
+
+fn updateStats(self: *UI) void {
+    self.last_stats = .{
+        .elements = self.layout_ctx.pool.elements.items.len,
+        .hit_records = self.hit_records.items.len,
+        .scroll_containers = self.layout_ctx.scroll_slots.items.len,
+        .decorations = self.decorations.items.len,
+        .layers = self.layout_ctx.z_used.count(),
+    };
 }
 
 pub fn tessellate(self: *UI, allocator: Allocator, draw_list: *DrawList) !void {

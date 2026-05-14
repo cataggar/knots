@@ -44,6 +44,7 @@ pub fn SelectInput(comptime T: type) type {
         focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
         option_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = 1 },
         option_hover_color: Color.Input = .muted,
+        dropdown_z_index: u8 = 1,
         onSelect: ?*const fn (*App, T, u32) anyerror!void = null,
 
         const Self = @This();
@@ -188,7 +189,7 @@ pub fn SelectInput(comptime T: type) type {
                     .width = .fixed(anchor.w()),
                     .height = .{ .kind = .fit, .max = max_h },
                     .overflow = .scroll_y,
-                    .z_index = 1,
+                    .z_index = self.dropdown_z_index,
                     .padding = .init(2, 0, 2, 0),
                 }, .{ .rect = self.option_style.toRect(&ui.theme) });
 

@@ -1,1 +1,1 @@
-pub const RendererSettings = @import("RendererSettings.zig");
+pub const DevTools = @import("DevTools.zig");
