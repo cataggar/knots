@@ -71,7 +71,7 @@ fn unpack_glyph(tex: vec4f) -> vec4i {
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
-    let dilated = slug_dilate(in.pos, in.tex, in.jac, u.mvp_row0, u.mvp_row1, u.mvp_row3, u.viewport.xy);
+    let dilated = slug_dilate(in.pos, in.tex, in.jac, u.mvp_row0, u.mvp_row1, u.mvp_row3, u.viewport.zw);
     let p = dilated.xy;
 
     var out: VsOut;
@@ -234,7 +234,8 @@ fn slug_render(render_coord: vec2f, banding: vec4f, glyph_data: vec4i) -> f32 {
 
 fn shade_linear(in: VsOut) -> vec4f {
     let coverage = slug_render(in.texcoord, in.banding, in.glyph);
-    return vec4f(in.color.rgb, in.color.a * coverage);
+    let alpha = in.color.a * coverage;
+    return vec4f(in.color.rgb * alpha, alpha);
 }
 
 fn linear_to_srgb(c: vec3f) -> vec3f {

@@ -501,10 +501,11 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                             const sy_v = baseline_v - em_y * size_v;
 
                             if (clip) |c| {
+                                const dilation_margin = 2.0 / content_scale;
                                 const glyph_bounds = math.Rect.fromMinMax(
                                     .{ @reduce(.Min, sx_v), @reduce(.Min, sy_v) },
                                     .{ @reduce(.Max, sx_v), @reduce(.Max, sy_v) },
-                                );
+                                ).expand(dilation_margin);
                                 if (!c.overlaps(glyph_bounds)) continue;
                             }
 

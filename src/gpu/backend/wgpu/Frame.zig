@@ -58,28 +58,27 @@ fn deinit(ptr: *anyopaque) void {
 fn beginRenderPass(ptr: *anyopaque, desc: gpu.RenderPass.Desc) anyerror!gpu.RenderPass {
     const self: *Frame = @ptrCast(@alignCast(ptr));
 
-    if (self.encoder) |e| e.deinit();
-    self.encoder = null;
-    if (self.view) |v| v.deinit();
-    self.view = null;
-    if (self.surface_texture) |t| t.deinit();
-    self.surface_texture = null;
-
-    self.surface_texture = self.ctx.surface.getCurrentTexture() catch |err| switch (err) {
-        error.CurrentTextureOutdated, error.CurrentTextureLost => blk: {
-            _ = self.ctx.device.poll(true);
-            self.ctx.reconfigureSurface(self.ctx.surface_width, self.ctx.surface_height);
-            break :blk try self.ctx.surface.getCurrentTexture();
-        },
-        else => return err,
-    };
-    self.view = try self.surface_texture.?.createView(.{ .format = self.ctx.surface_format });
-    self.encoder = try self.ctx.device.createCommandEncoder(.{ .label = "frame_encoder" });
+    if (self.encoder == null) {
+        self.encoder = try self.ctx.device.createCommandEncoder(.{ .label = "frame_encoder" });
+    }
 
     const target_view = if (desc.color_attachment.target) |target| blk: {
         const tex: *@import("Texture.zig") = @ptrCast(@alignCast(target.ptr));
         break :blk tex.view;
-    } else self.view.?;
+    } else blk: {
+        if (self.surface_texture == null) {
+            self.surface_texture = self.ctx.surface.getCurrentTexture() catch |err| switch (err) {
+                error.CurrentTextureOutdated, error.CurrentTextureLost => retry: {
+                    _ = self.ctx.device.poll(true);
+                    self.ctx.reconfigureSurface(self.ctx.surface_width, self.ctx.surface_height);
+                    break :retry try self.ctx.surface.getCurrentTexture();
+                },
+                else => return err,
+            };
+            self.view = try self.surface_texture.?.createView(.{ .format = self.ctx.surface_format });
+        }
+        break :blk self.view.?;
+    };
 
     return RenderPass.create(self.allocator, self.encoder.?, target_view, desc);
 }

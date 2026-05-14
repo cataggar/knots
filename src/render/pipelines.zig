@@ -20,6 +20,11 @@ const standard_blend = gpu.Pipeline.BlendState{
     .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha, .op = .add },
 };
 
+const premultiplied_blend = gpu.Pipeline.BlendState{
+    .color = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha, .op = .add },
+    .alpha = .{ .src_factor = .one, .dst_factor = .one_minus_src_alpha, .op = .add },
+};
+
 const vertex_attrs = gpu.Pipeline.attrsFromStruct(gpu.Vertex);
 const instance_attrs = gpu.Pipeline.attrsFromStruct(gpu.Instance);
 const slug_attrs = gpu.Pipeline.attrsFromStruct(gpu.SlugVertex);
@@ -77,6 +82,14 @@ const slug_curveband_bgl = gpu.Pipeline.BindGroupLayoutDesc{
 const slug_bgls = [_]gpu.Pipeline.BindGroupLayoutDesc{ slug_uniform_bgl, slug_curveband_bgl };
 
 pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: bool) gpu.Pipeline.Desc {
+    return primitivesDescForTarget(backend, kind, null, !srgb_surface);
+}
+
+pub fn linearTargetPrimitivesDesc(backend: GPUBackend, kind: PrimitivesKind) gpu.Pipeline.Desc {
+    return primitivesDescForTarget(backend, kind, .rgba8, false);
+}
+
+fn primitivesDescForTarget(backend: GPUBackend, kind: PrimitivesKind, target_format: ?gpu.Texture.Format, encode_srgb: bool) gpu.Pipeline.Desc {
     const vbs: []const gpu.Pipeline.VertexBufferLayout = switch (kind) {
         .vertex => &vertex_buffers,
         .instance => &instance_buffers,
@@ -85,7 +98,7 @@ pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: b
         .vertex => "vs_main",
         .instance => "vs_instance_main",
     };
-    const fs_entry: []const u8 = if (srgb_surface) "fs_main" else "fs_main_srgb_encode";
+    const fs_entry: []const u8 = if (encode_srgb) "fs_main_srgb_encode" else "fs_main";
 
     const shader: gpu.Pipeline.ShaderSource = switch (backend) {
         .wgpu => .{ .wgsl = shaders.primitives_wgsl },
@@ -106,12 +119,20 @@ pub fn primitivesDesc(backend: GPUBackend, kind: PrimitivesKind, srgb_surface: b
         .fs_entry = fs_entry,
         .vertex_buffers = vbs,
         .bind_group_layouts = &primitives_bgls,
-        .color_target = .{ .format = null, .blend = standard_blend },
+        .color_target = .{ .format = target_format, .blend = standard_blend },
     };
 }
 
 pub fn slugDesc(backend: GPUBackend, srgb_surface: bool) gpu.Pipeline.Desc {
-    const fs_entry: []const u8 = if (srgb_surface) "fs_main" else "fs_main_srgb_encode";
+    return slugDescForTarget(backend, null, !srgb_surface);
+}
+
+pub fn linearTargetSlugDesc(backend: GPUBackend) gpu.Pipeline.Desc {
+    return slugDescForTarget(backend, .rgba8, false);
+}
+
+fn slugDescForTarget(backend: GPUBackend, target_format: ?gpu.Texture.Format, encode_srgb: bool) gpu.Pipeline.Desc {
+    const fs_entry: []const u8 = if (encode_srgb) "fs_main_srgb_encode" else "fs_main";
 
     const shader: gpu.Pipeline.ShaderSource = switch (backend) {
         .wgpu => .{ .wgsl = shaders.slug_wgsl },
@@ -125,11 +146,11 @@ pub fn slugDesc(backend: GPUBackend, srgb_surface: bool) gpu.Pipeline.Desc {
         .fs_entry = fs_entry,
         .vertex_buffers = &slug_buffers,
         .bind_group_layouts = &slug_bgls,
-        .color_target = .{ .format = null, .blend = standard_blend },
+        .color_target = .{ .format = target_format, .blend = premultiplied_blend },
     };
 }
 
-pub fn computeSlugUniforms(width: f32, height: f32, y_down_clip: bool) SlugUniforms {
+pub fn computeSlugUniforms(width: f32, height: f32, physical_width: f32, physical_height: f32, y_down_clip: bool) SlugUniforms {
     // y_down_clip = Vulkan (clip y goes down). wgpu has y-up, so flip y.
     const y_sign: f32 = if (y_down_clip) 1.0 else -1.0;
     const y_offset: f32 = if (y_down_clip) -1.0 else 1.0;
@@ -138,6 +159,6 @@ pub fn computeSlugUniforms(width: f32, height: f32, y_down_clip: bool) SlugUnifo
         .mvp_row1 = .{ 0, y_sign * 2.0 / height, 0, y_offset },
         .mvp_row2 = .{ 0, 0, 1, 0 },
         .mvp_row3 = .{ 0, 0, 0, 1 },
-        .viewport = .{ width, height, 0, 0 },
+        .viewport = .{ width, height, physical_width, physical_height },
     };
 }

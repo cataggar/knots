@@ -56,7 +56,7 @@ fn frameCb(app: *knots.App) !void {
             .padding = .init(16, 16, 16, 16),
             .dir = .column,
             .key = .src(@src()),
-            .style = .{ .color = .bg },
+            .style = .{ .color = .bg, .corner_radius = .none },
         },
         .{
             renderHeader,

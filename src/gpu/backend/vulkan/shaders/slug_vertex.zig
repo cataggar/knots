@@ -81,7 +81,7 @@ export fn main() callconv(.spirv_vertex) void {
         m0,
         m1,
         m3,
-        .{ vp[0], vp[1] },
+        .{ vp[2], vp[3] },
     );
     const px = dilated[0];
     const py = dilated[1];

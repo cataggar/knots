@@ -69,6 +69,9 @@ ctx: gpu.Context,
 pipeline: gpu.Pipeline,
 instance_pipeline: gpu.Pipeline,
 text_pipeline: gpu.Pipeline,
+linear_pipeline: ?gpu.Pipeline = null,
+linear_instance_pipeline: ?gpu.Pipeline = null,
+linear_text_pipeline: ?gpu.Pipeline = null,
 
 vertex_uniform_buf: gpu.Buffer,
 instance_uniform_buf: gpu.Buffer,
@@ -84,10 +87,16 @@ vertex_buf: gpu.Buffer,
 index_buf: gpu.Buffer,
 instance_buf: gpu.Buffer,
 unit_index_buf: gpu.Buffer,
+composite_instance_buf: gpu.Buffer,
 text_vertex_buf: gpu.Buffer,
 text_index_buf: gpu.Buffer,
 atlas_texture: gpu.Texture,
 atlas_sampler: gpu.Sampler,
+linear_target: ?gpu.Texture = null,
+linear_target_bg: ?gpu.BindGroup = null,
+linear_sampler: ?gpu.Sampler = null,
+linear_target_width: u32 = 0,
+linear_target_height: u32 = 0,
 curve_texture: gpu.Texture,
 band_texture: gpu.Texture,
 curve_tex_height: u32,
@@ -95,6 +104,8 @@ band_tex_height: u32,
 frame: gpu.Frame,
 cached_vp_width: u32 = 0,
 cached_vp_height: u32 = 0,
+cached_phys_width: u32 = 0,
+cached_phys_height: u32 = 0,
 texture_slots: std.ArrayList(TextureSlot),
 free_slot_indices: std.ArrayList(u32),
 draw_list: DrawList,
@@ -124,6 +135,25 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
 
     const text_pipeline = try ctx.createPipeline(pipelines.slugDesc(cfg.gpu_backend, srgb_surface));
     errdefer text_pipeline.deinit();
+
+    const use_linear_target = cfg.gpu_backend == .wgpu and !srgb_surface;
+    const linear_pipeline: ?gpu.Pipeline = if (use_linear_target)
+        try ctx.createPipeline(pipelines.linearTargetPrimitivesDesc(cfg.gpu_backend, .vertex))
+    else
+        null;
+    errdefer if (linear_pipeline) |p| p.deinit();
+
+    const linear_instance_pipeline: ?gpu.Pipeline = if (use_linear_target)
+        try ctx.createPipeline(pipelines.linearTargetPrimitivesDesc(cfg.gpu_backend, .instance))
+    else
+        null;
+    errdefer if (linear_instance_pipeline) |p| p.deinit();
+
+    const linear_text_pipeline: ?gpu.Pipeline = if (use_linear_target)
+        try ctx.createPipeline(pipelines.linearTargetSlugDesc(cfg.gpu_backend))
+    else
+        null;
+    errdefer if (linear_text_pipeline) |p| p.deinit();
 
     const vertex_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
     errdefer vertex_uniform_buf.deinit();
@@ -162,6 +192,9 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
     const instance_buf = try ctx.createBuffer(INIT_INSTANCE_BYTES, .{ .vertex = true, .copy_dst = true });
     errdefer instance_buf.deinit();
 
+    const composite_instance_buf = try ctx.createBuffer(@sizeOf(gpu.Instance), .{ .vertex = true, .copy_dst = true });
+    errdefer composite_instance_buf.deinit();
+
     const text_vertex_buf = try ctx.createBuffer(INIT_TEXT_VERTEX_BYTES, .{ .vertex = true, .copy_dst = true });
     errdefer text_vertex_buf.deinit();
 
@@ -178,6 +211,12 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .min_filter = .nearest,
     });
     errdefer atlas_sampler.deinit();
+
+    const linear_sampler: ?gpu.Sampler = if (use_linear_target)
+        try ctx.createSampler(.{ .mag_filter = .nearest, .min_filter = .nearest })
+    else
+        null;
+    errdefer if (linear_sampler) |s| s.deinit();
 
     const dummy_pixel = [_]u8{0};
     try atlas_texture.write(&dummy_pixel, 1, 0, 0, 1, 1, null);
@@ -239,6 +278,9 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .pipeline = pipeline,
         .instance_pipeline = instance_pipeline,
         .text_pipeline = text_pipeline,
+        .linear_pipeline = linear_pipeline,
+        .linear_instance_pipeline = linear_instance_pipeline,
+        .linear_text_pipeline = linear_text_pipeline,
         .vertex_uniform_buf = vertex_uniform_buf,
         .instance_uniform_buf = instance_uniform_buf,
         .text_uniform_buf = text_uniform_buf,
@@ -250,11 +292,13 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .vertex_buf = vertex_buf,
         .index_buf = index_buf,
         .instance_buf = instance_buf,
+        .composite_instance_buf = composite_instance_buf,
         .unit_index_buf = unit_index_buf,
         .text_vertex_buf = text_vertex_buf,
         .text_index_buf = text_index_buf,
         .atlas_texture = atlas_texture,
         .atlas_sampler = atlas_sampler,
+        .linear_sampler = linear_sampler,
         .curve_texture = curve_texture,
         .band_texture = band_texture,
         .curve_tex_height = INITIAL_TEX_HEIGHT,
@@ -291,9 +335,16 @@ pub fn deinit(self: *Renderer) void {
     self.pipeline.deinit();
     self.instance_pipeline.deinit();
     self.text_pipeline.deinit();
+    if (self.linear_pipeline) |p| p.deinit();
+    if (self.linear_instance_pipeline) |p| p.deinit();
+    if (self.linear_text_pipeline) |p| p.deinit();
+    if (self.linear_target_bg) |bg| bg.deinit();
+    if (self.linear_target) |t| t.deinit();
+    if (self.linear_sampler) |s| s.deinit();
     self.vertex_buf.deinit();
     self.index_buf.deinit();
     self.instance_buf.deinit();
+    self.composite_instance_buf.deinit();
     self.unit_index_buf.deinit();
     self.text_vertex_buf.deinit();
     self.text_index_buf.deinit();
@@ -429,8 +480,13 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
 
     self.updateViewport(content_scale);
     const sizes = try self.uploadFrameData(dl);
+    const use_linear_target = self.linear_pipeline != null;
+    if (use_linear_target) try self.ensureLinearTarget();
 
-    var pass = try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+    var pass = if (use_linear_target)
+        try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color, .target = &self.linear_target.? } })
+    else
+        try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
 
     const phys_w = self.ctx.cfg.window_width;
     const phys_h = self.ctx.cfg.window_height;
@@ -443,7 +499,7 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
         const r = dl.layer_ranges[z];
         for (dl.layer_cmds.items[r.start .. r.start + r.len]) |cmd| {
             if (current_kind != cmd.kind) {
-                self.bindKind(&pass, cmd.kind, sizes);
+                self.bindKind(&pass, cmd.kind, sizes, use_linear_target);
                 current_texture = null;
                 current_kind = cmd.kind;
             }
@@ -460,13 +516,20 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
         }
     }
     pass.end();
+
+    if (use_linear_target) try self.compositeLinearTarget(content_scale);
     try self.frame.submit();
 }
 
 fn updateViewport(self: *Renderer, content_scale: f32) void {
     const logical_w: u32 = @max(1, @as(u32, @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_width)) / content_scale)));
     const logical_h: u32 = @max(1, @as(u32, @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_height)) / content_scale)));
-    if (logical_w == self.cached_vp_width and logical_h == self.cached_vp_height) return;
+    const phys_w_u = self.ctx.cfg.window_width;
+    const phys_h_u = self.ctx.cfg.window_height;
+    if (logical_w == self.cached_vp_width and
+        logical_h == self.cached_vp_height and
+        phys_w_u == self.cached_phys_width and
+        phys_h_u == self.cached_phys_height) return;
 
     const w_f: f32 = @floatFromInt(logical_w);
     const h_f: f32 = @floatFromInt(logical_h);
@@ -474,11 +537,15 @@ fn updateViewport(self: *Renderer, content_scale: f32) void {
     self.vertex_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
     self.instance_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
 
-    const u = pipelines.computeSlugUniforms(w_f, h_f, self.ctx.clipSpaceYDown());
+    const phys_w: f32 = @floatFromInt(phys_w_u);
+    const phys_h: f32 = @floatFromInt(phys_h_u);
+    const u = pipelines.computeSlugUniforms(w_f, h_f, phys_w, phys_h, self.ctx.clipSpaceYDown());
     self.text_uniform_buf.load(pipelines.SlugUniforms, &.{u});
 
     self.cached_vp_width = logical_w;
     self.cached_vp_height = logical_h;
+    self.cached_phys_width = phys_w_u;
+    self.cached_phys_height = phys_h_u;
 }
 
 fn uploadFrameData(self: *Renderer, dl: *const DrawList) !FrameSizes {
@@ -499,24 +566,27 @@ fn uploadFrameData(self: *Renderer, dl: *const DrawList) !FrameSizes {
     };
 }
 
-fn bindKind(self: *Renderer, pass: *gpu.RenderPass, kind: DrawList.CommandKind, sizes: FrameSizes) void {
+fn bindKind(self: *Renderer, pass: *gpu.RenderPass, kind: DrawList.CommandKind, sizes: FrameSizes, linear_target: bool) void {
     switch (kind) {
         .vertex => {
-            pass.bindPipeline(&self.pipeline);
+            const pipeline = if (linear_target) &self.linear_pipeline.? else &self.pipeline;
+            pass.bindPipeline(pipeline);
             pass.setBindGroup(0, &self.vertex_uniform_bg);
             pass.setBindGroup(1, &self.atlas_texture_bg);
             pass.setVertexBuffer(0, &self.vertex_buf, 0, sizes.verts_bytes);
             pass.setIndexBuffer(&self.index_buf, 0, sizes.indices_bytes);
         },
         .instance => {
-            pass.bindPipeline(&self.instance_pipeline);
+            const pipeline = if (linear_target) &self.linear_instance_pipeline.? else &self.instance_pipeline;
+            pass.bindPipeline(pipeline);
             pass.setBindGroup(0, &self.instance_uniform_bg);
             pass.setBindGroup(1, &self.atlas_texture_bg);
             pass.setVertexBuffer(0, &self.instance_buf, 0, sizes.insts_bytes);
             pass.setIndexBuffer(&self.unit_index_buf, 0, 6 * @sizeOf(u32));
         },
         .text => {
-            pass.bindPipeline(&self.text_pipeline);
+            const pipeline = if (linear_target) &self.linear_text_pipeline.? else &self.text_pipeline;
+            pass.bindPipeline(pipeline);
             pass.setBindGroup(0, &self.text_uniform_bg);
             pass.setBindGroup(1, &self.text_curveband_bg);
             pass.setVertexBuffer(0, &self.text_vertex_buf, 0, sizes.tverts_bytes);
@@ -542,6 +612,65 @@ fn bindTextureForCommand(self: *Renderer, pass: *gpu.RenderPass, texture: ?u32) 
     } else {
         pass.setBindGroup(1, &self.atlas_texture_bg);
     }
+}
+
+fn ensureLinearTarget(self: *Renderer) !void {
+    const w = self.ctx.cfg.window_width;
+    const h = self.ctx.cfg.window_height;
+    if (self.linear_target != null and self.linear_target_width == w and self.linear_target_height == h) return;
+
+    try self.frame.waitForCompletion();
+    if (self.linear_target_bg) |bg| bg.deinit();
+    self.linear_target_bg = null;
+    if (self.linear_target) |t| t.deinit();
+    self.linear_target = null;
+
+    self.linear_target = try self.ctx.createTexture(.{
+        .width = w,
+        .height = h,
+        .format = .rgba8,
+        .usage = .{ .texture_binding = true, .render_attachment = true },
+        .label = "linear_ui_target",
+    });
+    self.linear_target_width = w;
+    self.linear_target_height = h;
+
+    self.linear_target_bg = try self.ctx.createBindGroup(.{
+        .label = "linear_ui_target_bg",
+        .pipeline = &self.instance_pipeline,
+        .layout_index = 1,
+        .entries = &.{
+            .{ .binding = 0, .resource = .{ .texture_view = &self.linear_target.? } },
+            .{ .binding = 1, .resource = .{ .sampler = &self.linear_sampler.? } },
+        },
+    });
+}
+
+fn compositeLinearTarget(self: *Renderer, content_scale: f32) !void {
+    const logical_w: f32 = @as(f32, @floatFromInt(self.ctx.cfg.window_width)) / content_scale;
+    const logical_h: f32 = @as(f32, @floatFromInt(self.ctx.cfg.window_height)) / content_scale;
+    const inst = gpu.Instance{
+        .pos = .{ 0, 0 },
+        .size = .{ logical_w, logical_h },
+        .uv0 = .{ 0, 0 },
+        .uv1 = .{ 1, 1 },
+        .color = .{ 1, 1, 1, 1 },
+        .border_color = .{ 0, 0, 0, 0 },
+        .corner_radius = 0,
+        .border_width = 0,
+        .prim_type = 2.0,
+    };
+    self.composite_instance_buf.load(gpu.Instance, &.{inst});
+
+    var pass = try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+    pass.bindPipeline(&self.instance_pipeline);
+    pass.setBindGroup(0, &self.instance_uniform_bg);
+    pass.setBindGroup(1, &self.linear_target_bg.?);
+    pass.setVertexBuffer(0, &self.composite_instance_buf, 0, @sizeOf(gpu.Instance));
+    pass.setIndexBuffer(&self.unit_index_buf, 0, 6 * @sizeOf(u32));
+    pass.setScissorRect(0, 0, self.ctx.cfg.window_width, self.ctx.cfg.window_height);
+    pass.drawIndexed(6, 1, 0, 0, 0);
+    pass.end();
 }
 
 fn getOrCreateTextureBg(self: *Renderer, slot: *TextureSlot) !gpu.BindGroup {

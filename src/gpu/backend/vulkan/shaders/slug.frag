@@ -166,7 +166,8 @@ vec3 linear_to_srgb(vec3 c) {
 
 void main() {
     float coverage = slug_render(in_texcoord, in_banding, in_glyph);
-    vec4 col = vec4(in_color.rgb, in_color.a * coverage);
+    float alpha = in_color.a * coverage;
+    vec4 col = vec4(in_color.rgb * alpha, alpha);
     if (apply_srgb_encode) {
         frag_color = vec4(linear_to_srgb(col.rgb), col.a);
     } else {
