@@ -85,6 +85,7 @@ pub fn route(ui: *UI) !void {
 
     for (ui.layout_ctx.scroll_slots.items) |slot| {
         const el = &elements[slot];
+        _ = ui.state.clampScroll(el.id, el);
         const offset = ui.state.getScroll(el.id);
         const geom = compute(el, .{ offset[0], offset[1] }, &ui.theme) orelse continue;
 

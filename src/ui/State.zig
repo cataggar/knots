@@ -255,12 +255,33 @@ pub fn getScroll(self: *State, id: Element.Id) [2]f32 {
     return .{ s.offset[0], s.offset[1] };
 }
 
-pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: math.Vec2) !void {
+fn maxScrollOffset(el: *const Element) math.Vec2 {
     const content: math.Vec2 = .{ el.content_w, el.content_h };
     const box: math.Vec2 = .{ el.box.w(), el.box.h() };
     const max_off = @max(math.splat(math.Vec2, 0), content - box);
+    return switch (el.overflow) {
+        .scroll_x => .{ max_off[0], 0 },
+        .scroll_y => .{ 0, max_off[1] },
+        else => .{ 0, 0 },
+    };
+}
+
+pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: math.Vec2) !void {
     const s = try self.storage.getOrCreate(.scroll, self.allocator, id, self.frame);
-    s.offset = std.math.clamp(s.offset + delta, math.splat(math.Vec2, 0), max_off);
+    s.offset = std.math.clamp(s.offset + delta, math.splat(math.Vec2, 0), maxScrollOffset(el));
+}
+
+pub fn clampScroll(self: *State, id: Element.Id, el: *const Element) bool {
+    const s = self.storage.get(.scroll, id) orelse return false;
+    const max_off = maxScrollOffset(el);
+    const next = std.math.clamp(s.offset, math.splat(math.Vec2, 0), max_off);
+    const changed = next[0] != s.offset[0] or next[1] != s.offset[1];
+    s.offset = next;
+
+    if ((s.drag_axis == .x and max_off[0] <= 0) or (s.drag_axis == .y and max_off[1] <= 0))
+        s.drag_axis = .none;
+
+    return changed;
 }
 
 const testing = std.testing;

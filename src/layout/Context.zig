@@ -28,6 +28,7 @@ const AxisInfo = struct {
     pad_main_start: f32,
     pad_main_end: f32,
     pad_cross_start: f32,
+    pad_cross_end: f32,
 
     fn init(el: *const Element) AxisInfo {
         if (el.direction == .row) {
@@ -38,6 +39,7 @@ const AxisInfo = struct {
                 .pad_main_start = el.padding.left(),
                 .pad_main_end = el.padding.right(),
                 .pad_cross_start = el.padding.top(),
+                .pad_cross_end = el.padding.bottom(),
             };
         } else {
             return .{
@@ -47,6 +49,7 @@ const AxisInfo = struct {
                 .pad_main_start = el.padding.top(),
                 .pad_main_end = el.padding.bottom(),
                 .pad_cross_start = el.padding.left(),
+                .pad_cross_end = el.padding.right(),
             };
         }
     }
@@ -609,11 +612,17 @@ fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, initial_fr
 
 fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f32, justify_free: f32, scroll: ScrollLookup) LayoutError!void {
     var static_count: u32 = 0;
+    var children_main: f32 = 0;
+    var children_cross: f32 = 0;
     {
         var cs = el.first_child;
         while (cs != Element.INVALID_SLOT) {
             const c = self.pool.get(cs);
-            if (c.position != .absolute) static_count += 1;
+            if (c.position != .absolute) {
+                static_count += 1;
+                children_main += axis.childMainSize(c);
+                children_cross = @max(children_cross, axis.childCrossSize(c));
+            }
             cs = c.next_sibling;
         }
     }
@@ -636,11 +645,18 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
             el.gap,
     };
 
+    const content_main = children_main + gapTotal(el, static_count) + axis.pad_main_start + axis.pad_main_end;
+    const content_cross = children_cross + axis.pad_cross_start + axis.pad_cross_end;
+    const max_main_scroll = @max(0, content_main - axis.main_size);
+    const max_cross_scroll = @max(0, children_cross - axis.cross_size);
+    const max_scroll_x = if (axis.is_row) max_main_scroll else max_cross_scroll;
+    const max_scroll_y = if (axis.is_row) max_cross_scroll else max_main_scroll;
+
     const scroll_offset: [2]f32 = if (el.overflow.isScroll()) blk: {
         const raw = scroll.get(el.id);
         break :blk switch (el.overflow) {
-            .scroll_x => .{ raw[0], 0 },
-            .scroll_y => .{ 0, raw[1] },
+            .scroll_x => .{ std.math.clamp(raw[0], 0, max_scroll_x), 0 },
+            .scroll_y => .{ 0, std.math.clamp(raw[1], 0, max_scroll_y) },
             else => unreachable,
         };
     } else .{ 0, 0 };
@@ -688,9 +704,12 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
     }
 
     if (el.overflow.isScroll()) {
-        if (axis.is_row)
-            el.content_w = cursor - el.gap + axis.pad_main_end
-        else
-            el.content_h = cursor - el.gap + axis.pad_main_end;
+        if (axis.is_row) {
+            el.content_w = content_main;
+            el.content_h = content_cross;
+        } else {
+            el.content_w = content_cross;
+            el.content_h = content_main;
+        }
     }
 }
