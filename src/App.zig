@@ -141,21 +141,17 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
     try self.ui.endFrame();
 
     if (self.ui.anim_active) try self.signal(.redraw);
-
-    while (self.signals.pop()) |s| switch (s) {
-        .redraw => self.window.requestFrame(),
-        .exit => {
-            @branchHint(.cold);
-            self.window.close();
-            return;
-        },
-    };
+    if (self.drainSignals()) return;
 
     try self.ui.resolve();
     const draw_list = self.renderer.beginFrame();
     try self.ui.tessellate(self.frame_arena.allocator(), draw_list);
-    self.ui.resolveHit();
+    const hover_changed = self.ui.resolveHit();
     try self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale);
+
+    if (hover_changed) try self.signal(.redraw);
+    if (self.ui.anim_active) try self.signal(.redraw);
+    if (self.drainSignals()) return;
 }
 
 fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
@@ -185,6 +181,18 @@ fn takeFrameEventError(self: *App) !void {
         self.frame_event_error = null;
         return err;
     }
+}
+
+fn drainSignals(self: *App) bool {
+    while (self.signals.pop()) |s| switch (s) {
+        .redraw => self.window.requestFrame(),
+        .exit => {
+            @branchHint(.cold);
+            self.window.close();
+            return true;
+        },
+    };
+    return false;
 }
 
 fn requestFrameHook(ctx: *anyopaque) void {

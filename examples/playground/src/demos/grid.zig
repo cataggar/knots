@@ -35,7 +35,7 @@ fn body(app: *knots.App) !void {
                 .grid_placement = .{ .row = 0, .col = 0, .col_span = 3 },
                 .key = .src(@src()),
             },
-            .{Text{ .content = "Cluster overview", .key = .src(@src()) }},
+            .{Text{ .content = "Cluster overview", .key = .src(@src()), .color = .on_primary }},
 
             Rect{
                 .style = .{ .color = .elevated, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
@@ -62,8 +62,8 @@ fn body(app: *knots.App) !void {
                 .key = .src(@src()),
             },
             .{
-                Text{ .content = "uptime", .size = .xs, .key = .src(@src()) },
-                Text{ .content = "99.98%", .size = .xl, .key = .src(@src()) },
+                Text{ .content = "uptime", .size = .xs, .key = .src(@src()), .color = .on_success },
+                Text{ .content = "99.98%", .size = .xl, .key = .src(@src()), .color = .on_success },
             },
 
             Rect{
@@ -75,8 +75,8 @@ fn body(app: *knots.App) !void {
                 .key = .src(@src()),
             },
             .{
-                Text{ .content = "latency p99", .size = .xs, .key = .src(@src()) },
-                Text{ .content = "42 ms", .size = .xl, .key = .src(@src()) },
+                Text{ .content = "latency p99", .size = .xs, .key = .src(@src()), .color = .on_info },
+                Text{ .content = "42 ms", .size = .xl, .key = .src(@src()), .color = .on_info },
             },
 
             Rect{

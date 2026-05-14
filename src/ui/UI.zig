@@ -206,6 +206,7 @@ pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32,
     }
 
     if (s.target != target) {
+        s.current = sampleAnim(s, now).value;
         s.start_value = s.current;
         s.target = target;
         s.t0_ms = now;
@@ -218,12 +219,26 @@ pub fn anim(self: *UI, element_id: Element.Id, channel: []const u8, target: f32,
         return s.current;
     }
 
-    const elapsed: i64 = now - s.t0_ms;
+    const sample = sampleAnim(s, now);
+    s.current = sample.value;
+    if (sample.t < 1.0) self.anim_active = true;
+    return s.current;
+}
+
+const AnimSample = struct {
+    value: f32,
+    t: f32,
+};
+
+fn sampleAnim(s: *const State.Anim, now_ms: i64) AnimSample {
+    if (s.duration_ms == 0) return .{ .value = s.target, .t = 1.0 };
+    const elapsed: i64 = now_ms - s.t0_ms;
     const raw_t: f32 = @as(f32, @floatFromInt(elapsed)) / @as(f32, @floatFromInt(s.duration_ms));
     const t = std.math.clamp(raw_t, 0.0, 1.0);
-    s.current = math.lerp(s.start_value, s.target, s.ease.eval(t));
-    if (t < 1.0) self.anim_active = true;
-    return s.current;
+    return .{
+        .value = math.lerp(s.start_value, s.target, s.ease.eval(t)),
+        .t = t,
+    };
 }
 
 pub fn resolve(self: *UI) !void {
@@ -382,7 +397,7 @@ pub fn appendHit(self: *UI, id: Element.Id, bounds: math.Rect, clip: ?math.Rect,
     self.hit_counter += 1;
 }
 
-pub fn resolveHit(self: *UI) void {
+pub fn resolveHit(self: *UI) bool {
     const p: math.Vec2 = .{ @floatCast(self.input.mouse_pos[0]), @floatCast(self.input.mouse_pos[1]) };
 
     var best_id: Element.Id = Element.INVALID_ID;
@@ -403,7 +418,9 @@ pub fn resolveHit(self: *UI) void {
         }
     }
 
+    const changed = self.state.hovered != best_id;
     self.state.hovered = best_id;
+    return changed;
 }
 
 pub fn tessellate(self: *UI, allocator: Allocator, draw_list: *DrawList) !void {
@@ -892,6 +909,45 @@ test "anim snapshots start_value mid-interruption" {
     const reversing = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
     try std.testing.expect(reversing < midway);
     try std.testing.expect(reversing > 0.0);
+}
+
+test "anim retarget samples elapsed progress before interruption" {
+    const allocator = std.testing.allocator;
+    var ui = try UI.init(allocator, .{});
+    defer ui.deinit();
+
+    ui.input.now_ms = 0;
+    _ = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
+
+    ui.input.now_ms = 0;
+    _ = ui.anim(1, "hover", 1.0, .{ .duration_ms = 200 });
+
+    ui.input.now_ms = 100;
+    const reversed_start = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
+    try std.testing.expectApproxEqAbs(reversed_start, 0.5, 1e-6);
+
+    ui.input.now_ms = 150;
+    const reversing = ui.anim(1, "hover", 0.0, .{ .duration_ms = 200 });
+    try std.testing.expect(reversing < reversed_start);
+    try std.testing.expect(reversing > 0.0);
+}
+
+test "resolveHit reports hover changes" {
+    const allocator = std.testing.allocator;
+    var ui = try UI.init(allocator, .{});
+    defer ui.deinit();
+
+    try ui.appendHit(42, math.Rect.init(0, 0, 100, 100), null, 0);
+
+    ui.input.mouse_pos = .{ 10, 10 };
+    try std.testing.expect(ui.resolveHit());
+    try std.testing.expectEqual(@as(Element.Id, 42), ui.state.hovered);
+
+    try std.testing.expect(!ui.resolveHit());
+
+    ui.input.mouse_pos = .{ 200, 200 };
+    try std.testing.expect(ui.resolveHit());
+    try std.testing.expectEqual(Element.INVALID_ID, ui.state.hovered);
 }
 
 test "anim settles and clears dirty flag" {

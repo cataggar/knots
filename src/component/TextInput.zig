@@ -25,8 +25,10 @@ buf: *std.ArrayList(u8),
 placeholder: []const u8 = "",
 color: Color.Input = .text,
 placeholder_color: Color.Input = .dimmed,
-style: Style = .{ .color = .muted },
+style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = 1 },
+hover_style: ?Style.Override = .{ .border_color = .dimmed },
 focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
+padding: Element.Padding = .init(6, 10, 6, 10),
 wrap: bool = false,
 key: Key,
 
@@ -42,10 +44,16 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
         try processInputEarly(self, ui, s);
     }
 
-    const current_style = if (is_focused) self.focused_style else self.style;
+    const is_hovered = ui.hovering(id);
+    const current_style = if (is_focused)
+        self.focused_style
+    else if (is_hovered)
+        if (self.hover_style) |hs| self.style.merge(hs) else self.style
+    else
+        self.style;
 
     var height = self.height;
-    height.min = try ui.lineHeight(self.size.resolve(), null);
+    height.min = try ui.lineHeight(self.size.resolve(), null) + self.padding.top() + self.padding.bottom();
 
     const decoration: Decoration = if (current_style.hasDecoration())
         .{ .rect = current_style.toRect(&ui.theme) }
@@ -58,7 +66,7 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
         .overflow = overflow,
         .interactive = true,
         .alignment = .center,
-        .padding = .init(0, 0, 0, 6),
+        .padding = self.padding,
     }, decoration);
 }
 
@@ -82,7 +90,8 @@ pub fn close(self: *const TextInput, app: *App) !void {
         const face = try ui.font.getFace(null);
         const wrap_px: f32 = if (self.wrap) blk: {
             const m = try ui.state.getOrCreate(.measured, ui.allocator, id);
-            break :blk @max(0, m.width * scale);
+            const content_w = m.width - self.padding.left() - self.padding.right();
+            break :blk @max(0, content_w * scale);
         } else 0;
         const shaped = try face.shapeWrapped(items, size.value * scale, wrap_px);
         const line_h = shaped.line_height / scale;

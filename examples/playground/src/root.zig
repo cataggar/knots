@@ -7,6 +7,7 @@ const Text = knots.component.Text;
 const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 const Canvas = knots.component.Canvas;
+const Color = knots.ui.Color;
 
 io: std.Io,
 allocator: std.mem.Allocator,
@@ -140,6 +141,8 @@ fn renderNav(app: *knots.App) !void {
 
 fn navRows(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
+    var inactive_bg = app.ui.theme.muted.value;
+    inactive_bg[3] = 0;
 
     inline for (demos.all, 0..) |d, i| {
         const handler = struct {
@@ -159,7 +162,7 @@ fn navRows(app: *knots.App) !void {
             .@"align" = .center,
             .justify = .start,
             .style = .{
-                .color = if (is_active) .primary else .{ .color = .rgba(0, 0, 0, 0) },
+                .color = if (is_active) .primary else .{ .color = Color{ .value = inactive_bg } },
                 .corner_radius = .sm,
             },
             .hover_style = if (!is_active) .{ .color = .muted } else null,

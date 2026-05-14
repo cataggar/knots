@@ -39,10 +39,11 @@ pub fn SelectInput(comptime T: type) type {
         font: ?[]const u8 = null,
         color: Color.Input = .text,
         placeholder_color: Color.Input = .dimmed,
-        style: Style = .{ .color = .toned },
-        focused_style: Style = .{ .color = .muted, .border_color = .primary, .border_width = 1 },
-        option_style: Style = .{ .color = .muted },
-        option_hover_color: Color.Input = .toned,
+        style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = 1 },
+        hover_style: ?Style.Override = .{ .border_color = .dimmed },
+        focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
+        option_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = 1 },
+        option_hover_color: Color.Input = .muted,
         onSelect: ?*const fn (*App, T, u32) anyerror!void = null,
 
         const Self = @This();
@@ -78,10 +79,16 @@ pub fn SelectInput(comptime T: type) type {
                 if (ui.state.hovered != id and !ui.isHoveredWithin(popup_id)) s.open = false;
             }
 
-            const current_style = if (s.open) self.focused_style else self.style;
+            const is_hovered = ui.hovering(id);
+            const current_style = if (s.open)
+                self.focused_style
+            else if (is_hovered)
+                if (self.hover_style) |hs| self.style.merge(hs) else self.style
+            else
+                self.style;
 
             var h = self.height;
-            h.min = try ui.lineHeight(self.size.resolve(), self.font);
+            h.min = try ui.lineHeight(self.size.resolve(), self.font) + 12;
 
             const decoration: Decoration = if (current_style.hasDecoration())
                 .{ .rect = current_style.toRect(&ui.theme) }
@@ -94,7 +101,7 @@ pub fn SelectInput(comptime T: type) type {
                 .direction = .row,
                 .alignment = .center,
                 .justify = .space_between,
-                .padding = .init(4, 8, 4, 8),
+                .padding = .init(6, 10, 6, 10),
                 .interactive = true,
             }, decoration);
         }
@@ -192,14 +199,17 @@ pub fn SelectInput(comptime T: type) type {
                     const is_selected = if (s.selected) |sel| sel == i else false;
 
                     const opt_bg: Decoration = if (is_hovered or is_selected)
-                        .{ .rect = .{ .color = self.option_hover_color.resolve(&ui.theme) } }
+                        .{ .rect = .{
+                            .color = self.option_hover_color.resolve(&ui.theme),
+                            .corner_radius = ui.theme.radius * 0.5,
+                        } }
                     else
                         .none;
 
                     {
                         _ = try ui.open(opt_key, .{
                             .width = .grow(),
-                            .padding = .init(6, 8, 6, 8),
+                            .padding = .init(7, 10, 7, 10),
                             .interactive = true,
                         }, opt_bg);
 
