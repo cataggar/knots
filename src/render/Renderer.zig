@@ -485,11 +485,11 @@ fn uploadFrameData(self: *Renderer, dl: *const DrawList) !FrameSizes {
     const verts = dl.vertices.items;
     const insts = dl.instances.items;
     const tverts = dl.text_vertices.items;
-    try ensureAndLoad(&self.vertex_buf, gpu.Vertex, verts);
-    try ensureAndLoad(&self.instance_buf, gpu.Instance, insts);
-    try ensureAndLoad(&self.index_buf, u32, dl.indices.items);
-    try ensureAndLoad(&self.text_vertex_buf, gpu.SlugVertex, tverts);
-    try ensureAndLoad(&self.text_index_buf, u32, dl.text_indices.items);
+    try self.ensureAndLoad(&self.vertex_buf, gpu.Vertex, verts);
+    try self.ensureAndLoad(&self.instance_buf, gpu.Instance, insts);
+    try self.ensureAndLoad(&self.index_buf, u32, dl.indices.items);
+    try self.ensureAndLoad(&self.text_vertex_buf, gpu.SlugVertex, tverts);
+    try self.ensureAndLoad(&self.text_index_buf, u32, dl.text_indices.items);
     return .{
         .verts_bytes = verts.len * @sizeOf(gpu.Vertex),
         .insts_bytes = insts.len * @sizeOf(gpu.Instance),
@@ -692,15 +692,16 @@ fn sanitizeClip(c: ?[4]f32) ?[4]f32 {
     return v;
 }
 
-fn ensureBufferCapacity(buf: *gpu.Buffer, required: usize) !void {
+fn ensureBufferCapacity(self: *Renderer, buf: *gpu.Buffer, required: usize) !void {
     const current_size = buf.getSize();
     if (required <= current_size) return;
     const new_size = @max(required, current_size + current_size / 2);
+    try self.frame.waitForCompletion();
     try buf.resize(new_size);
 }
 
-fn ensureAndLoad(buf: *gpu.Buffer, comptime T: type, items: []const T) !void {
+fn ensureAndLoad(self: *Renderer, buf: *gpu.Buffer, comptime T: type, items: []const T) !void {
     if (items.len == 0) return;
-    try ensureBufferCapacity(buf, items.len * @sizeOf(T));
+    try self.ensureBufferCapacity(buf, items.len * @sizeOf(T));
     buf.load(T, items);
 }

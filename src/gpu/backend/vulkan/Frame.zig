@@ -169,6 +169,7 @@ fn submit(ptr: *anyopaque) !void {
 fn waitForCompletion(ptr: *anyopaque) !void {
     const self: *Frame = @ptrCast(@alignCast(ptr));
     const ctx = self.ctx;
-    const f = &self.frames[self.current];
-    _ = try ctx.vkd.waitForFences(ctx.device, &.{f.in_flight}, .true, std.math.maxInt(u64));
+    for (self.frames) |f| {
+        _ = try ctx.vkd.waitForFences(ctx.device, &.{f.in_flight}, .true, std.math.maxInt(u64));
+    }
 }
