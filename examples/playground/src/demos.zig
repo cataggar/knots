@@ -17,6 +17,7 @@ pub const Demo = struct {
         form_role: u32 = 0,
         form_notifications_enabled: bool = true,
         form_volume: f32 = 0.7,
+        form_color: knots.ui.Color = knots.ui.Color.hex("#4F8CFFFF") catch unreachable,
         canvas_effect: u32 = 0,
         canvas_cmds: std.ArrayList(knots.component.Canvas.DrawCmd) = .empty,
         pending_async: usize = 0,

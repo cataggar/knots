@@ -58,9 +58,13 @@ const Color = @This();
 
 pub const transparent: Color = .{ .value = .{ 0, 0, 0, 0 } };
 
-fn srgbToLinear(c: f32) f32 {
+pub fn srgbToLinear(c: f32) f32 {
     @setEvalBranchQuota(10_000);
     return if (c <= 0.04045) c / 12.92 else std.math.pow(f32, (c + 0.055) / 1.055, 2.4);
+}
+
+pub fn linearToSrgb(c: f32) f32 {
+    return if (c <= 0.0031308) c * 12.92 else 1.055 * std.math.pow(f32, c, 1.0 / 2.4) - 0.055;
 }
 
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) Color {
@@ -76,6 +80,8 @@ pub fn isTransparent(self: Color) bool {
     return self.value[3] == 0;
 }
 
+const ParseHexError = error{ InvalidCharacter, InvalidLength };
+
 /// Parses a comptime RGBA hex string into a [4]f32 array.
 /// Supported formats:
 ///   "#RRGGBB"   — opaque (alpha = 1.0)
@@ -83,58 +89,58 @@ pub fn isTransparent(self: Color) bool {
 ///   "#RGB"      — shorthand, each nibble doubled
 ///   "#RGBA"     — shorthand with alpha
 /// Values are normalized to [0.0, 1.0].
-pub fn hex(comptime str: []const u8) Color {
+pub fn hex(str: []const u8) ParseHexError!Color {
     const s = if (str[0] == '#') str[1..] else str;
 
     const parseNibble = struct {
-        fn f(comptime c: u8) u8 {
+        fn f(c: u8) ParseHexError!u8 {
             return switch (c) {
                 '0'...'9' => c - '0',
                 'a'...'f' => c - 'a' + 10,
                 'A'...'F' => c - 'A' + 10,
-                else => @compileError("invalid hex character: " ++ [_]u8{c}),
+                else => return ParseHexError.InvalidCharacter,
             };
         }
     }.f;
 
     const parseByteSrgb = struct {
-        fn f(comptime hi: u8, comptime lo: u8) f32 {
-            const s_val = @as(f32, @floatFromInt(parseNibble(hi) * 16 + parseNibble(lo))) / 255.0;
+        fn f(hi: u8, lo: u8) ParseHexError!f32 {
+            const s_val = @as(f32, @floatFromInt((try parseNibble(hi)) * 16 + (try parseNibble(lo)))) / 255.0;
             return srgbToLinear(s_val);
         }
     }.f;
 
     const parseByteAlpha = struct {
-        fn f(comptime hi: u8, comptime lo: u8) f32 {
-            return @as(f32, @floatFromInt(parseNibble(hi) * 16 + parseNibble(lo))) / 255.0;
+        fn f(hi: u8, lo: u8) ParseHexError!f32 {
+            return @as(f32, @floatFromInt((try parseNibble(hi)) * 16 + (try parseNibble(lo)))) / 255.0;
         }
     }.f;
 
     return switch (s.len) {
         3 => .{ .value = .{
-            parseByteSrgb(s[0], s[0]),
-            parseByteSrgb(s[1], s[1]),
-            parseByteSrgb(s[2], s[2]),
+            try parseByteSrgb(s[0], s[0]),
+            try parseByteSrgb(s[1], s[1]),
+            try parseByteSrgb(s[2], s[2]),
             1.0,
         } },
         4 => .{ .value = .{
-            parseByteSrgb(s[0], s[0]),
-            parseByteSrgb(s[1], s[1]),
-            parseByteSrgb(s[2], s[2]),
-            parseByteAlpha(s[3], s[3]),
+            try parseByteSrgb(s[0], s[0]),
+            try parseByteSrgb(s[1], s[1]),
+            try parseByteSrgb(s[2], s[2]),
+            try parseByteAlpha(s[3], s[3]),
         } },
         6 => .{ .value = .{
-            parseByteSrgb(s[0], s[1]),
-            parseByteSrgb(s[2], s[3]),
-            parseByteSrgb(s[4], s[5]),
+            try parseByteSrgb(s[0], s[1]),
+            try parseByteSrgb(s[2], s[3]),
+            try parseByteSrgb(s[4], s[5]),
             1.0,
         } },
         8 => .{ .value = .{
-            parseByteSrgb(s[0], s[1]),
-            parseByteSrgb(s[2], s[3]),
-            parseByteSrgb(s[4], s[5]),
-            parseByteAlpha(s[6], s[7]),
+            try parseByteSrgb(s[0], s[1]),
+            try parseByteSrgb(s[2], s[3]),
+            try parseByteSrgb(s[4], s[5]),
+            try parseByteAlpha(s[6], s[7]),
         } },
-        else => @compileError("invalid hex color length, expected #RGB / #RGBA / #RRGGBB / #RRGGBBAA"),
+        else => return ParseHexError.InvalidLength,
     };
 }

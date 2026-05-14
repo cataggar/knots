@@ -75,7 +75,7 @@ pub fn parseWithBase(comptime base: Theme, comptime def: anytype) Theme {
         const T = @TypeOf(v);
 
         @field(res, field.name) = if (@hasField(T, "hex"))
-            Color.hex(@field(v, "hex"))
+            Color.hex(@field(v, "hex")) catch |err| @compileError("failed to parse hex with error " ++ @errorName(err) ++ ": " ++ @field(v, "hex"))
         else if (@hasField(T, "rgba")) blk: {
             const rgba = @field(v, "rgba");
             break :blk Color.rgba(rgba[0], rgba[1], rgba[2], rgba[3]);
