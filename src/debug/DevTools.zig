@@ -99,15 +99,11 @@ pub fn render(self: *const DevTools, app: *knots.App) anyerror!void {
     const trigger_x = @max(0, (w - trigger_size) / 2.0);
     const trigger_y = @max(0, h - trigger_visible_h);
 
-    const was_panel_open = self.state.panel_open;
-
     try self.renderTrigger(app, trigger_x, trigger_y);
     if (app.ui.clickedWithin(trigger_button_key.hash())) self.state.panel_open = !self.state.panel_open;
 
     if (self.state.panel_open) try self.renderPanel(app, w, trigger_y);
     if (app.ui.clickedWithin(close_key.hash())) self.state.panel_open = false;
-
-    if (self.state.panel_open or self.state.panel_open != was_panel_open) try app.signal(.redraw);
 }
 
 fn renderTrigger(_: *const DevTools, app: *knots.App, x: f32, y: f32) !void {

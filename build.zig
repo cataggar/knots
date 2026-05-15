@@ -1,5 +1,4 @@
 const std = @import("std");
-const glfw = @import("glfw");
 
 pub const GPUBackend = @import("src/gpu/backend/root.zig").Backend;
 
@@ -15,10 +14,6 @@ pub fn build(b: *std.Build) void {
     const gpu_backends =
         b.option([]const GPUBackend, "gpu_backends", "Which GPU backends to be available at runtime.") orelse
         &[_]GPUBackend{ .wgpu, .vulkan };
-
-    const linux_display_server =
-        b.option(glfw.LinuxBackend, "linux_display_server", "Which display server to use, .x11 and .wayland are supported. Defaults to .wayland.") orelse
-        .wayland;
 
     var se = SupportedBackends{ .vulkan = false, .wgpu = false };
     for (gpu_backends) |be| {
@@ -115,7 +110,6 @@ pub fn build(b: *std.Build) void {
         }),
         .linux => {
             const glfw_dep = b.dependency("glfw", .{ .target = target, .optimize = optimize, .linux_backend = .wayland });
-
             const m = b.createModule(.{
                 .target = target,
                 .optimize = optimize,
@@ -125,9 +119,6 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "gpu", .module = gpu_mod },
                 },
             });
-            var glfw_opts = b.addOptions();
-            glfw_opts.addOption(glfw.LinuxBackend, "linux_display_server", linux_display_server);
-            m.addOptions("window_config", glfw_opts);
             break :blk m;
         },
         else => |os| std.debug.panic("windowing implementation for {s} is not yet implemented", .{@tagName(os)}),

@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
 const gpu = @import("gpu");
-const config = @import("window_config");
 const window = @import("window");
 
 const GLFW_PRESS = glfw.c.GLFW_PRESS;
@@ -89,16 +88,8 @@ pub const Backend = struct {
     pub fn getNativeHandle(self: *const Self, _: ?[:0]const u8) gpu.Context.WindowHandle {
         return switch (builtin.os.tag) {
             .linux => blk: {
-                switch (config.linux_display_server) {
-                    .wayland => {
-                        const handles = self.window.getWaylandWindow();
-                        break :blk .{ .linux = .{ .wayland = .{ .display = handles[0], .surface = handles[1] } } };
-                    },
-                    .x11 => {
-                        const handles = self.window.getX11Window();
-                        break :blk .{ .linux = .{ .x11 = .{ .display = handles[0], .window = handles[1] } } };
-                    },
-                }
+                const handles = self.window.getWaylandWindow();
+                break :blk .{ .linux = .{ .wayland = .{ .display = handles[0], .surface = handles[1] } } };
             },
             else => |os| @compileError("unsupported platform: " ++ @tagName(os)),
         };
@@ -116,10 +107,7 @@ pub const Backend = struct {
         switch (mode) {
             .windowed => {
                 glfw.c.glfwRestoreWindow(win);
-                switch (builtin.os.tag) {
-                    inline .macos => {},
-                    inline else => glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_TRUE),
-                }
+                glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_TRUE);
                 glfw.c.glfwSetWindowMonitor(win, null, self.windowed_pos[0], self.windowed_pos[1], self.windowed_size[0], self.windowed_size[1], 0);
                 self.is_fullscreen = false;
             },
@@ -131,14 +119,7 @@ pub const Backend = struct {
             },
             .fullscreen_windowed => {
                 self.saveWindowedGeometry(win);
-                const monitor = glfw.c.glfwGetPrimaryMonitor() orelse return;
-                const vid = glfw.c.glfwGetVideoMode(monitor) orelse return;
                 switch (builtin.os.tag) {
-                    inline .macos => glfw.c.glfwSetWindowMonitor(win, monitor, 0, 0, vid.*.width, vid.*.height, vid.*.refreshRate),
-                    inline .windows => {
-                        glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_FALSE);
-                        glfw.c.glfwSetWindowMonitor(win, null, 0, 0, vid.*.width, vid.*.height, 0);
-                    },
                     inline .linux => {
                         glfw.c.glfwSetWindowAttrib(win, glfw.c.GLFW_DECORATED, glfw.c.GLFW_FALSE);
                         glfw.c.glfwMaximizeWindow(win);
