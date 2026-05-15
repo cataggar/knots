@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_zon = @import("build.zig.zon");
 
 pub const GPUBackend = @import("src/gpu/backend/root.zig").Backend;
 
@@ -234,6 +235,8 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    var debug_opts = b.addOptions();
+    debug_opts.addOption([]const u8, "version", build_zon.version);
     const debug_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -246,6 +249,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "gpu", .module = gpu_mod },
         },
     });
+    debug_mod.addOptions("debug_config", debug_opts);
 
     const mod = b.addModule("knots", .{
         .target = target,

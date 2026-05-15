@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const knots = @import("knots");
 const Perf = @import("Perf.zig");
@@ -9,6 +10,8 @@ const Element = @import("layout").Element;
 pub const GPUBackend = @import("gpu_backend").Backend;
 pub const PresentMode = @import("gpu").Context.PresentMode;
 
+const config = @import("debug_config");
+
 const Button = knots.component.Button;
 const Rect = knots.component.Rect;
 const SelectInput = knots.component.SelectInput;
@@ -17,7 +20,7 @@ const Text = knots.component.Text;
 const present_modes = std.enums.values(PresentMode);
 
 const panel_w: f32 = 680.0;
-const panel_landscape_h: f32 = 235.0;
+const panel_landscape_h: f32 = 260.0;
 const panel_portrait_max_h: f32 = 360.0;
 const margin: f32 = 16.0;
 const trigger_size: f32 = 40.0;
@@ -151,6 +154,31 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
         .border_width = 1,
         .border_color = app.ui.theme.toned.value,
     } });
+
+    try app.e(.{
+        Rect{
+            .width = .grow(),
+            .key = .src(@src()),
+            .@"align" = .center,
+            .justify = .space_between,
+        },
+        .{
+            Text{
+                .content = std.fmt.comptimePrint("knots v{s}", .{config.version}),
+                .size = .xs,
+                .key = .src(@src()),
+                .color = .dimmed,
+                .selectable = false,
+            },
+            Text{
+                .content = std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.target.os.tag), @tagName(builtin.target.cpu.arch) }),
+                .size = .xs,
+                .key = .src(@src()),
+                .color = .dimmed,
+                .selectable = false,
+            },
+        },
+    });
 
     try self.renderTabs(app);
     if (app.ui.clickedWithin(metrics_tab_key.hash())) self.state.active_tab = .metrics;
