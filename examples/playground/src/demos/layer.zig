@@ -6,12 +6,7 @@ const Text = knots.component.Text;
 const Spacer = knots.component.Spacer;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Layer",
-        "dir=.layer stacks children on the z-axis. Later children render on top. Children share the same origin so the parent sizes to the largest.",
-        body,
-    );
+    try ui_helpers.panel(app, "Layer", body);
 }
 
 fn body(app: *knots.App) !void {

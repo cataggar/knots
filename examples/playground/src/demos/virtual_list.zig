@@ -10,12 +10,7 @@ const items_count: usize = 100_000;
 const row_height: f32 = 22;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Virtual list",
-        "100,000 rows. Only the visible band is rendered each frame; leading/trailing spacers preserve scroll geometry.",
-        body,
-    );
+    try ui_helpers.panel(app, "Virtual list", body);
 }
 
 fn body(app: *knots.App) !void {

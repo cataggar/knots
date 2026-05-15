@@ -20,12 +20,7 @@ const with_newlines =
     "and falls back to mid-word breaks for runs longer than the wrap width.";
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Text wrap",
-        "wrap=true opts text into greedy word-wrapping. Width comes from the element's own assigned box.",
-        body,
-    );
+    try ui_helpers.panel(app, "Text wrap", body);
 }
 
 fn body(app: *knots.App) !void {

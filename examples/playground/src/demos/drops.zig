@@ -10,12 +10,7 @@ const Spacer = knots.component.Spacer;
 const For = knots.control.For;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Drops",
-        "Drag files from your file manager onto the window. Each frame polls app.window.consumeDrops; received paths accumulate below.",
-        body,
-    );
+    try ui_helpers.panel(app, "Drops", body);
 }
 
 fn body(app: *knots.App) !void {

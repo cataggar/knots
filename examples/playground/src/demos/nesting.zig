@@ -5,12 +5,7 @@ const Rect = knots.component.Rect;
 const Text = knots.component.Text;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Nesting",
-        "Nested containers inherit grow/fit from their parent. Each level shows a different border color.",
-        body,
-    );
+    try ui_helpers.panel(app, "Nesting", body);
 }
 
 fn body(app: *knots.App) !void {

@@ -20,20 +20,21 @@ const entries = [_]Entry{
     .{ .name = "custom", .theme = Theme.parseWithBase(Theme.dark, @import("../theme.zon")) },
 };
 
+const cols = [_]Rect.GridTrack{ .{ .fr = 1 }, .{ .fr = 1 } };
+const rows = [_]Rect.GridTrack{ .{ .fixed = 112 }, .{ .fixed = 112 } };
+
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Theme",
-        "Click a swatch to swap the UI theme at runtime. Notice that every panel \u{2014} including the nav and header \u{2014} repaints with the new palette on the next frame, with no rebuild.",
-        body,
-    );
+    try ui_helpers.panel(app, "Theme", body);
 }
 
 fn body(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
+            .height = .fixed(236),
+            .dir = .grid,
             .gap = 12,
+            .grid_template = .{ .cols = &cols, .rows = &rows },
             .key = .src(@src()),
         },
         .{
@@ -52,51 +53,60 @@ fn Slot(comptime idx: u32) type {
             const is_active = self.demo_state.theme_idx == idx;
 
             try app.e(.{
-                Button{
-                    .width = .fixed(250),
-                    .padding = .init(12, 12, 12, 12),
-                    .key = .str("theme.swatch:" ++ entry.name),
-                    .style = .{
-                        .color = .{ .color = entry.theme.elevated },
-                        .corner_radius = .md,
-                        .border_width = if (is_active) 2 else 1,
-                        .border_color = if (is_active)
-                            .{ .color = entry.theme.primary }
-                        else
-                            .{ .color = entry.theme.toned },
-                    },
-                    .hover_anim = .{},
-                    .onClick = onClick,
+                Rect{
+                    .width = .grow(),
+                    .height = .grow(),
+                    .grid_placement = .{ .row = idx / 2, .col = idx % 2 },
+                    .key = .str("theme.cell:" ++ entry.name),
                 },
                 .{
-                    Rect{
-                        .@"align" = .center,
-                        .justify = .space_between,
-                        .key = .str("theme.button.container:" ++ entry.name),
-                        .dir = .column,
+                    Button{
+                        .width = .grow(),
+                        .height = .grow(),
+                        .padding = .init(12, 12, 12, 12),
+                        .key = .str("theme.swatch:" ++ entry.name),
+                        .style = .{
+                            .color = .{ .color = entry.theme.elevated },
+                            .corner_radius = .md,
+                            .border_width = if (is_active) 2 else 1,
+                            .border_color = if (is_active)
+                                .{ .color = entry.theme.primary }
+                            else
+                                .{ .color = entry.theme.toned },
+                        },
+                        .hover_anim = .{},
+                        .onClick = onClick,
                     },
                     .{
-                        Text{
-                            .content = entry.name,
-                            .size = .md,
-                            .color = .{ .color = entry.theme.text },
-                            .selectable = false,
-                            .key = .str("theme.label:" ++ entry.name),
-                        },
                         Rect{
-                            .width = .grow(),
-                            .height = .fixed(20),
-                            .dir = .row,
-                            .gap = 4,
-                            .key = .str("theme.row:" ++ entry.name),
+                            .@"align" = .center,
+                            .justify = .space_between,
+                            .key = .str("theme.button.container:" ++ entry.name),
+                            .dir = .column,
                         },
                         .{
-                            chip(entry.theme.primary, "p", entry.name),
-                            chip(entry.theme.secondary, "s", entry.name),
-                            chip(entry.theme.success, "ok", entry.name),
-                            chip(entry.theme.warning, "wa", entry.name),
-                            chip(entry.theme.@"error", "er", entry.name),
-                            chip(entry.theme.muted, "mu", entry.name),
+                            Text{
+                                .content = entry.name,
+                                .size = .md,
+                                .color = .{ .color = entry.theme.text },
+                                .selectable = false,
+                                .key = .str("theme.label:" ++ entry.name),
+                            },
+                            Rect{
+                                .width = .grow(),
+                                .height = .fixed(20),
+                                .dir = .row,
+                                .gap = 4,
+                                .key = .str("theme.row:" ++ entry.name),
+                            },
+                            .{
+                                chip(entry.theme.primary, "p", entry.name),
+                                chip(entry.theme.secondary, "s", entry.name),
+                                chip(entry.theme.success, "ok", entry.name),
+                                chip(entry.theme.warning, "wa", entry.name),
+                                chip(entry.theme.@"error", "er", entry.name),
+                                chip(entry.theme.muted, "mu", entry.name),
+                            },
                         },
                     },
                 },

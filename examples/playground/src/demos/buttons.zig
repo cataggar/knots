@@ -9,12 +9,7 @@ const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Buttons",
-        "onClick handlers, hover animations, corner radii and a ghost outline variant.",
-        body,
-    );
+    try ui_helpers.panel(app, "Buttons", body);
 }
 
 fn body(app: *knots.App) !void {

@@ -7,12 +7,7 @@ const Text = knots.component.Text;
 const Spacer = knots.component.Spacer;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Overflow",
-        "Four containers showing visible (clipped by parent only), hidden (clipped here), scroll_y and scroll_x.",
-        body,
-    );
+    try ui_helpers.panel(app, "Overflow", body);
 }
 
 fn body(app: *knots.App) !void {

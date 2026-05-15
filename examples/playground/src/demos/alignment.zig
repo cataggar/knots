@@ -5,12 +5,7 @@ const Rect = knots.component.Rect;
 const Text = knots.component.Text;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Alignment",
-        "@\"align\" controls cross-axis placement of children. Three columns showing start, center and end.",
-        body,
-    );
+    try ui_helpers.panel(app, "Alignment", body);
 }
 
 fn body(app: *knots.App) !void {

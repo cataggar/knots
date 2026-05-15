@@ -15,12 +15,7 @@ const canvas_width = 720;
 const canvas_height = 480;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Canvas",
-        "Painter primitives: gradient grid (fillRectGradient), clock (lines + circles), bar chart (fillRect + strokeRect), polygon (fillConvexPolygon + fillTriangle).",
-        body,
-    );
+    try ui_helpers.panel(app, "Canvas", body);
 }
 
 fn body(app: *knots.App) !void {

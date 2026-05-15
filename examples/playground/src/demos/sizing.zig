@@ -6,12 +6,7 @@ const Text = knots.component.Text;
 const Spacer = knots.component.Spacer;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Sizing",
-        "Each row mixes grow, fixed, percent and fit on the same axis.",
-        body,
-    );
+    try ui_helpers.panel(app, "Sizing", body);
 }
 
 fn body(app: *knots.App) !void {

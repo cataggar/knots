@@ -16,12 +16,7 @@ const Spacer = knots.component.Spacer;
 const Role = enum { admin, editor, viewer, guest };
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Form",
-        "TextInputs, a SelectInput, a checkbox, a slider and a submit button working together. Submit logs the values.",
-        body,
-    );
+    try ui_helpers.panel(app, "Form", body);
 }
 
 fn body(app: *knots.App) !void {

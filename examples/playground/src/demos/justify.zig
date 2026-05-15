@@ -6,12 +6,7 @@ const Text = knots.component.Text;
 const Spacer = knots.component.Spacer;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Justify",
-        "Main-axis distribution of three boxes inside a 360px-wide row.",
-        body,
-    );
+    try ui_helpers.panel(app, "Justify", body);
 }
 
 fn body(app: *knots.App) !void {

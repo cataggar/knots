@@ -11,12 +11,7 @@ const Spacer = knots.component.Spacer;
 const is_emscripten = @import("builtin").os.tag == .emscripten;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Async dispatch",
-        "app.dispatch schedules background work that resumes via the IO completion queue. Each click queues 10 sleeps; the counter ticks down as wakeups arrive.",
-        body,
-    );
+    try ui_helpers.panel(app, "Async dispatch", body);
 }
 
 fn body(app: *knots.App) !void {

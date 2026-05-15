@@ -4,6 +4,8 @@ const knots = @import("knots");
 pub const Demo = struct {
     name: []const u8,
     description: []const u8,
+    source_path: []const u8,
+    source: [:0]const u8,
     render: *const fn (*knots.App) anyerror!void,
 
     pub const State = struct {
@@ -24,6 +26,7 @@ pub const Demo = struct {
         dropped_paths: std.ArrayList([]const u8) = .empty,
         notes_buf: std.ArrayList(u8) = .empty,
         theme_idx: u32 = 1,
+        show_source: bool = true,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
             self.notes_buf.deinit(allocator);
@@ -37,90 +40,38 @@ pub const Demo = struct {
     };
 };
 
+fn demo(
+    comptime path: []const u8,
+    comptime icon: []const u8,
+    comptime name: []const u8,
+    comptime description: []const u8,
+    comptime render: *const fn (*knots.App) anyerror!void,
+) Demo {
+    return .{
+        .name = icon ++ " " ++ name,
+        .description = description,
+        .source_path = "examples/playground/src/" ++ path,
+        .source = @embedFile(path),
+        .render = render,
+    };
+}
+
 pub const all = [_]Demo{
-    .{
-        .name = "Buttons",
-        .description = "Click handlers, hover animations, corner radii.",
-        .render = @import("demos/buttons.zig").render,
-    },
-    .{
-        .name = "Sizing",
-        .description = "grow, fixed, percent and fit on the same axis.",
-        .render = @import("demos/sizing.zig").render,
-    },
-    .{
-        .name = "Nesting",
-        .description = "Three levels of nested containers with shared layout.",
-        .render = @import("demos/nesting.zig").render,
-    },
-    .{
-        .name = "Alignment",
-        .description = "Cross-axis alignment: start, center, end.",
-        .render = @import("demos/alignment.zig").render,
-    },
-    .{
-        .name = "Justify",
-        .description = "Main-axis distribution: start, center, end, space_between, space_around.",
-        .render = @import("demos/justify.zig").render,
-    },
-    .{
-        .name = "Control flow",
-        .description = "If, For and animation.Collapsible composed together.",
-        .render = @import("demos/control_flow.zig").render,
-    },
-    .{
-        .name = "Form",
-        .description = "Text inputs, dropdown and slider wired into a single form.",
-        .render = @import("demos/form.zig").render,
-    },
-    .{
-        .name = "Layer",
-        .description = "dir=.layer stacks children on the z-axis.",
-        .render = @import("demos/layer.zig").render,
-    },
-    .{
-        .name = "Overflow",
-        .description = "visible, hidden, scroll_x and scroll_y side by side.",
-        .render = @import("demos/overflow.zig").render,
-    },
-    .{
-        .name = "Grid",
-        .description = "Dashboard tiles using fr tracks and cell spans.",
-        .render = @import("demos/grid.zig").render,
-    },
-    .{
-        .name = "Virtual list",
-        .description = "100,000 rows scrolled smoothly via VirtualList.",
-        .render = @import("demos/virtual_list.zig").render,
-    },
-    .{
-        .name = "Hover",
-        .description = "Button hover animation, hover_style and a custom ui.anim() channel.",
-        .render = @import("demos/hover.zig").render,
-    },
-    .{
-        .name = "Canvas",
-        .description = "Painter primitives: gradient grid, clock face, bar chart, polygon.",
-        .render = @import("demos/canvas.zig").render,
-    },
-    .{
-        .name = "Async dispatch",
-        .description = "Schedule background work via app.dispatch and react to wakeups.",
-        .render = @import("demos/async_dispatch.zig").render,
-    },
-    .{
-        .name = "Drops",
-        .description = "Drag files onto the window and consume them via app.window.consumeDrops.",
-        .render = @import("demos/drops.zig").render,
-    },
-    .{
-        .name = "Text wrap",
-        .description = "Text and TextInput with wrap=true.",
-        .render = @import("demos/text_wrap.zig").render,
-    },
-    .{
-        .name = "Theme",
-        .description = "Switch UI theme at runtime between dark, light and the playground's custom theme.",
-        .render = @import("demos/theme.zig").render,
-    },
+    demo("demos/buttons.zig", "\u{e913}", "Buttons", "Click handlers, hover animations, corner radii.", @import("demos/buttons.zig").render),
+    demo("demos/sizing.zig", "\u{e85b}", "Sizing", "grow, fixed, percent and fit on the same axis.", @import("demos/sizing.zig").render),
+    demo("demos/nesting.zig", "\u{e97a}", "Nesting", "Three levels of nested containers with shared layout.", @import("demos/nesting.zig").render),
+    demo("demos/alignment.zig", "\u{e234}", "Alignment", "Cross-axis alignment: start, center, end.", @import("demos/alignment.zig").render),
+    demo("demos/justify.zig", "\u{e235}", "Justify", "Main-axis distribution: start, center, end, space_between, space_around.", @import("demos/justify.zig").render),
+    demo("demos/control_flow.zig", "\u{e8d5}", "Control flow", "If, For and animation.Collapsible composed together.", @import("demos/control_flow.zig").render),
+    demo("demos/form.zig", "\u{e890}", "Form", "Text inputs, dropdown and slider wired into a single form.", @import("demos/form.zig").render),
+    demo("demos/layer.zig", "\u{e53b}", "Layer", "dir=.layer stacks children on the z-axis.", @import("demos/layer.zig").render),
+    demo("demos/overflow.zig", "\u{e5d7}", "Overflow", "visible, hidden, scroll_x and scroll_y side by side.", @import("demos/overflow.zig").render),
+    demo("demos/grid.zig", "\u{e871}", "Grid", "Dashboard tiles using fr tracks and cell spans.", @import("demos/grid.zig").render),
+    demo("demos/virtual_list.zig", "\u{e8ef}", "Virtual list", "100,000 rows scrolled smoothly via VirtualList.", @import("demos/virtual_list.zig").render),
+    demo("demos/hover.zig", "\u{e323}", "Hover", "Button hover animation, hover_style and a custom ui.anim() channel.", @import("demos/hover.zig").render),
+    demo("demos/canvas.zig", "\u{e3ae}", "Canvas", "Painter primitives: gradient grid, clock face, bar chart, polygon.", @import("demos/canvas.zig").render),
+    demo("demos/async_dispatch.zig", "\u{e627}", "Async dispatch", "Schedule background work via app.dispatch and react to wakeups.", @import("demos/async_dispatch.zig").render),
+    demo("demos/drops.zig", "\u{e2c6}", "Drops", "Drag files onto the window and consume them via app.window.consumeDrops.", @import("demos/drops.zig").render),
+    demo("demos/text_wrap.zig", "\u{e25b}", "Text wrap", "Text and TextInput with wrap=true.", @import("demos/text_wrap.zig").render),
+    demo("demos/theme.zig", "\u{e40a}", "Theme", "Switch UI theme at runtime between dark, light and the playground's custom theme.", @import("demos/theme.zig").render),
 };

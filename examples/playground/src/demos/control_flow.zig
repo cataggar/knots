@@ -10,12 +10,7 @@ const Spacer = knots.component.Spacer;
 const For = knots.control.For;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Control flow",
-        "If, For and animation.Collapsible composed together. The list shrinks/grows with the counter.",
-        body,
-    );
+    try ui_helpers.panel(app, "Control flow", body);
 }
 
 fn body(app: *knots.App) !void {

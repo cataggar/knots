@@ -8,12 +8,7 @@ const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Hover",
-        "Three buttons demonstrating hover_anim brightness, hover_style overrides, and a custom ui.anim() channel that scales a rect.",
-        body,
-    );
+    try ui_helpers.panel(app, "Hover", body);
 }
 
 fn body(app: *knots.App) !void {

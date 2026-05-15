@@ -9,12 +9,7 @@ const cols = [_]Rect.GridTrack{ .{ .fixed = 100 }, .{ .fr = 1 }, .{ .fr = 1 } };
 const rows = [_]Rect.GridTrack{ .{ .fixed = 28 }, .{ .fr = 1 }, .{ .fr = 1 }, .{ .fixed = 24 } };
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(
-        app,
-        "Grid",
-        "CSS-style grid: a fixed-width sidebar column, two fr columns, header and footer rows. Cells declare their own row/col placement and can span.",
-        body,
-    );
+    try ui_helpers.panel(app, "Grid", body);
 }
 
 fn body(app: *knots.App) !void {

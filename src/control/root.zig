@@ -78,6 +78,17 @@ pub fn VirtualList(comptime T: type) type {
                 0;
 
             const last: usize = @min(self.items.len, first_visible + visible_count + self.overscan);
+            if (first >= last) {
+                const total_h = @as(f32, @floatFromInt(self.items.len)) * self.row_height;
+                if (total_h > 0) {
+                    _ = try app.ui.open(self.key.indexed(0), .{
+                        .width = .grow(),
+                        .height = .fixed(total_h),
+                    }, .none);
+                    app.ui.close();
+                }
+                return;
+            }
 
             const lead_h = @as(f32, @floatFromInt(first)) * self.row_height;
             const trail_h = @as(f32, @floatFromInt(self.items.len - last)) * self.row_height;
