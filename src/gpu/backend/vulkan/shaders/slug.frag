@@ -73,12 +73,16 @@ vec2 solve_vert_poly(vec4 p12, vec2 p3) {
     );
 }
 
-ivec2 calc_band_loc(ivec2 glyph_loc, uint offset) {
+ivec2 offset_texture_loc(ivec2 base, int offset) {
     int mask = (1 << LOG_BAND_TEXTURE_WIDTH) - 1;
-    ivec2 loc = ivec2(glyph_loc.x + int(offset), glyph_loc.y);
+    ivec2 loc = ivec2(base.x + offset, base.y);
     loc.y += loc.x >> int(LOG_BAND_TEXTURE_WIDTH);
     loc.x &= mask;
     return loc;
+}
+
+ivec2 calc_band_loc(ivec2 glyph_loc, uint offset) {
+    return offset_texture_loc(glyph_loc, int(offset));
 }
 
 float calc_coverage(float xcov, float ycov, float xwgt, float ywgt) {
@@ -101,14 +105,14 @@ float slug_render(vec2 render_coord, vec4 banding, ivec4 glyph_data) {
     float xcov = 0.0;
     float xwgt = 0.0;
 
-    uvec2 hband = texelFetch(band_texture, ivec2(glyph_loc.x + band_index.y, glyph_loc.y), 0).xy;
+    uvec2 hband = texelFetch(band_texture, offset_texture_loc(glyph_loc, band_index.y), 0).xy;
     int hcount = int(hband.x);
     ivec2 hloc = calc_band_loc(glyph_loc, hband.y);
 
     for (int i = 0; i < hcount; i++) {
-        ivec2 curve_loc = ivec2(texelFetch(band_texture, ivec2(hloc.x + i, hloc.y), 0).xy);
+        ivec2 curve_loc = ivec2(texelFetch(band_texture, offset_texture_loc(hloc, i), 0).xy);
         vec4 p12 = texelFetch(curve_texture, curve_loc, 0) - vec4(render_coord, render_coord);
-        vec2 p3 = texelFetch(curve_texture, ivec2(curve_loc.x + 1, curve_loc.y), 0).xy - render_coord;
+        vec2 p3 = texelFetch(curve_texture, offset_texture_loc(curve_loc, 1), 0).xy - render_coord;
 
         if (max(max(p12.x, p12.z), p3.x) * pixels_per_em.x < -0.5) break;
 
@@ -129,14 +133,14 @@ float slug_render(vec2 render_coord, vec4 banding, ivec4 glyph_data) {
     float ycov = 0.0;
     float ywgt = 0.0;
 
-    uvec2 vband = texelFetch(band_texture, ivec2(glyph_loc.x + band_max.y + 1 + band_index.x, glyph_loc.y), 0).xy;
+    uvec2 vband = texelFetch(band_texture, offset_texture_loc(glyph_loc, band_max.y + 1 + band_index.x), 0).xy;
     int vcount = int(vband.x);
     ivec2 vloc = calc_band_loc(glyph_loc, vband.y);
 
     for (int i = 0; i < vcount; i++) {
-        ivec2 curve_loc = ivec2(texelFetch(band_texture, ivec2(vloc.x + i, vloc.y), 0).xy);
+        ivec2 curve_loc = ivec2(texelFetch(band_texture, offset_texture_loc(vloc, i), 0).xy);
         vec4 p12 = texelFetch(curve_texture, curve_loc, 0) - vec4(render_coord, render_coord);
-        vec2 p3 = texelFetch(curve_texture, ivec2(curve_loc.x + 1, curve_loc.y), 0).xy - render_coord;
+        vec2 p3 = texelFetch(curve_texture, offset_texture_loc(curve_loc, 1), 0).xy - render_coord;
 
         if (max(max(p12.y, p12.w), p3.y) * pixels_per_em.y < -0.5) break;
 

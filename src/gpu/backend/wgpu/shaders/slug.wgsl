@@ -143,12 +143,16 @@ fn solve_vert_poly(p12: vec4f, p3: vec2f) -> vec2f {
     );
 }
 
-fn calc_band_loc(glyph_loc: vec2i, offset: u32) -> vec2i {
+fn offset_texture_loc(base: vec2i, offset: i32) -> vec2i {
     let mask: i32 = i32((1u << LOG_BAND_TEXTURE_WIDTH) - 1u);
-    var loc = vec2i(glyph_loc.x + i32(offset), glyph_loc.y);
+    var loc = vec2i(base.x + offset, base.y);
     loc.y = loc.y + (loc.x >> LOG_BAND_TEXTURE_WIDTH);
     loc.x = loc.x & mask;
     return loc;
+}
+
+fn calc_band_loc(glyph_loc: vec2i, offset: u32) -> vec2i {
+    return offset_texture_loc(glyph_loc, i32(offset));
 }
 
 fn calc_coverage(xcov: f32, ycov: f32, xwgt: f32, ywgt: f32) -> f32 {
@@ -172,14 +176,14 @@ fn slug_render(render_coord: vec2f, banding: vec4f, glyph_data: vec4i) -> f32 {
     var xcov: f32 = 0.0;
     var xwgt: f32 = 0.0;
 
-    let hband = textureLoad(band_texture, vec2i(glyph_loc.x + band_index.y, glyph_loc.y), 0).xy;
+    let hband = textureLoad(band_texture, offset_texture_loc(glyph_loc, band_index.y), 0).xy;
     let hcount = i32(hband.x);
     let hloc = calc_band_loc(glyph_loc, hband.y);
 
     for (var i: i32 = 0; i < hcount; i = i + 1) {
-        let curve_loc = vec2i(textureLoad(band_texture, vec2i(hloc.x + i, hloc.y), 0).xy);
+        let curve_loc = vec2i(textureLoad(band_texture, offset_texture_loc(hloc, i), 0).xy);
         let p12 = textureLoad(curve_texture, curve_loc, 0) - vec4f(render_coord, render_coord);
-        let p3 = textureLoad(curve_texture, vec2i(curve_loc.x + 1, curve_loc.y), 0).xy - render_coord;
+        let p3 = textureLoad(curve_texture, offset_texture_loc(curve_loc, 1), 0).xy - render_coord;
 
         if max(max(p12.x, p12.z), p3.x) * pixels_per_em.x < -0.5 {
             break;
@@ -202,14 +206,14 @@ fn slug_render(render_coord: vec2f, banding: vec4f, glyph_data: vec4i) -> f32 {
     var ycov: f32 = 0.0;
     var ywgt: f32 = 0.0;
 
-    let vband = textureLoad(band_texture, vec2i(glyph_loc.x + band_max.y + 1 + band_index.x, glyph_loc.y), 0).xy;
+    let vband = textureLoad(band_texture, offset_texture_loc(glyph_loc, band_max.y + 1 + band_index.x), 0).xy;
     let vcount = i32(vband.x);
     let vloc = calc_band_loc(glyph_loc, vband.y);
 
     for (var i: i32 = 0; i < vcount; i = i + 1) {
-        let curve_loc = vec2i(textureLoad(band_texture, vec2i(vloc.x + i, vloc.y), 0).xy);
+        let curve_loc = vec2i(textureLoad(band_texture, offset_texture_loc(vloc, i), 0).xy);
         let p12 = textureLoad(curve_texture, curve_loc, 0) - vec4f(render_coord, render_coord);
-        let p3 = textureLoad(curve_texture, vec2i(curve_loc.x + 1, curve_loc.y), 0).xy - render_coord;
+        let p3 = textureLoad(curve_texture, offset_texture_loc(curve_loc, 1), 0).xy - render_coord;
 
         if max(max(p12.y, p12.w), p3.y) * pixels_per_em.y < -0.5 {
             break;
