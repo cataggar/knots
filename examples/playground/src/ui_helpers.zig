@@ -11,7 +11,7 @@ pub fn panel(
         .height = .grow(),
         .padding = .init(16, 16, 16, 16),
         .dir = .column,
-        .overflow = .scroll_y,
+        .overflow = .scroll,
         .key = .str("panel:" ++ title),
         .style = .{
             .color = .elevated,

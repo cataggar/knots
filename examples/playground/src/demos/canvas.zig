@@ -37,9 +37,10 @@ fn body(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fixed(360),
+            .height = .grow(),
             .key = .src(@src()),
             .style = .{ .color = .elevated, .corner_radius = .sm },
+            .overflow = .scroll,
         },
         .{
             Canvas{

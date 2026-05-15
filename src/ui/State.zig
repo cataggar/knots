@@ -22,6 +22,8 @@ pub const Scroll = struct {
     offset: math.Vec2 = .{ 0, 0 },
     drag_axis: Axis = .none,
     drag_grab: f32 = 0,
+    wheel_axis: Axis = .none,
+    wheel_last_ms: i64 = 0,
 };
 
 pub const SelectInput = struct {
@@ -273,25 +275,24 @@ pub fn getScroll(self: *State, id: Element.Id) [2]f32 {
     return .{ s.offset[0], s.offset[1] };
 }
 
-fn maxScrollOffset(el: *const Element) math.Vec2 {
-    const content: math.Vec2 = .{ el.content_w, el.content_h };
-    const box: math.Vec2 = .{ el.box.w(), el.box.h() };
-    const max_off = @max(math.splat(math.Vec2, 0), content - box);
-    return switch (el.overflow) {
-        .scroll_x => .{ max_off[0], 0 },
-        .scroll_y => .{ 0, max_off[1] },
-        else => .{ 0, 0 },
-    };
+fn maxScrollOffset(el: *const Element, scrollbar_thickness: f32) math.Vec2 {
+    return Element.scrollMetrics(
+        el.overflow,
+        el.box,
+        el.content_w,
+        el.content_h,
+        scrollbar_thickness,
+    ).max_offset;
 }
 
-pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: math.Vec2) !void {
+pub fn addScroll(self: *State, id: Element.Id, el: *const Element, delta: math.Vec2, scrollbar_thickness: f32) !void {
     const s = try self.storage.getOrCreate(.scroll, self.allocator, id, self.frame);
-    s.offset = std.math.clamp(s.offset + delta, math.splat(math.Vec2, 0), maxScrollOffset(el));
+    s.offset = std.math.clamp(s.offset + delta, math.splat(math.Vec2, 0), maxScrollOffset(el, scrollbar_thickness));
 }
 
-pub fn clampScroll(self: *State, id: Element.Id, el: *const Element) bool {
+pub fn clampScroll(self: *State, id: Element.Id, el: *const Element, scrollbar_thickness: f32) bool {
     const s = self.storage.get(.scroll, id) orelse return false;
-    const max_off = maxScrollOffset(el);
+    const max_off = maxScrollOffset(el, scrollbar_thickness);
     const next = std.math.clamp(s.offset, math.splat(math.Vec2, 0), max_off);
     const changed = next[0] != s.offset[0] or next[1] != s.offset[1];
     s.offset = next;

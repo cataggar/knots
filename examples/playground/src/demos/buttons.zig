@@ -27,6 +27,8 @@ fn body(app: *knots.App) !void {
             .dir = .row,
             .gap = 8,
             .key = .src(@src()),
+            .overflow = .scroll,
+            .padding = .init(8, 8, 8, 8),
         },
         .{
             Button{

@@ -20,7 +20,7 @@ fn noScroll(_: *anyopaque, _: Element.Id) [2]f32 {
 
 fn runLayout(ctx: *Context) !void {
     ctx.computeSizes();
-    try ctx.computeLayout(.{ .ctx = undefined, .getFn = @ptrCast(&noScroll) });
+    try ctx.computeLayout(.{ .ctx = undefined, .getFn = @ptrCast(&noScroll) }, 8);
 }
 
 fn initCtx() Context {

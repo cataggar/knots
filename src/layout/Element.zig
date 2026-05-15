@@ -98,14 +98,56 @@ pub const Position = enum {
 
 pub const Overflow = enum {
     visible,
+    scroll,
     scroll_x,
     scroll_y,
     hidden,
 
     pub fn isScroll(self: Overflow) bool {
-        return self == .scroll_x or self == .scroll_y;
+        return self == .scroll or self == .scroll_x or self == .scroll_y;
     }
 };
+
+pub const ScrollMetrics = struct {
+    has_x: bool = false,
+    has_y: bool = false,
+    viewport_w: f32 = 0,
+    viewport_h: f32 = 0,
+    max_offset: math.Vec2 = .{ 0, 0 },
+};
+
+pub fn scrollMetrics(overflow: Overflow, box: math.Rect, content_w: f32, content_h: f32, thickness: f32) ScrollMetrics {
+    const box_w = box.w();
+    const box_h = box.h();
+    var viewport_w = box_w;
+    var viewport_h = box_h;
+    var has_x = false;
+    var has_y = false;
+
+    switch (overflow) {
+        .scroll_x => has_x = content_w > box_w and box_w > thickness,
+        .scroll_y => has_y = content_h > box_h and box_h > thickness,
+        .scroll => {
+            has_x = content_w > box_w and box_w > thickness;
+            has_y = content_h > box_h and box_h > thickness;
+
+            if (has_y) viewport_w = @max(0, box_w - thickness);
+            if (has_x) viewport_h = @max(0, box_h - thickness);
+        },
+        else => {},
+    }
+
+    return .{
+        .has_x = has_x,
+        .has_y = has_y,
+        .viewport_w = viewport_w,
+        .viewport_h = viewport_h,
+        .max_offset = .{
+            if (has_x) @max(0, content_w - viewport_w) else 0,
+            if (has_y) @max(0, content_h - viewport_h) else 0,
+        },
+    };
+}
 
 id: Id = INVALID_ID,
 parent: Slot = INVALID_SLOT,

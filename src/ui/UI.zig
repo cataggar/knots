@@ -259,12 +259,12 @@ pub fn resolve(self: *UI) !void {
     };
 
     self.layout_ctx.computeSizes();
-    try self.layout_ctx.computeLayout(scroll);
+    try self.layout_ctx.computeLayout(scroll, self.theme.scrollbar_thickness);
 
     // After a first layout pass, recompute intrinsic_h for every wrap-text element using its just-assigned box width.
     if (try self.reflowWrappedText()) {
         self.layout_ctx.computeSizes();
-        try self.layout_ctx.computeLayout(scroll);
+        try self.layout_ctx.computeLayout(scroll, self.theme.scrollbar_thickness);
     }
 
     try self.layout_ctx.buildZOrder();

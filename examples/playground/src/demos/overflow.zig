@@ -45,7 +45,7 @@ fn body(app: *knots.App) !void {
             .key = .src(@src()),
             .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
         },
-        .{scrollYRows},
+        .{scrollOnlyYRows},
     });
 
     try app.e(Spacer{ .height = .fixed(12), .key = .src(@src()) });
@@ -64,6 +64,23 @@ fn body(app: *knots.App) !void {
         },
         .{scrollXBoxes},
     });
+
+    try app.e(Spacer{ .height = .fixed(12), .key = .src(@src()) });
+
+    try caption(app, "scroll (both axes)", .src(@src()));
+    try app.e(.{
+        Rect{
+            .width = .fixed(220),
+            .height = .fixed(120),
+            .overflow = .scroll,
+            .padding = .init(8, 8, 8, 8),
+            .dir = .column,
+            .gap = 4,
+            .key = .src(@src()),
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+        },
+        .{scrollBothRows},
+    });
 }
 
 fn caption(app: *knots.App, content: []const u8, key: knots.ui.Key) !void {
@@ -72,25 +89,7 @@ fn caption(app: *knots.App, content: []const u8, key: knots.ui.Key) !void {
 }
 
 fn scrollYRows(app: *knots.App) !void {
-    const arena = app.arena();
-    var i: usize = 0;
-    while (i < 16) : (i += 1) {
-        try app.e(.{
-            Rect{
-                .width = .grow(),
-                .height = .fixed(20),
-                .padding = .init(0, 8, 0, 8),
-                .@"align" = .center,
-                .key = knots.ui.Key.src(@src()).indexed(i),
-                .style = .{ .color = .elevated, .corner_radius = .sm },
-            },
-            .{Text{
-                .content = try std.fmt.allocPrint(arena, "row {d}", .{i}),
-                .size = .xs,
-                .key = knots.ui.Key.src(@src()).indexed(i),
-            }},
-        });
-    }
+    try scrollRows(app, knots.ui.Key.src(@src()), null, "row");
 }
 
 fn scrollXBoxes(app: *knots.App) !void {
@@ -101,6 +100,36 @@ fn scrollXBoxes(app: *knots.App) !void {
             .height = .fixed(40),
             .style = .{ .color = if (i % 2 == 0) .primary else .secondary, .corner_radius = .sm },
             .key = knots.ui.Key.src(@src()).indexed(i),
+        });
+    }
+}
+
+fn scrollOnlyYRows(app: *knots.App) !void {
+    try scrollRows(app, knots.ui.Key.src(@src()), null, "row");
+}
+
+fn scrollBothRows(app: *knots.App) !void {
+    try scrollRows(app, knots.ui.Key.src(@src()), 360, "wide row");
+}
+
+fn scrollRows(app: *knots.App, key: knots.ui.Key, fixed_width: ?f32, label: []const u8) !void {
+    const arena = app.arena();
+    var i: usize = 0;
+    while (i < 16) : (i += 1) {
+        try app.e(.{
+            Rect{
+                .width = if (fixed_width) |w| .fixed(w) else .grow(),
+                .height = .fixed(20),
+                .padding = .init(0, 8, 0, 8),
+                .@"align" = .center,
+                .key = key.indexed(i).indexed(0),
+                .style = .{ .color = .elevated, .corner_radius = .sm },
+            },
+            .{Text{
+                .content = try std.fmt.allocPrint(arena, "{s} {d}", .{ label, i }),
+                .size = .xs,
+                .key = key.indexed(i).indexed(1),
+            }},
         });
     }
 }

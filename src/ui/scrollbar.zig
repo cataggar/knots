@@ -10,11 +10,17 @@ const Theme = @import("Theme.zig");
 const UI = @import("UI.zig");
 
 const THUMB_ID_SALT: Element.Id = 0x5C205C205C205C20;
+const WHEEL_LOCK_IDLE_MS: i64 = 120;
+const WHEEL_LOCK_MIN_DELTA: f32 = 0.005;
 
 pub const Geom = struct {
-    track: math.Rect,
-    thumb: math.Rect,
-    axis: State.Scroll.Axis,
+    bars: [2]?Bar = .{ null, null },
+
+    const Bar = struct {
+        track: math.Rect,
+        thumb: math.Rect,
+        axis: State.Scroll.Axis,
+    };
 };
 
 pub const SlotGeom = struct {
@@ -24,55 +30,121 @@ pub const SlotGeom = struct {
     geom: Geom,
 };
 
-pub fn idFor(container_id: Element.Id) Element.Id {
+fn idFor(container_id: Element.Id) Element.Id {
     return container_id ^ THUMB_ID_SALT;
+}
+
+fn thumbLen(track_len: f32, ratio: f32, min_thumb: f32) f32 {
+    return @min(track_len, @max(min_thumb, track_len * ratio));
+}
+
+fn axisHasRange(axis: State.Scroll.Axis, max_offset: math.Vec2) bool {
+    return switch (axis) {
+        .x => max_offset[0] > 0,
+        .y => max_offset[1] > 0,
+        .none => false,
+    };
+}
+
+fn axisDelta(axis: State.Scroll.Axis, delta: math.Vec2) f32 {
+    return switch (axis) {
+        .x => delta[0],
+        .y => delta[1],
+        .none => 0,
+    };
+}
+
+fn otherAxis(axis: State.Scroll.Axis) State.Scroll.Axis {
+    return switch (axis) {
+        .x => .y,
+        .y => .x,
+        .none => .none,
+    };
+}
+
+fn chooseWheelAxis(delta: math.Vec2, max_offset: math.Vec2) State.Scroll.Axis {
+    const abs_x = @abs(delta[0]);
+    const abs_y = @abs(delta[1]);
+    if (abs_x <= WHEEL_LOCK_MIN_DELTA and abs_y <= WHEEL_LOCK_MIN_DELTA) return .none;
+
+    const primary: State.Scroll.Axis = if (abs_x > abs_y) .x else .y;
+    if (axisHasRange(primary, max_offset)) return primary;
+
+    const fallback = otherAxis(primary);
+    if (@abs(axisDelta(fallback, delta)) > WHEEL_LOCK_MIN_DELTA and axisHasRange(fallback, max_offset))
+        return fallback;
+
+    return .none;
+}
+
+fn lockedWheelDelta(ui: *UI, el: *const Element, delta: math.Vec2) !math.Vec2 {
+    const s = try ui.state.getOrCreate(.scroll, ui.allocator, el.id);
+    const metrics = Element.scrollMetrics(el.overflow, el.box, el.content_w, el.content_h, ui.theme.scrollbar_thickness);
+    const now = ui.input.now_ms;
+
+    if (now - s.wheel_last_ms > WHEEL_LOCK_IDLE_MS)
+        s.wheel_axis = .none;
+
+    if (s.wheel_axis == .none or !axisHasRange(s.wheel_axis, metrics.max_offset))
+        s.wheel_axis = chooseWheelAxis(delta, metrics.max_offset);
+
+    if (@abs(delta[0]) > WHEEL_LOCK_MIN_DELTA or @abs(delta[1]) > WHEEL_LOCK_MIN_DELTA)
+        s.wheel_last_ms = now;
+
+    return switch (s.wheel_axis) {
+        .x => .{ delta[0], 0 },
+        .y => .{ 0, delta[1] },
+        .none => .{ 0, 0 },
+    };
 }
 
 pub fn compute(el: *const Element, offset: math.Vec2, theme: *const Theme) ?Geom {
     const thickness = theme.scrollbar_thickness;
     const min_thumb = theme.scrollbar_min_thumb;
+    const box_w = el.box.w();
+    const box_h = el.box.h();
 
-    switch (el.overflow) {
-        .scroll_y => {
-            const box_h = el.box.h();
-            const content_h = el.content_h;
-            if (content_h <= box_h or box_h <= thickness) return null;
-            const track_x = el.box.x() + el.box.w() - thickness;
-            const track_y = el.box.y();
-            const track_h = box_h;
-            const ratio = std.math.clamp(box_h / content_h, 0, 1);
-            const thumb_h = @max(min_thumb, track_h * ratio);
-            const free = @max(0, track_h - thumb_h);
-            const max_off = @max(0, content_h - box_h);
-            const t = if (max_off > 0) std.math.clamp(offset[1] / max_off, 0, 1) else 0;
-            const thumb_y = track_y + free * t;
-            return .{
-                .track = math.Rect.init(track_x, track_y, thickness, track_h),
-                .thumb = math.Rect.init(track_x, thumb_y, thickness, thumb_h),
-                .axis = .y,
-            };
-        },
-        .scroll_x => {
-            const box_w = el.box.w();
-            const content_w = el.content_w;
-            if (content_w <= box_w or box_w <= thickness) return null;
-            const track_x = el.box.x();
-            const track_y = el.box.y() + el.box.h() - thickness;
-            const track_w = box_w;
-            const ratio = std.math.clamp(box_w / content_w, 0, 1);
-            const thumb_w = @max(min_thumb, track_w * ratio);
-            const free = @max(0, track_w - thumb_w);
-            const max_off = @max(0, content_w - box_w);
-            const t = if (max_off > 0) std.math.clamp(offset[0] / max_off, 0, 1) else 0;
-            const thumb_x = track_x + free * t;
-            return .{
-                .track = math.Rect.init(track_x, track_y, track_w, thickness),
-                .thumb = math.Rect.init(thumb_x, track_y, thumb_w, thickness),
-                .axis = .x,
-            };
-        },
-        else => return null,
+    const metrics = Element.scrollMetrics(el.overflow, el.box, el.content_w, el.content_h, thickness);
+    if (!metrics.has_x and !metrics.has_y) return null;
+
+    var x_geom: ?Geom.Bar = null;
+    var y_geom: ?Geom.Bar = null;
+
+    if (metrics.has_x) {
+        const track_w = metrics.viewport_w;
+        const track_x = el.box.x();
+        const track_y = el.box.y() + box_h - thickness;
+        const ratio = std.math.clamp(metrics.viewport_w / el.content_w, 0, 1);
+        const thumb_w = thumbLen(track_w, ratio, min_thumb);
+        const free = @max(0, track_w - thumb_w);
+        const max_off = metrics.max_offset[0];
+        const t = if (max_off > 0) std.math.clamp(offset[0] / max_off, 0, 1) else 0;
+        const thumb_x = track_x + free * t;
+        x_geom = .{
+            .track = math.Rect.init(track_x, track_y, track_w, thickness),
+            .thumb = math.Rect.init(thumb_x, track_y, thumb_w, thickness),
+            .axis = .x,
+        };
     }
+
+    if (metrics.has_y) {
+        const track_h = metrics.viewport_h;
+        const track_x = el.box.x() + box_w - thickness;
+        const track_y = el.box.y();
+        const ratio = std.math.clamp(metrics.viewport_h / el.content_h, 0, 1);
+        const thumb_h = thumbLen(track_h, ratio, min_thumb);
+        const free = @max(0, track_h - thumb_h);
+        const max_off = metrics.max_offset[1];
+        const t = if (max_off > 0) std.math.clamp(offset[1] / max_off, 0, 1) else 0;
+        const thumb_y = track_y + free * t;
+        y_geom = .{
+            .track = math.Rect.init(track_x, track_y, thickness, track_h),
+            .thumb = math.Rect.init(track_x, thumb_y, thickness, thumb_h),
+            .axis = .y,
+        };
+    }
+
+    return Geom{ .bars = .{ x_geom, y_geom } };
 }
 
 pub fn route(ui: *UI) !void {
@@ -81,17 +153,21 @@ pub fn route(ui: *UI) !void {
     const has_wheel = ui.input.scroll_delta[0] != 0 or ui.input.scroll_delta[1] != 0;
 
     var wheel_target: ?struct { slot: Element.Slot } = null;
-    var press_target: ?struct { slot: Element.Slot, geom: Geom } = null;
+    var press_target: ?struct { slot: Element.Slot, bar: Geom.Bar } = null;
 
     for (ui.layout_ctx.scroll_slots.items) |slot| {
         const el = &elements[slot];
-        _ = ui.state.clampScroll(el.id, el);
+        _ = ui.state.clampScroll(el.id, el, ui.theme.scrollbar_thickness);
         const offset = ui.state.getScroll(el.id);
         const geom = compute(el, .{ offset[0], offset[1] }, &ui.theme) orelse continue;
 
         if (has_wheel and el.box.contains(p)) wheel_target = .{ .slot = slot };
 
-        if (ui.input.mouse_pressed and geom.thumb.contains(p)) press_target = .{ .slot = slot, .geom = geom };
+        for (geom.bars) |maybe_bar| {
+            const bar = maybe_bar orelse continue;
+            if (ui.input.mouse_pressed and bar.thumb.contains(p))
+                press_target = .{ .slot = slot, .bar = bar };
+        }
 
         const s = ui.state.get(.scroll, el.id) orelse continue;
         if (s.drag_axis == .none) continue;
@@ -100,26 +176,31 @@ pub fn route(ui: *UI) !void {
             s.drag_axis = .none;
             continue;
         }
-        if (geom.axis != s.drag_axis) {
+
+        const active_bar: Geom.Bar = blk: {
+            for (geom.bars) |maybe_bar| {
+                const bar = maybe_bar orelse continue;
+                if (bar.axis == s.drag_axis) break :blk bar;
+            }
             s.drag_axis = .none;
             continue;
-        }
+        };
 
-        switch (geom.axis) {
+        switch (active_bar.axis) {
             .y => {
                 const my: f32 = @floatCast(ui.input.mouse_pos[1]);
-                const free = @max(0, geom.track.h() - geom.thumb.h());
-                const max_off = @max(0, el.content_h - el.box.h());
+                const free = @max(0, active_bar.track.h() - active_bar.thumb.h());
+                const max_off = Element.scrollMetrics(el.overflow, el.box, el.content_w, el.content_h, ui.theme.scrollbar_thickness).max_offset[1];
                 if (free <= 0 or max_off <= 0) continue;
-                const t = std.math.clamp((my - s.drag_grab - geom.track.y()) / free, 0, 1);
+                const t = std.math.clamp((my - s.drag_grab - active_bar.track.y()) / free, 0, 1);
                 s.offset = .{ s.offset[0], t * max_off };
             },
             .x => {
                 const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
-                const free = @max(0, geom.track.w() - geom.thumb.w());
-                const max_off = @max(0, el.content_w - el.box.w());
+                const free = @max(0, active_bar.track.w() - active_bar.thumb.w());
+                const max_off = Element.scrollMetrics(el.overflow, el.box, el.content_w, el.content_h, ui.theme.scrollbar_thickness).max_offset[0];
                 if (free <= 0 or max_off <= 0) continue;
-                const t = std.math.clamp((mx - s.drag_grab - geom.track.x()) / free, 0, 1);
+                const t = std.math.clamp((mx - s.drag_grab - active_bar.track.x()) / free, 0, 1);
                 s.offset = .{ t * max_off, s.offset[1] };
             },
             .none => unreachable,
@@ -131,18 +212,19 @@ pub fn route(ui: *UI) !void {
         const delta: math.Vec2 = switch (el.overflow) {
             .scroll_x => .{ ui.input.scroll_delta[0], 0 },
             .scroll_y => .{ 0, ui.input.scroll_delta[1] },
+            .scroll => try lockedWheelDelta(ui, el, .{ ui.input.scroll_delta[0], ui.input.scroll_delta[1] }),
             else => unreachable,
         };
-        try ui.state.addScroll(el.id, el, delta);
+        try ui.state.addScroll(el.id, el, delta, ui.theme.scrollbar_thickness);
     }
 
     if (press_target) |pt| {
         const el = &elements[pt.slot];
         const s = try ui.state.getOrCreate(.scroll, ui.allocator, el.id);
-        s.drag_axis = pt.geom.axis;
-        s.drag_grab = switch (pt.geom.axis) {
-            .y => @as(f32, @floatCast(ui.input.mouse_pos[1])) - pt.geom.thumb.y(),
-            .x => @as(f32, @floatCast(ui.input.mouse_pos[0])) - pt.geom.thumb.x(),
+        s.drag_axis = pt.bar.axis;
+        s.drag_grab = switch (pt.bar.axis) {
+            .y => @as(f32, @floatCast(ui.input.mouse_pos[1])) - pt.bar.thumb.y(),
+            .x => @as(f32, @floatCast(ui.input.mouse_pos[0])) - pt.bar.thumb.x(),
             .none => 0,
         };
     }
@@ -171,45 +253,152 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
         if (sg.layer != layer) continue;
         const el = &elements[sg.slot];
         const clip_arr: ?[4]f32 = if (sg.parent_clip) |c| @as([4]f32, c.v) else null;
-
-        const track_inst = gpu.Instance{
-            .pos = .{ sg.geom.track.x(), sg.geom.track.y() },
-            .size = .{ sg.geom.track.w(), sg.geom.track.h() },
-            .uv0 = .{ 0, 0 },
-            .uv1 = .{ 0, 0 },
-            .color = track_color,
-            .border_color = .{ 0, 0, 0, 0 },
-            .corner_radius = cr,
-            .border_width = 0,
-            .prim_type = 0.0,
-        };
-        try draw_list.pushInstances(&[_]gpu.Instance{track_inst}, null, clip_arr);
-
         const sb_id = idFor(el.id);
-        const dragging = if (ui.state.get(.scroll, el.id)) |s| s.drag_axis == sg.geom.axis else false;
-        const hovered = ui.state.hovered == sb_id or dragging;
-        const hover_t = ui.anim(sb_id, "sb_hover", if (hovered) 1.0 else 0.0, .{ .duration_ms = 100 });
-        const thumb_color: [4]f32 = math.lerp(base, hi, hover_t);
 
-        const thumb_inst = gpu.Instance{
-            .pos = .{ sg.geom.thumb.x(), sg.geom.thumb.y() },
-            .size = .{ sg.geom.thumb.w(), sg.geom.thumb.h() },
-            .uv0 = .{ 0, 0 },
-            .uv1 = .{ 0, 0 },
-            .color = thumb_color,
-            .border_color = .{ 0, 0, 0, 0 },
-            .corner_radius = cr,
-            .border_width = 0,
-            .prim_type = 0.0,
-        };
-        try draw_list.pushInstances(&[_]gpu.Instance{thumb_inst}, null, clip_arr);
+        for (sg.geom.bars) |maybe_bar| {
+            const bar = maybe_bar orelse continue;
 
-        try ui.appendHit(sb_id, sg.geom.thumb, sg.parent_clip, layer);
+            const track_inst = gpu.Instance{
+                .pos = .{ bar.track.x(), bar.track.y() },
+                .size = .{ bar.track.w(), bar.track.h() },
+                .uv0 = .{ 0, 0 },
+                .uv1 = .{ 0, 0 },
+                .color = track_color,
+                .border_color = .{ 0, 0, 0, 0 },
+                .corner_radius = cr,
+                .border_width = 0,
+                .prim_type = 0.0,
+            };
+            try draw_list.pushInstances(&[_]gpu.Instance{track_inst}, null, clip_arr);
+
+            const dragging = if (ui.state.get(.scroll, el.id)) |s| s.drag_axis == bar.axis else false;
+            const hovered = ui.state.hovered == sb_id or dragging;
+            const hover_t = ui.anim(sb_id, "sb_hover", if (hovered) 1.0 else 0.0, .{ .duration_ms = 100 });
+            const thumb_color: [4]f32 = math.lerp(base, hi, hover_t);
+
+            const thumb_inst = gpu.Instance{
+                .pos = .{ bar.thumb.x(), bar.thumb.y() },
+                .size = .{ bar.thumb.w(), bar.thumb.h() },
+                .uv0 = .{ 0, 0 },
+                .uv1 = .{ 0, 0 },
+                .color = thumb_color,
+                .border_color = .{ 0, 0, 0, 0 },
+                .corner_radius = cr,
+                .border_width = 0,
+                .prim_type = 0.0,
+            };
+            try draw_list.pushInstances(&[_]gpu.Instance{thumb_inst}, null, clip_arr);
+
+            try ui.appendHit(sb_id, bar.thumb, sg.parent_clip, layer);
+        }
+
+        // Corner fill when both bars are present.
+        if (sg.geom.bars[0] != null and sg.geom.bars[1] != null) {
+            const thickness = ui.theme.scrollbar_thickness;
+            const corner_inst = gpu.Instance{
+                .pos = .{ el.box.x() + el.box.w() - thickness, el.box.y() + el.box.h() - thickness },
+                .size = .{ thickness, thickness },
+                .uv0 = .{ 0, 0 },
+                .uv1 = .{ 0, 0 },
+                .color = track_color,
+                .border_color = .{ 0, 0, 0, 0 },
+                .corner_radius = 0,
+                .border_width = 0,
+                .prim_type = 0.0,
+            };
+            try draw_list.pushInstances(&[_]gpu.Instance{corner_inst}, null, clip_arr);
+        }
     }
 }
 
 const Key = @import("Key.zig");
 const testing = std.testing;
+
+fn testScrollElement(overflow: Element.Overflow, box_w: f32, box_h: f32, content_w: f32, content_h: f32) Element {
+    var el = (Element.Config{
+        .width = .fixed(box_w),
+        .height = .fixed(box_h),
+        .overflow = overflow,
+    }).toElement();
+    el.box = math.Rect.init(0, 0, box_w, box_h);
+    el.content_w = content_w;
+    el.content_h = content_h;
+    return el;
+}
+
+fn buildTwoAxisScrollTree(u: *UI) !void {
+    _ = try u.open(.str("root"), .{
+        .width = .fixed(300),
+        .height = .fixed(200),
+        .direction = .column,
+        .overflow = .scroll,
+    }, .none);
+    {
+        _ = try u.open(.str("child"), .{
+            .width = .fixed(600),
+            .height = .fixed(800),
+        }, .none);
+        u.close();
+    }
+    u.close();
+}
+
+fn wheelInput(delta: math.Vec2) @import("window").Input {
+    return .{
+        .pos = .{ 50, 50 },
+        .mouse_down_now = false,
+        .scroll_delta = delta,
+        .chars = &.{},
+        .keys = &.{},
+        .shift_held = false,
+        .ctrl_held = false,
+        .super_held = false,
+    };
+}
+
+test "scroll overflow only renders axes that independently overflow" {
+    const vertical_only = testScrollElement(.scroll, 100, 100, 96, 120);
+    const vh_metrics = Element.scrollMetrics(
+        vertical_only.overflow,
+        vertical_only.box,
+        vertical_only.content_w,
+        vertical_only.content_h,
+        8,
+    );
+    try testing.expect(!vh_metrics.has_x);
+    try testing.expect(vh_metrics.has_y);
+    try testing.expectApproxEqAbs(0, vh_metrics.max_offset[0], 0.001);
+    try testing.expectApproxEqAbs(20, vh_metrics.max_offset[1], 0.001);
+
+    const both_axes = testScrollElement(.scroll, 100, 80, 200, 300);
+    const both_metrics = Element.scrollMetrics(both_axes.overflow, both_axes.box, both_axes.content_w, both_axes.content_h, 8);
+    try testing.expect(both_metrics.has_x);
+    try testing.expect(both_metrics.has_y);
+    try testing.expectApproxEqAbs(108, both_metrics.max_offset[0], 0.001);
+    try testing.expectApproxEqAbs(228, both_metrics.max_offset[1], 0.001);
+}
+
+test "two axis wheel scroll locks one axis per gesture" {
+    const allocator = testing.allocator;
+    var ui = try UI.init(allocator, .{});
+    defer ui.deinit();
+
+    try buildTwoAxisScrollTree(&ui);
+    try ui.resolve();
+
+    try ui.resolveWindow(wheelInput(.{ 40, 5 }), 0, 0);
+    try ui.resolveWindow(wheelInput(.{ 2, 50 }), WHEEL_LOCK_IDLE_MS - 1, 0);
+
+    const s = ui.state.get(.scroll, Key.str("root").hash()).?;
+    try testing.expectEqual(State.Scroll.Axis.x, s.wheel_axis);
+    try testing.expectApproxEqAbs(42, s.offset[0], 0.001);
+    try testing.expectApproxEqAbs(0, s.offset[1], 0.001);
+    try ui.resolveWindow(wheelInput(.{ 2, 50 }), WHEEL_LOCK_IDLE_MS * 2, 0);
+
+    try testing.expectEqual(State.Scroll.Axis.y, s.wheel_axis);
+    try testing.expectApproxEqAbs(42, s.offset[0], 0.001);
+    try testing.expectApproxEqAbs(50, s.offset[1], 0.001);
+}
 
 test "scrollbar drag moves scroll offset proportionally" {
     const allocator = testing.allocator;
@@ -250,10 +439,11 @@ test "scrollbar drag moves scroll offset proportionally" {
     }
 
     const geom = compute(root_el.?, .{ 0, 0 }, &ui.theme).?;
-    const thumb_top_y = geom.thumb.y();
+    const bar = geom.bars[1].?;
+    const thumb_top_y = bar.thumb.y();
 
     try ui.resolveWindow(.{
-        .pos = .{ geom.thumb.x() + 1, thumb_top_y + 4 },
+        .pos = .{ bar.thumb.x() + 1, thumb_top_y + 4 },
         .mouse_down_now = true,
         .scroll_delta = .{ 0, 0 },
         .chars = &.{},
@@ -272,7 +462,7 @@ test "scrollbar drag moves scroll offset proportionally" {
 
     const drag_target_y = thumb_top_y + 30;
     try ui.resolveWindow(.{
-        .pos = .{ geom.thumb.x() + 1, drag_target_y },
+        .pos = .{ bar.thumb.x() + 1, drag_target_y },
         .mouse_down_now = true,
         .scroll_delta = .{ 0, 0 },
         .chars = &.{},
@@ -282,16 +472,16 @@ test "scrollbar drag moves scroll offset proportionally" {
         .super_held = false,
     }, 0, 0);
 
-    const free = geom.track.h() - geom.thumb.h();
+    const free = bar.track.h() - bar.thumb.h();
     const max_off: f32 = 1000 - 200;
-    const expected_t = (drag_target_y - 4 - geom.track.y()) / free;
+    const expected_t = (drag_target_y - 4 - bar.track.y()) / free;
     const expected_offset = expected_t * max_off;
 
     const s_after_drag = ui.state.get(.scroll, root_id).?;
     try testing.expectApproxEqAbs(expected_offset, s_after_drag.offset[1], 0.5);
 
     try ui.resolveWindow(.{
-        .pos = .{ geom.thumb.x() + 1, drag_target_y },
+        .pos = .{ bar.thumb.x() + 1, drag_target_y },
         .mouse_down_now = false,
         .scroll_delta = .{ 0, 0 },
         .chars = &.{},

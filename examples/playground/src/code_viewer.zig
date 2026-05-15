@@ -217,7 +217,7 @@ pub fn render(
         .height = .grow(),
         .padding = .init(10, 10, 10, 10),
         .dir = .column,
-        .overflow = .scroll_y,
+        .overflow = .scroll,
         .key = knots.ui.Key.str(source_path).indexed(0),
         .style = .{
             .color = .muted,
