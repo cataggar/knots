@@ -248,10 +248,10 @@ fn navRows(app: *knots.App) !void {
                 .color = if (is_active) .primary else .{ .color = Color{ .value = inactive_bg } },
                 .corner_radius = .sm,
             },
-            .hover_style = if (!is_active) .{ .color = .muted } else null,
+            .hover_style = if (!is_active) .{ .color = .muted } else .{},
             .hover_anim = .{ .opts = .{ .duration_ms = 80 } },
             .onClick = handler,
-            .text = .{ .content = d.name, .size = .sm },
+            .text = .{ .content = d.name, .size = .sm, .color = if (!is_active) .dimmed else null },
         });
     }
 }

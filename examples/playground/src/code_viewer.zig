@@ -199,13 +199,7 @@ pub fn render(
             .@"align" = .center,
             .justify = .center,
             .key = .src(@src()),
-            .style = .{
-                .color = if (expanded) .primary else .muted,
-                .corner_radius = .sm,
-                .border_width = 1,
-                .border_color = .toned,
-            },
-            .hover_style = .{ .border_color = .primary },
+            .style = .{ .color = .primary, .corner_radius = .sm },
             .hover_anim = .{},
             .onClick = onToggle,
             .text = .{ .content = icon_collapse_source, .size = .xs },
@@ -215,12 +209,10 @@ pub fn render(
     const body = Rect{
         .width = .grow(),
         .height = .grow(),
-        .padding = .init(10, 10, 10, 10),
         .dir = .column,
         .overflow = .scroll,
         .key = knots.ui.Key.str(source_path).indexed(0),
         .style = .{
-            .color = .muted,
             .corner_radius = .md,
             .border_width = 0,
             .border_color = .toned,

@@ -39,6 +39,7 @@ pub const ButtonText = struct {
     content: []const u8,
     font: ?[]const u8 = null,
     size: Size.Input = .sm,
+    color: ?Color.Input = null,
 };
 
 const Button = @This();
@@ -86,7 +87,9 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
         if (is_hovered) try cb(app);
 
     if (self.text) |text| {
-        const text_color: Color.Input = self.style.color.onColor() orelse .text;
+        const text_color: Color.Input =
+            self.style.color.onColor() orelse
+            text.color orelse .text;
         const txt = Text{
             .content = text.content,
             .font = text.font,
