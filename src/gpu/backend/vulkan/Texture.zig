@@ -18,6 +18,7 @@ image: vk.Image,
 memory: vk.DeviceMemory,
 image_view: vk.ImageView,
 ready: bool,
+layout: vk.ImageLayout,
 width: u32,
 height: u32,
 format: gpu.Texture.Format,
@@ -74,6 +75,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: gpu.Texture.Des
         .memory = memory,
         .image_view = image_view,
         .ready = false,
+        .layout = .undefined,
         .width = desc.width,
         .height = desc.height,
         .format = desc.format,
@@ -145,11 +147,19 @@ fn writeImpl(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, widt
     ctx.vkd.unmapMemory(ctx.device, self.staging_memory);
 
     const cmd = try ctx.beginSingleTimeCommands();
+    const src_stage = if (self.layout == .undefined)
+        vk.PipelineStageFlags{ .top_of_pipe_bit = true }
+    else
+        vk.PipelineStageFlags{ .fragment_shader_bit = true };
+    const src_access = if (self.layout == .undefined)
+        vk.AccessFlags{}
+    else
+        vk.AccessFlags{ .shader_read_bit = true };
 
-    ctx.vkd.cmdPipelineBarrier(cmd, .{ .top_of_pipe_bit = true }, .{ .transfer_bit = true }, .{}, null, null, &.{.{
-        .src_access_mask = .{},
+    ctx.vkd.cmdPipelineBarrier(cmd, src_stage, .{ .transfer_bit = true }, .{}, null, null, &.{.{
+        .src_access_mask = src_access,
         .dst_access_mask = .{ .transfer_write_bit = true },
-        .old_layout = .undefined,
+        .old_layout = self.layout,
         .new_layout = .transfer_dst_optimal,
         .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
         .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
@@ -180,6 +190,7 @@ fn writeImpl(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, widt
 
     try ctx.endSingleTimeCommands(cmd);
     self.ready = true;
+    self.layout = .shader_read_only_optimal;
 }
 
 fn isReady(ptr: *anyopaque) bool {

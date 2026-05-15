@@ -16,6 +16,9 @@ current_pipeline_layout: vk.PipelineLayout,
 
 pub fn create(allocator: std.mem.Allocator, command_buffer: vk.CommandBuffer, ctx: *Context, desc: gpu.RenderPass.Desc) !gpu.RenderPass {
     const ca = desc.color_attachment;
+    if (ca.target != null) return error.UnsupportedRenderTarget;
+    if (ca.load_op != .clear or ca.store_op != .store) return error.UnsupportedRenderPassOperation;
+
     ctx.vkd.cmdBeginRenderPass(command_buffer, &.{
         .render_pass = ctx.render_pass,
         .framebuffer = ctx.framebuffers[ctx._current_image_index],

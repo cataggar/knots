@@ -469,7 +469,13 @@ fn metricGridColumns(app: *knots.App, key: knots.ui.Key, columns: usize, items: 
         while (col < columns) : (col += 1) {
             const item_idx = i + col;
             if (item_idx < items.len) {
-                try app.e(MetricCard{ .key = key.indexed(200 + item_idx), .name = items[item_idx][0], .value = items[item_idx][1] });
+                try app.e(MetricCard{
+                    .key = key.indexed(200 + item_idx),
+                    .name_key = key.indexed(300 + item_idx * 2),
+                    .value_key = key.indexed(301 + item_idx * 2),
+                    .name = items[item_idx][0],
+                    .value = items[item_idx][1],
+                });
             } else {
                 try app.e(Rect{ .key = key.indexed(200 + item_idx), .width = .grow() });
             }
@@ -483,6 +489,8 @@ fn metricGridColumns(app: *knots.App, key: knots.ui.Key, columns: usize, items: 
 
 const MetricCard = struct {
     key: knots.ui.Key,
+    name_key: knots.ui.Key,
+    value_key: knots.ui.Key,
     name: []const u8,
     value: []const u8,
 
@@ -496,8 +504,8 @@ const MetricCard = struct {
                 .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
             },
             .{
-                Text{ .key = self.key.indexed(1), .content = self.name, .size = .xs, .color = .dimmed, .selectable = false },
-                Text{ .key = self.key.indexed(2), .content = self.value, .size = .xs, .selectable = false },
+                Text{ .key = self.name_key, .content = self.name, .size = .xs, .color = .dimmed, .selectable = false },
+                Text{ .key = self.value_key, .content = self.value, .size = .xs, .selectable = false },
             },
         });
     }

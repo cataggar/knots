@@ -51,7 +51,6 @@ fn body(app: *knots.App) !void {
                 .width = .fixed(canvas_width),
                 .height = .fixed(canvas_height),
                 .onDraw = onDraw,
-                .cmds = &self.demo_state.canvas_cmds,
                 .key = .src(@src()),
             },
         },

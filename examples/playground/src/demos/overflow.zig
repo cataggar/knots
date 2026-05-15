@@ -72,8 +72,8 @@ fn body(app: *knots.App) !void {
 }
 
 fn caption(app: *knots.App, content: []const u8, key: knots.ui.Key) !void {
-    try app.e(Text{ .content = content, .size = .xs, .color = .dimmed, .key = key });
-    try app.e(Spacer{ .height = .fixed(4), .key = key.indexed(1) });
+    try app.e(Text{ .content = content, .size = .xs, .color = .dimmed, .key = key.indexed(1) });
+    try app.e(Spacer{ .height = .fixed(4), .key = key.indexed(2) });
 }
 
 fn scrollYRows(app: *knots.App) !void {

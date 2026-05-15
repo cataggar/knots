@@ -90,6 +90,7 @@ pub fn dispatch(
     onComplete: Callback(ReturnType(func)),
 ) DispatchError!void {
     const ctx = try allocator.create(Context(ReturnType(func)));
+    errdefer allocator.destroy(ctx);
     ctx.init(onComplete, allocator);
     try self.wg.concurrent(io, workerFn(@TypeOf(args), func), .{ io, args, ctx, &self.queue });
 }

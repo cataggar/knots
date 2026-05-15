@@ -19,7 +19,6 @@ pub const Demo = struct {
         form_volume: f32 = 0.7,
         form_color: knots.ui.Color = knots.ui.Color.hex("#4F8CFFFF") catch unreachable,
         canvas_effect: u32 = 0,
-        canvas_cmds: std.ArrayList(knots.component.Canvas.DrawCmd) = .empty,
         pending_async: usize = 0,
         hover_strength: f32 = 0,
         dropped_paths: std.ArrayList([]const u8) = .empty,
@@ -30,7 +29,6 @@ pub const Demo = struct {
             self.notes_buf.deinit(allocator);
             for (self.dropped_paths.items) |p| allocator.free(p);
             self.dropped_paths.deinit(allocator);
-            self.canvas_cmds.deinit(allocator);
             self.form_password.deinit(allocator);
             self.form_email.deinit(allocator);
             self.name_buf.deinit(allocator);

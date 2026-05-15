@@ -65,11 +65,12 @@ fn getSize(ptr: *anyopaque) usize {
 
 fn resize(ptr: *anyopaque, new_size: usize) anyerror!void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
-    self.buffer.deinit();
-    self.buffer = try self.device.createBuffer(.{
+    const new_buffer = try self.device.createBuffer(.{
         .usage = self.usage,
         .size = new_size,
         .label = "",
     });
+    self.buffer.deinit();
+    self.buffer = new_buffer;
     self.size = new_size;
 }

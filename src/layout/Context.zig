@@ -149,6 +149,8 @@ pub fn reset(self: *Context) void {
 }
 
 pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slot {
+    std.debug.assert(self.slotForId(id) == null);
+
     const slot = try self.pool.append(self.allocator, id, config.toElement());
     try self.id_to_slot.putContext(self.allocator, id, slot, .{});
     if (config.grid_template) |t| try self.grid_templates.put(self.allocator, slot, t);
@@ -190,6 +192,8 @@ pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slo
 }
 
 pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element.Slot {
+    std.debug.assert(self.slotForId(id) == null);
+
     const slot = try self.pool.append(self.allocator, id, config.toElement());
     try self.id_to_slot.putContext(self.allocator, id, slot, .{});
     if (config.grid_template) |t| try self.grid_templates.put(self.allocator, slot, t);

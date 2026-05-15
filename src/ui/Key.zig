@@ -35,7 +35,7 @@ pub inline fn str(key: []const u8) Key {
 pub inline fn indexed(self: Key, index: usize) Key {
     return Key{
         .key = self.key,
-        .index = index,
+        .index = chainIndex(self.index, index),
     };
 }
 
@@ -66,6 +66,13 @@ inline fn mixIndex(seed: u64, index: usize) u64 {
     return x ^ (x >> 32);
 }
 
+inline fn chainIndex(parent: usize, child: usize) usize {
+    var h = std.hash.Wyhash.init(0x7ac4_71f4_6d77_1a33);
+    h.update(std.mem.asBytes(&parent));
+    h.update(std.mem.asBytes(&child));
+    return @truncate(h.final());
+}
+
 const testing = std.testing;
 
 test "hash produces full u64 codomain" {
@@ -78,4 +85,14 @@ test "hash produces full u64 codomain" {
         if ((str(s).hash() >> 32) != 0) any_high_bits = true;
     }
     try testing.expect(any_high_bits);
+}
+
+test "indexed composes nested component keys" {
+    const a = str("row").indexed(10).indexed(1).hash();
+    const b = str("row").indexed(11).indexed(1).hash();
+    const direct = str("row").indexed(1).hash();
+
+    try testing.expect(a != b);
+    try testing.expect(a != direct);
+    try testing.expect(b != direct);
 }

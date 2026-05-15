@@ -21,9 +21,7 @@ const title = std.fmt.comptimePrint(
 );
 
 const Context = struct {
-    allocator: std.mem.Allocator,
     app: knots.App,
-    canvas_cmds: std.ArrayList(Canvas.DrawCmd),
     renderer_settings: knots.debug.RendererSettings,
 };
 
@@ -39,14 +37,11 @@ pub fn main(init: std.process.Init) !void {
     errdefer app.deinit();
 
     var ctx = Context{
-        .allocator = init.gpa,
         .app = app,
-        .canvas_cmds = .empty,
         .renderer_settings = try .init(init.gpa, app.renderer.cfg.gpu_backend, app.renderer.cfg.present_mode),
     };
     defer {
         ctx.renderer_settings.deinit(init.gpa);
-        ctx.canvas_cmds.deinit(init.gpa);
         ctx.app.deinit();
     }
 
@@ -246,7 +241,6 @@ const GridCells = struct {
 };
 
 fn renderCanvasStrip(app: *knots.App) !void {
-    const self: *Context = @fieldParentPtr("app", app);
     try app.e(.{
         Rect{
             .key = .src(@src()),
@@ -259,7 +253,6 @@ fn renderCanvasStrip(app: *knots.App) !void {
             .key = .src(@src()),
             .width = .grow(),
             .height = .grow(),
-            .cmds = &self.canvas_cmds,
             .onDraw = drawCanvas,
         }},
     });

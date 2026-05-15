@@ -9,7 +9,6 @@ const triangle_height = 320;
 
 const Context = struct {
     app: knots.App,
-    grid_cmds: std.ArrayList(Canvas.DrawCmd),
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -21,10 +20,8 @@ pub fn main(init: std.process.Init) !void {
                 .title = "Triangle",
             },
         }),
-        .grid_cmds = .empty,
     };
     defer {
-        ctx.grid_cmds.deinit(init.gpa);
         ctx.app.deinit();
     }
 
@@ -32,8 +29,6 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn frameCb(app: *knots.App) !void {
-    const self: *Context = @fieldParentPtr("app", app);
-
     const size = app.window.getSize();
     const w: f32 = @floatFromInt(size.width);
     const h: f32 = @floatFromInt(size.height);
@@ -48,7 +43,6 @@ fn frameCb(app: *knots.App) !void {
         },
         .{Canvas{
             .onDraw = drawTriangle,
-            .cmds = &self.grid_cmds,
             .key = .src(@src()),
             .width = .fixed(triangle_width),
             .height = .fixed(triangle_height),

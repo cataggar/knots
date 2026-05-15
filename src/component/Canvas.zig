@@ -13,7 +13,6 @@ height: Element.sizing.Axis = .grow(),
 style: Style = .{},
 interactive: bool = false,
 onDraw: *const fn (*App, *Painter) anyerror!void,
-cmds: *std.ArrayList(DrawCmd),
 key: Key,
 
 const Canvas = @This();
@@ -51,7 +50,11 @@ pub const Painter = struct {
     }
 
     pub fn fillConvexPolygon(self: *Painter, p: DrawCmd.FillConvexPolygon) !void {
-        try self.cmds.append(self.allocator, .{ .fill_convex_polygon = p });
+        const points = try self.allocator.dupe([2]f32, p.points);
+        try self.cmds.append(self.allocator, .{ .fill_convex_polygon = .{
+            .points = points,
+            .color = p.color,
+        } });
     }
 };
 
@@ -70,12 +73,13 @@ pub fn open(self: *const Canvas, app: *App) !Element.Id {
 
 pub fn close(self: *const Canvas, app: *App) !void {
     const ui = &app.ui;
+    const allocator = app.arena();
 
-    self.cmds.clearRetainingCapacity();
-    var painter = Painter{ .cmds = self.cmds, .allocator = ui.allocator };
+    var cmds: std.ArrayList(DrawCmd) = .empty;
+    var painter = Painter{ .cmds = &cmds, .allocator = allocator };
     try self.onDraw(app, &painter);
 
-    ui.setDecoration(ui.currentSlot(), .{ .canvas = .{ .cmds = self.cmds.items } });
+    ui.setDecoration(ui.currentSlot(), .{ .canvas = .{ .cmds = cmds.items } });
 
     ui.close();
 }
