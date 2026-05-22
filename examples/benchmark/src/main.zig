@@ -22,7 +22,7 @@ const title = std.fmt.comptimePrint(
 
 const Context = struct {
     app: knots.App,
-    renderer_settings: knots.debug.RendererSettings,
+    dev_tools: knots.debug.DevTools,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -38,10 +38,10 @@ pub fn main(init: std.process.Init) !void {
 
     var ctx = Context{
         .app = app,
-        .renderer_settings = try .init(init.gpa, app.renderer.cfg.gpu_backend, app.renderer.cfg.present_mode),
+        .dev_tools = try .init(init.gpa, app.renderer.cfg.gpu_backend, app.renderer.cfg.present_mode),
     };
     defer {
-        ctx.renderer_settings.deinit(init.gpa);
+        ctx.dev_tools.deinit(init.gpa);
         ctx.app.deinit();
     }
 
@@ -93,20 +93,10 @@ fn renderHeader(app: *knots.App) !void {
             .gap = 16,
             .style = .{ .color = .bg, .border_width = 1, .border_color = .toned, .corner_radius = .sm },
         },
-        .{
-            Text{ .key = .src(@src()), .content = title },
-            Rect{
-                .key = .src(@src()),
-                .width = .fit(),
-                .height = .fit(),
-                .dir = .row,
-                .@"align" = .center,
-                .gap = 8,
-                .padding = .init(0, 16, 0, 0),
-            },
-            .{self.renderer_settings},
-        },
+        .{Text{ .key = .src(@src()), .content = title }},
     });
+
+    try app.e(.{self.dev_tools});
 }
 
 fn renderBody(app: *knots.App) !void {
