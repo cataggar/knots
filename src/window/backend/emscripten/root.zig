@@ -109,8 +109,8 @@ pub const Backend = struct {
         _ = emscripten_set_blur_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), false, events.onBlur, 0);
     }
 
-    pub fn pollEvents(_: *const Self) void {}
-    pub fn waitEvents(_: *const Self) void {}
+    pub fn pollEvents(_: *const Self, _: std.Io) void {}
+    pub fn waitEvents(_: *const Self, _: std.Io) void {}
     pub fn postEmptyEvent(_: *const Self) void {}
 
     pub fn isOpen(_: *const Self) bool {
@@ -188,7 +188,7 @@ pub const Backend = struct {
     }
 };
 
-pub fn init(cfg: window.Config) !Backend {
+pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     const selector = cfg.canvas_selector orelse @panic("canvas_selector must be set for emscripten windows");
     const cs = em.applyCanvasSize(selector, cfg.width, cfg.height);
     const ev: window.ResizeEvent = .{

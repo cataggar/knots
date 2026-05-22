@@ -39,11 +39,11 @@ pub const Backend = struct {
         self.ns_window.msgSend(void, "makeFirstResponder:", .{self.ns_view});
     }
 
-    pub fn pollEvents(_: *const Self) void {
+    pub fn pollEvents(_: *const Self, _: std.Io) void {
         drainEventQueue(ak.sharedApp());
     }
 
-    pub fn waitEvents(self: *const Self) void {
+    pub fn waitEvents(self: *const Self, _: std.Io) void {
         const NSApp = ak.sharedApp();
         const NSDate = objc.getClass("NSDate").?;
         const distant_future = NSDate.msgSend(objc.Object, "distantFuture", .{});
@@ -184,7 +184,7 @@ pub const Backend = struct {
     }
 };
 
-pub fn init(cfg: window.Config) !Backend {
+pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     if (!classes_registered) {
         const registered = try classes.registerClasses();
         KnotsView = registered.view;
