@@ -122,6 +122,7 @@ fn volumeInput(app: *knots.App) !void {
             SliderInput{
                 .key = .src(@src()),
                 .value = &self.demo_state.form_volume,
+                .steps = 0.02,
             },
         },
     });

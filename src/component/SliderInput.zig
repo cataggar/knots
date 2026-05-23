@@ -12,6 +12,7 @@ const animation = ui_mod.animation;
 value: *f32,
 min: f32 = 0,
 max: f32 = 1,
+steps: f32 = 0,
 width: Element.sizing.Axis = .grow(),
 track_height: f32 = 4,
 track_color: Color.Input = .toned,
@@ -35,7 +36,7 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
         if (bounds.w() > 0) {
             const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
             const t = std.math.clamp((mx - bounds.x()) / bounds.w(), 0, 1);
-            const new_value = self.min + t * (self.max - self.min);
+            const new_value = self.steppedValue(self.min + t * (self.max - self.min));
             if (new_value != self.value.*) {
                 self.value.* = new_value;
                 if (self.onChange) |cb| try cb(app);
@@ -44,7 +45,8 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
     }
 
     const range = self.max - self.min;
-    const progress: f32 = if (range > 0) std.math.clamp((self.value.* - self.min) / range, 0, 1) else 0;
+    const display_value = self.steppedValue(self.value.*);
+    const progress: f32 = if (range > 0) std.math.clamp((display_value - self.min) / range, 0, 1) else 0;
 
     const is_hovered = ui.hovering(id);
     const is_dragging = ui.pressing(id) and ui.input.mouse_down;
@@ -81,4 +83,17 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
 
 pub fn close(_: *const SliderInput, app: *App) !void {
     app.ui.close();
+}
+
+fn steppedValue(self: *const SliderInput, value: f32) f32 {
+    const range = self.max - self.min;
+    const clamped = if (range >= 0)
+        std.math.clamp(value, self.min, self.max)
+    else
+        std.math.clamp(value, self.max, self.min);
+
+    if (self.steps <= 0 or range <= 0) return clamped;
+
+    const snapped = self.min + @round((clamped - self.min) / self.steps) * self.steps;
+    return std.math.clamp(snapped, self.min, self.max);
 }
