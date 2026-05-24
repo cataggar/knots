@@ -664,6 +664,43 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     try draw_list.pushInstances(&[_]gpu.Instance{knob}, null, clip_arr);
                 }
             },
+            .progress_bar => |p| {
+                const bx = el.box.x();
+                const by = el.box.y();
+                const bw = el.box.w();
+                const bh = el.box.h();
+                const cr = p.corner_radius;
+                const progress = std.math.clamp(p.progress, 0.0, 1.0);
+                const zero4 = [4]f32{ 0, 0, 0, 0 };
+
+                const track = gpu.Instance{
+                    .pos = .{ bx, by },
+                    .size = .{ bw, bh },
+                    .uv0 = .{ 0, 0 },
+                    .uv1 = .{ 0, 0 },
+                    .color = p.track_color,
+                    .border_color = zero4,
+                    .corner_radius = cr,
+                    .border_width = 0,
+                    .prim_type = 0.0,
+                };
+                try draw_list.pushInstances(&[_]gpu.Instance{track}, null, clip_arr);
+
+                if (progress > 0) {
+                    const fill = gpu.Instance{
+                        .pos = .{ bx, by },
+                        .size = .{ bw * progress, bh },
+                        .uv0 = .{ 0, 0 },
+                        .uv1 = .{ 0, 0 },
+                        .color = p.fill_color,
+                        .border_color = zero4,
+                        .corner_radius = cr,
+                        .border_width = 0,
+                        .prim_type = 0.0,
+                    };
+                    try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip_arr);
+                }
+            },
         }
 
         if (el.overflow != .visible) {
