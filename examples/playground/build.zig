@@ -78,7 +78,7 @@ fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
     const emcc_path =
         b.option([]const u8, "emcc", "Path to emcc. Defaults to searching PATH.") orelse b.findProgram(&.{"emcc"}, &.{}) catch
             @panic("emcc not found. Put emcc on PATH or pass -Demcc=/path/to/emcc.");
-            
+
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "playground",

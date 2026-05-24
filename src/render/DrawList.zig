@@ -6,17 +6,21 @@ pub const MAX_LAYERS = 256;
 pub const CommandKind = enum { vertex, instance, text };
 
 pub const Command = struct {
-    kind: CommandKind,
-    texture: ?u32,
     // .vertex   -> offset/count are index_offset/index_count into `indices`
     // .instance -> offset/count are first_instance/instance_count into `instances`
     // .text     -> offset/count are index_offset/index_count into `text_indices`
+    kind: CommandKind,
+    texture: ?u32,
     offset: u32,
     count: u32,
     clip_rect: ?[4]f32,
 };
 
 const LayerRange = struct { start: u32 = 0, len: u32 = 0 };
+
+pub const TextBatch = struct {
+    clip_rect: ?[4]f32,
+};
 
 allocator: std.mem.Allocator,
 vertices: std.ArrayList(gpu.Vertex),
@@ -143,4 +147,28 @@ pub fn pushText(self: *DrawList, verts: []const gpu.SlugVertex, indices: []const
     }
     try self.text_vertices.appendSlice(self.allocator, verts);
     self.layer_cmds.items[range.start + range.len - 1].count += @intCast(indices.len);
+}
+
+pub fn beginTextBatch(self: *DrawList, max_quads: usize, clip: ?[4]f32) !?TextBatch {
+    if (max_quads == 0) return null;
+    try self.text_vertices.ensureUnusedCapacity(self.allocator, max_quads * 4);
+    try self.text_indices.ensureUnusedCapacity(self.allocator, max_quads * 6);
+    return .{ .clip_rect = clip };
+}
+
+pub fn pushTextQuad(self: *DrawList, batch: TextBatch, verts: [4]gpu.SlugVertex) !void {
+    if (!self.lastCmdMatches(.text, null, batch.clip_rect)) {
+        try self.beginCommand(.text, null, batch.clip_rect, @intCast(self.text_indices.items.len));
+    }
+
+    const range = self.layer_ranges[self.current_layer];
+    const vertex_base: u32 = @intCast(self.text_vertices.items.len);
+    inline for (0..4) |i| self.text_vertices.appendAssumeCapacity(verts[i]);
+    self.text_indices.appendAssumeCapacity(vertex_base + 0);
+    self.text_indices.appendAssumeCapacity(vertex_base + 1);
+    self.text_indices.appendAssumeCapacity(vertex_base + 2);
+    self.text_indices.appendAssumeCapacity(vertex_base + 0);
+    self.text_indices.appendAssumeCapacity(vertex_base + 2);
+    self.text_indices.appendAssumeCapacity(vertex_base + 3);
+    self.layer_cmds.items[range.start + range.len - 1].count += 6;
 }

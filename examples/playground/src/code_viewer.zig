@@ -27,13 +27,17 @@ const Line = struct {
 
 const Row = struct {
     spans: []const Span,
+    gutter_label: []const u8,
 };
 
 pub const Highlighted = struct {
     spans: []const Span,
     rows: []const Row,
+    gutter_labels: []const []const u8,
 
     pub fn deinit(self: Highlighted, allocator: std.mem.Allocator) void {
+        for (self.gutter_labels) |label| allocator.free(label);
+        allocator.free(self.gutter_labels);
         allocator.free(self.rows);
         allocator.free(self.spans);
     }
@@ -101,8 +105,22 @@ const Builder = struct {
 
         const lines = self.lines.items;
         const rows = try self.allocator.alloc(Row, lines.len);
-        for (lines, rows) |line, *row| {
-            row.* = .{ .spans = spans[line.span_start..line.span_end] };
+        errdefer self.allocator.free(rows);
+
+        const gutter_labels = try self.allocator.alloc([]const u8, lines.len);
+        errdefer self.allocator.free(gutter_labels);
+
+        var labels_created: usize = 0;
+        errdefer for (gutter_labels[0..labels_created]) |label| self.allocator.free(label);
+
+        for (lines, rows, 0..) |line, *row, i| {
+            const gutter_label = try std.fmt.allocPrint(self.allocator, "{d}", .{i + 1});
+            gutter_labels[i] = gutter_label;
+            labels_created += 1;
+            row.* = .{
+                .spans = spans[line.span_start..line.span_end],
+                .gutter_label = gutter_label,
+            };
         }
         self.lines.deinit(self.allocator);
         self.lines = .empty;
@@ -110,6 +128,7 @@ const Builder = struct {
         return .{
             .spans = spans,
             .rows = rows,
+            .gutter_labels = gutter_labels,
         };
     }
 
@@ -245,7 +264,6 @@ fn renderLine(app: *knots.App, row_item: Row, line_idx: usize) !void {
     };
     _ = try row.open(app);
 
-    const line_no = try std.fmt.allocPrint(app.arena(), "{d}", .{line_idx + 1});
     try app.e(.{
         Rect{
             .width = .fixed(gutter_width),
@@ -256,7 +274,7 @@ fn renderLine(app: *knots.App, row_item: Row, line_idx: usize) !void {
         },
         .{
             Text{
-                .content = line_no,
+                .content = row_item.gutter_label,
                 .size = .xs,
                 .color = .dimmed,
                 .selectable = false,

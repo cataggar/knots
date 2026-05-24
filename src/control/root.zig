@@ -32,6 +32,45 @@ pub fn For(comptime T: type) type {
     };
 }
 
+const VirtualRange = union(enum) {
+    empty,
+    placeholder: struct {
+        total_h: f32,
+    },
+    visible: struct {
+        first: usize,
+        last: usize,
+        lead_h: f32,
+        trail_h: f32,
+    },
+};
+
+fn virtualRange(item_count: usize, row_height: f32, viewport_h: f32, scroll_y: f32, overscan: u32) VirtualRange {
+    if (item_count == 0 or row_height <= 0) return .empty;
+
+    const total_h = @as(f32, @floatFromInt(item_count)) * row_height;
+    if (viewport_h <= 0) return .{ .placeholder = .{ .total_h = total_h } };
+
+    const max_first = item_count - 1;
+    const first_visible_raw: usize = @intFromFloat(@max(0, scroll_y / row_height));
+    const first_visible = @min(first_visible_raw, max_first);
+    const visible_count: usize = @intFromFloat(@ceil(viewport_h / row_height) + 1);
+    const overscan_usize: usize = overscan;
+
+    const first = if (first_visible >= overscan_usize)
+        first_visible - overscan_usize
+    else
+        0;
+    const last = @min(item_count, first_visible + visible_count + overscan_usize);
+
+    return .{ .visible = .{
+        .first = first,
+        .last = last,
+        .lead_h = @as(f32, @floatFromInt(first)) * row_height,
+        .trail_h = @as(f32, @floatFromInt(item_count - last)) * row_height,
+    } };
+}
+
 /// Renders only the visible band of a long list. Must be the direct child
 /// of a scroll container (the parent is read from the open stack), and the
 /// rows must have a uniform `row_height`. Leading and trailing spacers
@@ -60,56 +99,67 @@ pub fn VirtualList(comptime T: type) type {
             const measured_h: f32 = if (app.ui.state.get(.measured, parent_id)) |s| s.height else 0;
             const configured_h: f32 = if (parent_el.height.kind == .fixed) parent_el.height.value else 0;
             const parent_h: f32 = if (measured_h > 0) measured_h else configured_h;
-
-            if (parent_h <= 0 or self.row_height <= 0) {
-                for (self.items, 0..) |item, i| try self.each(app, item, i);
-                return;
-            }
-
             const scroll_y = app.ui.state.getScroll(parent_id)[1];
-            const first_visible_f: f32 = @max(0, scroll_y / self.row_height);
-            const visible_count_f: f32 = @ceil(parent_h / self.row_height) + 1;
-            const first_visible: usize = @intFromFloat(first_visible_f);
-            const visible_count: usize = @intFromFloat(visible_count_f);
 
-            const first: usize = if (first_visible >= self.overscan)
-                first_visible - self.overscan
-            else
-                0;
-
-            const last: usize = @min(self.items.len, first_visible + visible_count + self.overscan);
-            if (first >= last) {
-                const total_h = @as(f32, @floatFromInt(self.items.len)) * self.row_height;
-                if (total_h > 0) {
-                    _ = try app.ui.open(self.key.indexed(0), .{
-                        .width = .grow(),
-                        .height = .fixed(total_h),
-                    }, .none);
-                    app.ui.close();
-                }
-                return;
-            }
-
-            const lead_h = @as(f32, @floatFromInt(first)) * self.row_height;
-            const trail_h = @as(f32, @floatFromInt(self.items.len - last)) * self.row_height;
-
-            if (lead_h > 0) {
-                _ = try app.ui.open(self.key.indexed(0), .{
-                    .width = .grow(),
-                    .height = .fixed(lead_h),
-                }, .none);
-                app.ui.close();
-            }
-            for (self.items[first..last], first..) |item, i| {
-                try self.each(app, item, i);
-            }
-            if (trail_h > 0) {
-                _ = try app.ui.open(self.key.indexed(1), .{
-                    .width = .grow(),
-                    .height = .fixed(trail_h),
-                }, .none);
-                app.ui.close();
+            switch (virtualRange(self.items.len, self.row_height, parent_h, scroll_y, self.overscan)) {
+                .empty => return,
+                .placeholder => |r| {
+                    if (r.total_h > 0) {
+                        _ = try app.ui.open(self.key.indexed(0), .{
+                            .width = .grow(),
+                            .height = .fixed(r.total_h),
+                        }, .none);
+                        app.ui.close();
+                        try app.signal(.redraw);
+                    }
+                },
+                .visible => |r| {
+                    if (r.lead_h > 0) {
+                        _ = try app.ui.open(self.key.indexed(0), .{
+                            .width = .grow(),
+                            .height = .fixed(r.lead_h),
+                        }, .none);
+                        app.ui.close();
+                    }
+                    for (self.items[r.first..r.last], r.first..) |item, i| {
+                        try self.each(app, item, i);
+                    }
+                    if (r.trail_h > 0) {
+                        _ = try app.ui.open(self.key.indexed(1), .{
+                            .width = .grow(),
+                            .height = .fixed(r.trail_h),
+                        }, .none);
+                        app.ui.close();
+                    }
+                },
             }
         }
     };
+}
+
+test "virtual range uses placeholder when viewport is unknown" {
+    const r = virtualRange(100, 10, 0, 0, 4);
+    try std.testing.expectEqual(@as(std.meta.Tag(VirtualRange), .placeholder), r);
+    try std.testing.expectApproxEqAbs(1000, r.placeholder.total_h, 0.001);
+}
+
+test "virtual range returns empty for empty lists" {
+    const r = virtualRange(0, 10, 100, 0, 4);
+    try std.testing.expectEqual(@as(std.meta.Tag(VirtualRange), .empty), r);
+}
+
+test "virtual range includes overscan and spacers" {
+    const r = virtualRange(100, 10, 50, 200, 2).visible;
+    try std.testing.expectEqual(@as(usize, 18), r.first);
+    try std.testing.expectEqual(@as(usize, 28), r.last);
+    try std.testing.expectApproxEqAbs(180, r.lead_h, 0.001);
+    try std.testing.expectApproxEqAbs(720, r.trail_h, 0.001);
+}
+
+test "virtual range clamps large scroll offsets" {
+    const r = virtualRange(100, 10, 50, 10_000, 2).visible;
+    try std.testing.expectEqual(@as(usize, 97), r.first);
+    try std.testing.expectEqual(@as(usize, 100), r.last);
+    try std.testing.expectApproxEqAbs(970, r.lead_h, 0.001);
+    try std.testing.expectApproxEqAbs(0, r.trail_h, 0.001);
 }

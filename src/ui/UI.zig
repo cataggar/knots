@@ -470,6 +470,16 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
 
         const clip: ?math.Rect = if (clip_rects.items.len > 0) clip_rects.items[clip_rects.items.len - 1] else null;
         const clip_arr: ?[4]f32 = if (clip) |c| @as([4]f32, c.v) else null;
+        const clipped_out = if (clip) |c| !c.overlaps(el.box) else false;
+
+        if (clipped_out) {
+            if (el.overflow != .visible) {
+                const new_clip = clip.?.intersect(el.box);
+                try clip_rects.append(allocator, new_clip);
+                try clip_owners.append(allocator, slot);
+            }
+            continue;
+        }
 
         if (el.overflow.isScroll()) try scrollbar.recordForTessellate(self, slot, clip, layer);
 
@@ -478,16 +488,6 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
         switch (self.decorations.items[slot]) {
             .none => {},
             .rect => |r| {
-                if (clip) |c|
-                    if (!c.overlaps(el.box)) {
-                        if (el.overflow != .visible) {
-                            const new_clip = c.intersect(el.box);
-                            try clip_rects.append(allocator, new_clip);
-                            try clip_owners.append(allocator, slot);
-                        }
-                        continue;
-                    };
-
                 const inst = gpu.Instance{
                     .pos = .{ el.box.x(), el.box.y() },
                     .size = .{ el.box.w(), el.box.h() },
@@ -516,11 +516,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     for (shaped.lines) |ln| total_glyphs += ln.glyphs.len;
                     if (total_glyphs == 0) continue;
 
-                    const verts_buf = try allocator.alloc(gpu.SlugVertex, total_glyphs * 4);
-                    defer allocator.free(verts_buf);
-                    const idx_buf = try allocator.alloc(u32, total_glyphs * 6);
-                    defer allocator.free(idx_buf);
-                    var quad_count: u32 = 0;
+                    const batch = (try draw_list.beginTextBatch(total_glyphs, clip_arr)).?;
 
                     for (shaped.lines) |line| {
                         const baseline = el.box.y() + ascender + line.y / content_scale;
@@ -558,9 +554,9 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                 rec.band_offset[0], rec.band_offset[1],
                             };
 
-                            const v_base = quad_count * 4;
+                            var verts: [4]gpu.SlugVertex = undefined;
                             inline for (0..4) |ci| {
-                                verts_buf[v_base + ci] = .{
+                                verts[ci] = .{
                                     .pos = .{
                                         sx_v[ci],
                                         sy_v[ci],
@@ -573,22 +569,8 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                                     .col = t.color,
                                 };
                             }
-                            idx_buf[quad_count * 6 + 0] = v_base + 0;
-                            idx_buf[quad_count * 6 + 1] = v_base + 1;
-                            idx_buf[quad_count * 6 + 2] = v_base + 2;
-                            idx_buf[quad_count * 6 + 3] = v_base + 0;
-                            idx_buf[quad_count * 6 + 4] = v_base + 2;
-                            idx_buf[quad_count * 6 + 5] = v_base + 3;
-                            quad_count += 1;
+                            try draw_list.pushTextQuad(batch, verts);
                         }
-                    }
-
-                    if (quad_count > 0) {
-                        try draw_list.pushText(
-                            verts_buf[0 .. quad_count * 4],
-                            idx_buf[0 .. quad_count * 6],
-                            clip_arr,
-                        );
                     }
                 }
             },
