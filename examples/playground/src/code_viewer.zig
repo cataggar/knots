@@ -334,7 +334,7 @@ fn colorForTag(tag: std.zig.Token.Tag) ColorInput {
 
         .doc_comment, .container_doc_comment => .dimmed,
 
-        .invalid, .invalid_periodasterisks => .@"error",
+        .invalid => .@"error",
 
         .keyword_pub,
         .keyword_const,

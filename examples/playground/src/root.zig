@@ -16,7 +16,7 @@ app: knots.App,
 debug_devtools: knots.debug.DevTools,
 active_demo: usize = 0,
 demo_state: demos.Demo.State,
-source_cache: [demos.all.len]?code_viewer.Highlighted = [_]?code_viewer.Highlighted{null} ** demos.all.len,
+source_cache: [demos.all.len]?code_viewer.Highlighted = @splat(null),
 
 const Self = @This();
 

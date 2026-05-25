@@ -463,8 +463,9 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     const content_w = @max(0, el.box.w() - el.padding.left() - el.padding.right());
     const content_h = @max(0, el.box.h() - el.padding.top() - el.padding.bottom());
 
-    var sbfa = std.heap.stackFallback(@sizeOf(f32) * GRID_INLINE_TRACKS * 4, self.allocator);
-    const allocator = sbfa.get();
+    var buf: [@sizeOf(f32) * GRID_INLINE_TRACKS * 4]u8 = undefined;
+    var bfa = std.heap.BufferFirstAllocator.init(&buf, self.allocator);
+    const allocator = bfa.allocator();
 
     const col_sizes = try allocator.alloc(f32, cols.len);
     defer allocator.free(col_sizes);
