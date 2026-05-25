@@ -4,7 +4,6 @@ const builtin = @import("builtin");
 const knots = @import("knots");
 const Perf = @import("Perf.zig");
 
-const Decoration = @import("ui").Decoration;
 const Element = @import("layout").Element;
 
 pub const GPUBackend = @import("gpu_backend").Backend;
@@ -13,6 +12,7 @@ pub const PresentMode = @import("gpu").Context.PresentMode;
 const config = @import("debug_config");
 
 const Button = knots.component.Button;
+const Graph = knots.component.Graph;
 const Rect = knots.component.Rect;
 const SelectInput = knots.component.SelectInput;
 const Text = knots.component.Text;
@@ -32,7 +32,18 @@ const popup_z: u8 = 250;
 
 const Tab = enum {
     metrics,
+    runtime,
     renderer,
+};
+
+const RuntimeHistory = struct {
+    latest: usize = 0,
+    peak: usize = 0,
+
+    fn update(self: *RuntimeHistory, capacity: usize) void {
+        self.latest = capacity;
+        self.peak = @max(self.peak, capacity);
+    }
 };
 
 const State = struct {
@@ -41,7 +52,7 @@ const State = struct {
     panel_open: bool = false,
     active_tab: Tab = .metrics,
     perf: Perf = .{},
-    spark_cmds: std.ArrayList(Decoration.DrawCmd) = .empty,
+    runtime: RuntimeHistory = .{},
 };
 
 state: *State,
@@ -73,7 +84,6 @@ pub fn init(allocator: std.mem.Allocator, gpu_backend: GPUBackend, present_mode:
 }
 
 pub fn deinit(self: *const DevTools, allocator: std.mem.Allocator) void {
-    self.state.spark_cmds.deinit(allocator);
     allocator.destroy(self.state);
 }
 
@@ -81,6 +91,7 @@ const trigger_key: knots.ui.Key = .str("debug_devtools_trigger");
 const trigger_button_key: knots.ui.Key = .str("debug_devtools_trigger_button");
 const panel_key: knots.ui.Key = .str("debug_devtools_panel");
 const metrics_tab_key: knots.ui.Key = .str("debug_devtools_metrics_tab");
+const runtime_tab_key: knots.ui.Key = .str("debug_devtools_runtime_tab");
 const renderer_tab_key: knots.ui.Key = .str("debug_devtools_renderer_tab");
 const close_key: knots.ui.Key = .str("debug_devtools_close");
 const apply_key: knots.ui.Key = .str("debug_devtools_apply");
@@ -95,6 +106,7 @@ fn selectedIdx(app: *knots.App, key: knots.ui.Key, fallback: u32) u32 {
 
 pub fn render(self: *const DevTools, app: *knots.App) anyerror!void {
     self.state.perf.update(app.timer.delta);
+    self.state.runtime.update(app.frame_arena.queryCapacity());
 
     const size = app.window.getSize();
     const w: f32 = @floatFromInt(size.width);
@@ -182,11 +194,13 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
 
     try self.renderTabs(app);
     if (app.ui.clickedWithin(metrics_tab_key.hash())) self.state.active_tab = .metrics;
+    if (app.ui.clickedWithin(runtime_tab_key.hash())) self.state.active_tab = .runtime;
     if (app.ui.clickedWithin(renderer_tab_key.hash())) self.state.active_tab = .renderer;
 
     const content_w = @max(0, width - 28.0);
     switch (self.state.active_tab) {
         .metrics => try self.renderMetricsTab(app, content_w),
+        .runtime => try self.renderRuntimeTab(app, content_w),
         .renderer => try self.renderRenderer(app),
     }
 
@@ -231,6 +245,18 @@ fn renderTabs(self: *const DevTools, app: *knots.App) !void {
     });
 
     try app.e(Button{
+        .key = runtime_tab_key,
+        .width = .grow(),
+        .height = .grow(),
+        .justify = .center,
+        .@"align" = .center,
+        .style = .{ .color = if (self.state.active_tab == .runtime) .primary else .muted, .corner_radius = .sm },
+        .hover_style = if (self.state.active_tab == .runtime) null else .{ .color = .toned },
+        .hover_anim = .{},
+        .text = .{ .content = "Runtime", .size = .xs },
+    });
+
+    try app.e(Button{
         .key = renderer_tab_key,
         .width = .grow(),
         .height = .grow(),
@@ -256,6 +282,30 @@ fn renderMetricsTab(self: *const DevTools, app: *knots.App, content_w: f32) !voi
     try self.renderSparkline(app, content_w);
 
     app.ui.close();
+}
+
+fn renderRuntimeTab(self: *const DevTools, app: *knots.App, content_w: f32) !void {
+    _ = try app.ui.open(panel_key.indexed(50), .{
+        .width = .grow(),
+        .direction = .column,
+        .gap = 12,
+    }, .none);
+
+    const columns: usize = if (content_w >= 620) 6 else if (content_w >= 420) 3 else 2;
+    try self.renderRuntimeGrid(app, columns);
+
+    app.ui.close();
+}
+
+fn renderRuntimeGrid(self: *const DevTools, app: *knots.App, columns: usize) !void {
+    const arena = app.arena();
+    const runtime = &self.state.runtime;
+
+    try metricGridColumns(app, panel_key.indexed(51), columns, &.{
+        .{ "Concurrency", try std.fmt.allocPrint(arena, "{d}", .{app.completion_queue.inFlight()}) },
+        .{ "Arena capacity", try formatBytes(arena, runtime.latest) },
+        .{ "Peak capacity", try formatBytes(arena, runtime.peak) },
+    });
 }
 
 fn renderPerformance(self: *const DevTools, app: *knots.App, width: f32) !void {
@@ -295,8 +345,13 @@ fn renderMetricsGrid(self: *const DevTools, app: *knots.App) !void {
 }
 
 fn renderSparkline(self: *const DevTools, app: *knots.App, width: f32) !void {
-    const label_w: f32 = 42.0;
-    try self.buildSparkline(app, @max(1, width - label_w));
+    _ = width;
+    const arena = app.arena();
+    const samples = try arena.alloc(f32, self.state.perf.count);
+    for (samples, 0..) |*sample, i| sample.* = self.state.perf.sampleAt(i);
+
+    const mm = self.state.perf.minMaxMs();
+    const max_ms = @max(16.7, mm.max);
 
     _ = try app.ui.open(spark_key.indexed(1), .{
         .width = .grow(),
@@ -314,12 +369,19 @@ fn renderSparkline(self: *const DevTools, app: *knots.App, width: f32) !void {
         .selectable = false,
     });
 
-    _ = try app.ui.open(spark_key, .{
+    try app.e(Graph{
+        .key = spark_key,
         .width = .grow(),
         .height = .fixed(68),
-        .overflow = .hidden,
-    }, .{ .canvas = .{ .cmds = self.state.spark_cmds.items } });
-    app.ui.close();
+        .inset = .init(8, 0, 8, 0),
+        .y_domain = .{ .min = 0, .max = max_ms },
+        .rules = &.{
+            .{ .axis = .y, .value = max_ms * 0.5 },
+        },
+        .series = &.{
+            .{ .data = .{ .y_values = samples } },
+        },
+    });
 
     app.ui.close();
 }
@@ -416,50 +478,6 @@ fn renderDiagnostics(_: *const DevTools, app: *knots.App) !void {
     });
 }
 
-fn buildSparkline(self: *const DevTools, app: *knots.App, panel_width: f32) !void {
-    const cmds = &self.state.spark_cmds;
-    cmds.clearRetainingCapacity();
-
-    const line_color = app.ui.theme.primary.value;
-    const guide_color = app.ui.theme.dimmed.value;
-
-    const plot_w = @max(1, panel_width);
-
-    if (self.state.perf.count < 2) return;
-
-    const width: f32 = plot_w;
-    const height: f32 = 52.0;
-    const ox: f32 = 0.0;
-    const oy: f32 = 8.0;
-    const mm = self.state.perf.minMaxMs();
-    const max_ms = @max(16.7, mm.max);
-    const denom = @max(1.0, max_ms);
-    const n = self.state.perf.count;
-    const step = width / @as(f32, @floatFromInt(n - 1));
-
-    try cmds.append(app.ui.allocator, .{ .line = .{
-        .from = .{ ox, oy + height * 0.5 },
-        .to = .{ ox + width, oy + height * 0.5 },
-        .color = guide_color,
-        .thickness = 1,
-    } });
-
-    var prev_x: f32 = ox;
-    var prev_y: f32 = oy + height - (std.math.clamp(self.state.perf.sampleAt(0) / denom, 0, 1) * height);
-    for (1..n) |i| {
-        const x = ox + step * @as(f32, @floatFromInt(i));
-        const y = oy + height - (std.math.clamp(self.state.perf.sampleAt(i) / denom, 0, 1) * height);
-        try cmds.append(app.ui.allocator, .{ .line = .{
-            .from = .{ prev_x, prev_y },
-            .to = .{ x, y },
-            .color = line_color,
-            .thickness = 2,
-        } });
-        prev_x = x;
-        prev_y = y;
-    }
-}
-
 fn label(app: *knots.App, key: knots.ui.Key, content: []const u8) !void {
     try app.e(Text{
         .key = key,
@@ -538,4 +556,12 @@ const MetricCard = struct {
 fn formatId(allocator: std.mem.Allocator, id: Element.Id) ![]const u8 {
     if (id == Element.INVALID_ID) return "none";
     return std.fmt.allocPrint(allocator, "0x{x}", .{@as(u32, @truncate(id))});
+}
+
+fn formatBytes(allocator: std.mem.Allocator, bytes: usize) ![]const u8 {
+    if (bytes < 1024) return std.fmt.allocPrint(allocator, "{d} B", .{bytes});
+
+    const value: f64 = @floatFromInt(bytes);
+    if (bytes < 1024 * 1024) return std.fmt.allocPrint(allocator, "{d:.1} KiB", .{value / 1024.0});
+    return std.fmt.allocPrint(allocator, "{d:.1} MiB", .{value / (1024.0 * 1024.0)});
 }

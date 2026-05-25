@@ -28,6 +28,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
             .title = "Playground",
             .canvas_selector = "#canvas",
         },
+        .arena_reset_mode = .free_all,
     });
     errdefer app.deinit();
 

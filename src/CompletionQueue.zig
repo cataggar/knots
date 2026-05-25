@@ -55,6 +55,7 @@ recv_buf: []Completion,
 buf: []Completion,
 queue: std.Io.Queue(Completion),
 wg: std.Io.Group,
+in_flight: std.atomic.Value(usize),
 
 const CompletionQueue = @This();
 
@@ -64,6 +65,7 @@ pub fn init(allocator: Allocator, max_completions: usize) !CompletionQueue {
         .buf = buf,
         .queue = .init(buf),
         .wg = .init,
+        .in_flight = .init(0),
         .recv_buf = try allocator.alloc(Completion, max_completions),
     };
 }
@@ -74,9 +76,12 @@ pub fn deinit(self: *CompletionQueue, allocator: Allocator, io: std.Io) void {
     self.wg.await(io) catch {};
     while (self.queue.get(io, self.recv_buf, 0)) |n| {
         if (n == 0) break;
-        for (self.recv_buf[0..n]) |completion|
+        for (self.recv_buf[0..n]) |completion| {
             completion.destroy(completion.ptr);
+            self.completeInFlight();
+        }
     } else |_| {}
+    self.in_flight.store(0, .monotonic);
     allocator.free(self.buf);
     allocator.free(self.recv_buf);
 }
@@ -92,31 +97,44 @@ pub fn dispatch(
     const ctx = try allocator.create(Context(ReturnType(func)));
     errdefer allocator.destroy(ctx);
     ctx.init(onComplete, allocator);
-    try self.wg.concurrent(io, workerFn(@TypeOf(args), func), .{ io, args, ctx, &self.queue });
+    _ = self.in_flight.fetchAdd(1, .monotonic);
+    errdefer self.completeInFlight();
+    try self.wg.concurrent(io, workerFn(@TypeOf(args), func), .{ io, args, ctx, &self.queue, &self.in_flight });
 }
 
 pub fn consume(self: *CompletionQueue, app: *App, io: std.Io) !void {
     const n = try self.queue.get(io, self.recv_buf, 0);
     for (self.recv_buf[0..n]) |completion| {
+        defer self.completeInFlight();
         defer completion.destroy(completion.ptr);
         try completion.callback(app, completion.ptr);
     }
 }
 
+pub inline fn inFlight(self: *const CompletionQueue) usize {
+    return self.in_flight.load(.monotonic);
+}
+
+fn completeInFlight(self: *CompletionQueue) void {
+    _ = self.in_flight.fetchSub(1, .monotonic);
+}
+
 fn workerFn(
     comptime Args: type,
     func: anytype,
-) fn (std.Io, Args, *Context(ReturnType(func)), *std.Io.Queue(Completion)) std.Io.Cancelable!void {
+) fn (std.Io, Args, *Context(ReturnType(func)), *std.Io.Queue(Completion), *std.atomic.Value(usize)) std.Io.Cancelable!void {
     return struct {
         fn run(
             io: std.Io,
             args: Args,
             ctx: *Context(ReturnType(func)),
             queue: *std.Io.Queue(Completion),
+            in_flight: *std.atomic.Value(usize),
         ) std.Io.Cancelable!void {
             ctx.result = @call(.auto, func, args);
             queue.putOne(io, ctx.completion) catch |err| {
                 ctx.completion.destroy(ctx.completion.ptr);
+                _ = in_flight.fetchSub(1, .monotonic);
                 switch (err) {
                     error.Closed => {},
                     error.Canceled => return error.Canceled,
