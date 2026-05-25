@@ -45,7 +45,7 @@ pub fn init(allocator: std.mem.Allocator) DrawList {
         .text_indices = .empty,
         .layer_cmds = .empty,
         .layer_ranges = @splat(.{}),
-        .layers_dirty = .initEmpty(),
+        .layers_dirty = .empty,
         .current_layer = 0,
     };
 }
@@ -66,7 +66,7 @@ pub fn reset(self: *DrawList) void {
     self.text_vertices.clearRetainingCapacity();
     self.text_indices.clearRetainingCapacity();
     self.layer_cmds.clearRetainingCapacity();
-    self.layers_dirty = .initEmpty();
+    self.layers_dirty = .empty;
     self.current_layer = 0;
 }
 

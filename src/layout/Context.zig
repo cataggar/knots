@@ -121,7 +121,7 @@ pub fn init(allocator: std.mem.Allocator) Context {
     return .{
         .allocator = allocator,
         .pool = .{},
-        .z_used = .initEmpty(),
+        .z_used = .empty,
     };
 }
 
@@ -143,7 +143,7 @@ pub fn reset(self: *Context) void {
     self.grid_templates.clearRetainingCapacity();
     self.grid_placements.clearRetainingCapacity();
     self.root_slot = Element.INVALID_SLOT;
-    self.z_used = .initEmpty();
+    self.z_used = .empty;
     self.has_scroll = false;
     self.scroll_slots.clearRetainingCapacity();
 }
