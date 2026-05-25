@@ -43,7 +43,7 @@ pub const Backend = struct {
         drainEventQueue(ak.sharedApp());
     }
 
-    pub fn waitEvents(self: *const Self, _: std.Io) void {
+    pub fn waitEvents(self: *const Self, io: std.Io) void {
         const NSApp = ak.sharedApp();
         const NSDate = objc.getClass("NSDate").?;
         const distant_future = NSDate.msgSend(objc.Object, "distantFuture", .{});
@@ -53,7 +53,7 @@ pub const Backend = struct {
             .{ ak.NSEventMaskAny, distant_future, ak.defaultRunLoopMode(), ak.boolParam(true) },
         );
         if (event.value != null) NSApp.msgSend(void, "sendEvent:", .{event});
-        self.pollEvents();
+        self.pollEvents(io);
     }
 
     pub fn postEmptyEvent(_: *const Self) void {
