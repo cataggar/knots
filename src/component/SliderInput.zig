@@ -7,6 +7,7 @@ const Style = ui_mod.Style;
 const Color = ui_mod.Color;
 const Key = ui_mod.Key;
 const Decoration = ui_mod.Decoration;
+const Radius = ui_mod.Radius;
 const animation = ui_mod.animation;
 
 value: *f32,
@@ -17,7 +18,7 @@ width: Element.sizing.Axis = .grow(),
 track_height: f32 = 4,
 track_color: Color.Input = .toned,
 fill_color: Color.Input = .highlighted,
-corner_radius: f32 = 2,
+corner_radius: Radius.Input = .{ .fixed = 2 },
 knob_radius: f32 = 7,
 knob_color: Color.Input = .accented,
 onChange: ?*const fn (*App) anyerror!void = null,
@@ -73,7 +74,7 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
         .track_color = self.track_color.resolve(&ui.theme),
         .fill_color = self.fill_color.resolve(&ui.theme),
         .track_height = self.track_height,
-        .corner_radius = self.corner_radius,
+        .corner_radius = self.corner_radius.resolve(&ui.theme),
         .knob_radius = effective_knob_radius,
         .knob_color = base_knob_color,
         .halo_radius = if (halo_alpha > 0.001) halo_r else 0,

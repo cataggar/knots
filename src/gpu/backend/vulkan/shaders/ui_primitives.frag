@@ -7,7 +7,7 @@ layout(set = 1, binding = 1) uniform sampler atlas_sampler;
 
 layout(location = 0) in vec4 in_color;
 layout(location = 1) in vec2 in_uv;
-layout(location = 2) in float in_corner_radius;
+layout(location = 2) in vec4 in_corner_radius;
 layout(location = 3) in vec2 in_half_size;
 layout(location = 4) in float in_border_width;
 layout(location = 5) in vec4 in_border_color;
@@ -15,7 +15,39 @@ layout(location = 6) in float in_prim_type;
 
 layout(location = 0) out vec4 frag_color;
 
-float sdRoundedBox(vec2 p, vec2 half_size, float radius) {
+vec4 normalizedRadii(vec4 radii, vec2 size) {
+    vec4 r = max(radii, vec4(0.0));
+    float scale = 1.0;
+    if (r.x + r.y > size.x && r.x + r.y > 0.0) {
+        scale = min(scale, size.x / (r.x + r.y));
+    }
+    if (r.y + r.z > size.y && r.y + r.z > 0.0) {
+        scale = min(scale, size.y / (r.y + r.z));
+    }
+    if (r.z + r.w > size.x && r.z + r.w > 0.0) {
+        scale = min(scale, size.x / (r.z + r.w));
+    }
+    if (r.w + r.x > size.y && r.w + r.x > 0.0) {
+        scale = min(scale, size.y / (r.w + r.x));
+    }
+    return r * scale;
+}
+
+float cornerRadius(vec2 p, vec4 radii) {
+    if (p.y < 0.0) {
+        if (p.x < 0.0) {
+            return radii.x;
+        }
+        return radii.y;
+    }
+    if (p.x >= 0.0) {
+        return radii.z;
+    }
+    return radii.w;
+}
+
+float sdRoundedBox(vec2 p, vec2 half_size, vec4 radii) {
+    float radius = cornerRadius(p, normalizedRadii(radii, half_size * 2.0));
     vec2 q = abs(p) - half_size + radius;
     return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }

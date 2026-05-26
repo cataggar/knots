@@ -261,7 +261,7 @@ pub fn recordForTessellate(ui: *UI, slot: Element.Slot, parent_clip: ?math.Rect,
 
 pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
     const elements = ui.layout_ctx.pool.elements.items;
-    const cr = ui.theme.scrollbar_corner_radius;
+    const cr = ui.theme.scrollbar_corner_radius.value;
     const base: math.Vec4 = ui.theme.scrollbar_thumb_color.value;
     const hi: math.Vec4 = ui.theme.scrollbar_thumb_hover_color.value;
     const track_color: [4]f32 = ui.theme.scrollbar_track_color.value;
@@ -319,7 +319,7 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
                 .uv1 = .{ 0, 0 },
                 .color = track_color,
                 .border_color = .{ 0, 0, 0, 0 },
-                .corner_radius = 0,
+                .corner_radius = .{ 0, 0, 0, 0 },
                 .border_width = 0,
                 .prim_type = 0.0,
             };

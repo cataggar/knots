@@ -57,7 +57,7 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
     if (self.hover_style) |hs| {
         const hover_rect = self.style.merge(hs).toRect(&ui.theme);
         deco_rect.color = math.lerp(@as(math.Vec4, deco_rect.color), @as(math.Vec4, hover_rect.color), t);
-        deco_rect.corner_radius = math.lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
+        deco_rect.corner_radius = .lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
         deco_rect.border_width = math.lerp(deco_rect.border_width, hover_rect.border_width, t);
         deco_rect.border_color = math.lerp(@as(math.Vec4, deco_rect.border_color), @as(math.Vec4, hover_rect.border_color), t);
     } else if (t > 0.0) {

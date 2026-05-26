@@ -656,7 +656,7 @@ fn compositeLinearTarget(self: *Renderer, content_scale: f32) !void {
         .uv1 = .{ 1, 1 },
         .color = .{ 1, 1, 1, 1 },
         .border_color = .{ 0, 0, 0, 0 },
-        .corner_radius = 0,
+        .corner_radius = .{ 0, 0, 0, 0 },
         .border_width = 0,
         .prim_type = 2.0,
     };

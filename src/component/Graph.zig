@@ -172,7 +172,7 @@ fn appendStyle(self: *const Graph, writer: *CommandWriter, app: *App, s: Size) v
             .w = @max(0, s.w - rect.border_width),
             .h = @max(0, s.h - rect.border_width),
             .color = rect.border_color,
-            .corner_radius = @max(0, rect.corner_radius - half),
+            .corner_radius = rect.corner_radius.shrink(half),
             .thickness = rect.border_width,
         } });
     }

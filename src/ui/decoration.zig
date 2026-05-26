@@ -1,3 +1,5 @@
+const Radius = @import("Radius.zig");
+
 pub const Decoration = union(enum) {
     none: void,
     rect: Rect,
@@ -9,7 +11,7 @@ pub const Decoration = union(enum) {
 
     pub const Rect = struct {
         color: [4]f32 = .{ 0, 0, 0, 0 },
-        corner_radius: f32 = 0,
+        corner_radius: Radius = .zero,
         border_width: f32 = 0,
         border_color: [4]f32 = .{ 0, 0, 0, 0 },
     };
@@ -38,7 +40,7 @@ pub const Decoration = union(enum) {
         track_color: [4]f32,
         fill_color: [4]f32,
         track_height: f32 = 4,
-        corner_radius: f32 = 2,
+        corner_radius: Radius = Radius.all(2),
         knob_radius: f32 = 0,
         knob_color: [4]f32 = .{ 1, 1, 1, 1 },
         halo_radius: f32 = 0,
@@ -49,7 +51,7 @@ pub const Decoration = union(enum) {
         progress: f32,
         track_color: [4]f32,
         fill_color: [4]f32,
-        corner_radius: f32 = 4,
+        corner_radius: Radius = Radius.all(4),
     };
 
     pub const DrawCmd = union(enum) {
@@ -62,9 +64,9 @@ pub const Decoration = union(enum) {
         fill_triangle: FillTriangle,
         fill_convex_polygon: FillConvexPolygon,
 
-        pub const FillRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: f32 = 0 };
-        pub const FillRectGradient = struct { x: f32, y: f32, w: f32, h: f32, colors: [4][4]f32, corner_radius: f32 = 0 };
-        pub const StrokeRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: f32 = 0, thickness: f32 = 1 };
+        pub const FillRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius = .zero };
+        pub const FillRectGradient = struct { x: f32, y: f32, w: f32, h: f32, colors: [4][4]f32, corner_radius: Radius = .zero };
+        pub const StrokeRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius = .zero, thickness: f32 = 1 };
         pub const FillCircle = struct { cx: f32, cy: f32, radius: f32, color: [4]f32 };
         pub const StrokeCircle = struct { cx: f32, cy: f32, radius: f32, color: [4]f32, thickness: f32 = 1 };
         pub const Line = struct { from: [2]f32, to: [2]f32, color: [4]f32, thickness: f32 = 1 };

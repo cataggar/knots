@@ -94,7 +94,7 @@ pub fn close(self: *const ColorPicker, app: *App) !void {
         .w = self.swatch_size,
         .h = self.swatch_size,
         .color = self.value.value,
-        .corner_radius = 3,
+        .corner_radius = .all(3),
     } });
     try swatch_cmds.append(arena, .{ .stroke_rect = .{
         .x = 0.5,
@@ -102,7 +102,7 @@ pub fn close(self: *const ColorPicker, app: *App) !void {
         .w = self.swatch_size - 1,
         .h = self.swatch_size - 1,
         .color = .{ 0, 0, 0, 0.35 },
-        .corner_radius = 2.5,
+        .corner_radius = .all(2.5),
         .thickness = 1,
     } });
     _ = try ui.open(self.key.indexed(SWATCH_INDEX), .{
@@ -297,7 +297,7 @@ fn renderSvControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !
         .w = w,
         .h = h,
         .color = hue_color.value,
-        .corner_radius = 4,
+        .corner_radius = .all(4),
     } });
     try cmds.append(arena, .{ .fill_rect_gradient = .{
         .x = 0,
@@ -310,7 +310,7 @@ fn renderSvControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !
             .{ 1, 1, 1, 0 },
             .{ 1, 1, 1, 1 },
         },
-        .corner_radius = 4,
+        .corner_radius = .all(4),
     } });
     try cmds.append(arena, .{ .fill_rect_gradient = .{
         .x = 0,
@@ -323,9 +323,9 @@ fn renderSvControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !
             .{ 0, 0, 0, 1 },
             .{ 0, 0, 0, 1 },
         },
-        .corner_radius = 4,
+        .corner_radius = .all(4),
     } });
-    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = 3.5 } });
+    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = .all(3.5) } });
     try cmds.append(arena, .{ .stroke_circle = .{ .cx = marker_x, .cy = marker_y, .radius = 6, .color = .{ 1, 1, 1, 1 }, .thickness = 2 } });
     try cmds.append(arena, .{ .stroke_circle = .{ .cx = marker_x, .cy = marker_y, .radius = 7, .color = .{ 0, 0, 0, 0.65 }, .thickness = 1 } });
 
@@ -358,12 +358,12 @@ fn renderHueControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) 
             .w = if (i == 5) w - x else segment_w,
             .h = h,
             .colors = .{ c0, c1, c1, c0 },
-            .corner_radius = 0,
+            .corner_radius = .zero,
         } });
     }
 
     const marker_x = s.hue * w;
-    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = 3 } });
+    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = .all(3) } });
     try cmds.append(arena, .{ .line = .{ .from = .{ marker_x, -2 }, .to = .{ marker_x, h + 2 }, .color = .{ 1, 1, 1, 1 }, .thickness = 3 } });
     try cmds.append(arena, .{ .line = .{ .from = .{ marker_x, -2 }, .to = .{ marker_x, h + 2 }, .color = .{ 0, 0, 0, 0.65 }, .thickness = 1 } });
 
@@ -394,10 +394,10 @@ fn renderAlphaControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker
         .w = w,
         .h = h,
         .colors = .{ transparent, solid, solid, transparent },
-        .corner_radius = 3,
+        .corner_radius = .all(3),
     } });
     const marker_x = s.alpha * w;
-    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = 3 } });
+    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = .all(3) } });
     try cmds.append(arena, .{ .line = .{ .from = .{ marker_x, -2 }, .to = .{ marker_x, h + 2 }, .color = .{ 1, 1, 1, 1 }, .thickness = 3 } });
     try cmds.append(arena, .{ .line = .{ .from = .{ marker_x, -2 }, .to = .{ marker_x, h + 2 }, .color = .{ 0, 0, 0, 0.65 }, .thickness = 1 } });
 
@@ -419,10 +419,10 @@ fn renderPreview(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !vo
     const original = if (s.has_original) s.original_color else self.value.value;
 
     try appendCheckerboard(&cmds, arena, w, h, 7);
-    try cmds.append(arena, .{ .fill_rect = .{ .x = 0, .y = 0, .w = half, .h = h, .color = original, .corner_radius = 4 } });
-    try cmds.append(arena, .{ .fill_rect = .{ .x = half, .y = 0, .w = half, .h = h, .color = self.value.value, .corner_radius = 4 } });
+    try cmds.append(arena, .{ .fill_rect = .{ .x = 0, .y = 0, .w = half, .h = h, .color = original, .corner_radius = .all(4) } });
+    try cmds.append(arena, .{ .fill_rect = .{ .x = half, .y = 0, .w = half, .h = h, .color = self.value.value, .corner_radius = .all(4) } });
     try cmds.append(arena, .{ .line = .{ .from = .{ half, 0 }, .to = .{ half, h }, .color = .{ 0, 0, 0, 0.35 }, .thickness = 1 } });
-    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = 3.5 } });
+    try cmds.append(arena, .{ .stroke_rect = .{ .x = 0.5, .y = 0.5, .w = w - 1, .h = h - 1, .color = .{ 0, 0, 0, 0.35 }, .corner_radius = .all(3.5) } });
 
     _ = try ui.open(self.key.indexed(PREVIEW_INDEX), .{
         .width = .grow(),

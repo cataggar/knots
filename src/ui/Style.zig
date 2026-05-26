@@ -1,10 +1,10 @@
 const Decoration = @import("decoration.zig").Decoration;
 const Theme = @import("Theme.zig");
 const Color = @import("Color.zig");
-const Radius = Theme.Radius;
+const Radius = @import("Radius.zig");
 
 color: Color.Input = .{ .color = Color.transparent },
-corner_radius: Radius = .md,
+corner_radius: Radius.Input = .md,
 border_width: f32 = 0,
 border_color: Color.Input = .{ .color = Color.transparent },
 
@@ -13,7 +13,7 @@ const Style = @This();
 /// All-optional variant for state overrides. Null fields fall back to base.
 pub const Override = struct {
     color: ?Color.Input = null,
-    corner_radius: ?Radius = null,
+    corner_radius: ?Radius.Input = null,
     border_width: ?f32 = null,
     border_color: ?Color.Input = null,
 };
@@ -37,7 +37,7 @@ pub fn hasDecoration(self: Style) bool {
 pub fn toRect(self: Style, theme: *const Theme) Decoration.Rect {
     return .{
         .color = self.color.resolve(theme),
-        .corner_radius = self.corner_radius.resolve(theme.radius),
+        .corner_radius = self.corner_radius.resolve(theme),
         .border_width = self.border_width,
         .border_color = self.border_color.resolve(theme),
     };

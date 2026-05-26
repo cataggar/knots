@@ -82,7 +82,7 @@ pub fn close(self: *const Checkbox, app: *App) !void {
         .w = self.box_size - 1,
         .h = self.box_size - 1,
         .color = rect.border_color,
-        .corner_radius = @max(0, rect.corner_radius - 0.5),
+        .corner_radius = rect.corner_radius.shrink(0.5),
         .thickness = rect.border_width,
     } };
     cmds[2] = .{ .line = .{

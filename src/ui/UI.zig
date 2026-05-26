@@ -17,6 +17,7 @@ const Key = @import("Key.zig");
 const Style = @import("Style.zig");
 const Size = @import("Size.zig");
 const Theme = @import("Theme.zig");
+const Radius = @import("Radius.zig");
 const scrollbar = @import("scrollbar.zig");
 const canvas_tessellator = @import("canvas_tessellator.zig");
 
@@ -502,7 +503,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .uv1 = .{ 0, 0 },
                     .color = r.color,
                     .border_color = r.border_color,
-                    .corner_radius = r.corner_radius,
+                    .corner_radius = r.corner_radius.value,
                     .border_width = r.border_width,
                     .prim_type = 0.0,
                 };
@@ -591,7 +592,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .uv1 = .{ 1, 1 },
                     .color = img.tint,
                     .border_color = zero4,
-                    .corner_radius = 0,
+                    .corner_radius = Radius.zero.value,
                     .border_width = 0,
                     .prim_type = 2.0,
                 };
@@ -602,7 +603,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                 const by = el.box.y();
                 const bw = el.box.w();
                 const bh = el.box.h();
-                const cr = s.corner_radius;
+                const cr = s.corner_radius.value;
                 const th = @min(s.track_height, bh);
                 const ty = by + (bh - th) * 0.5;
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
@@ -646,7 +647,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                         .uv1 = .{ 0, 0 },
                         .color = s.halo_color,
                         .border_color = zero4,
-                        .corner_radius = hr,
+                        .corner_radius = Radius.all(hr).value,
                         .border_width = 0,
                         .prim_type = 0.0,
                     };
@@ -664,7 +665,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                         .uv1 = .{ 0, 0 },
                         .color = s.knob_color,
                         .border_color = zero4,
-                        .corner_radius = kr,
+                        .corner_radius = Radius.all(kr).value,
                         .border_width = 0,
                         .prim_type = 0.0,
                     };
@@ -676,7 +677,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                 const by = el.box.y();
                 const bw = el.box.w();
                 const bh = el.box.h();
-                const cr = p.corner_radius;
+                const cr = p.corner_radius.value;
                 const progress = std.math.clamp(p.progress, 0.0, 1.0);
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
 

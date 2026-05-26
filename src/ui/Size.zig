@@ -1,11 +1,11 @@
 const std = @import("std");
 
 pub const Input = union(enum) {
-    xs: void,
-    sm: void,
-    md: void,
-    lg: void,
-    xl: void,
+    xs,
+    sm,
+    md,
+    lg,
+    xl,
     size: f32,
 
     const Self = @This();

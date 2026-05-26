@@ -162,7 +162,7 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
         .z_index = panel_z,
     }, .{ .rect = .{
         .color = app.ui.theme.elevated.value,
-        .corner_radius = app.ui.theme.radius * 1.5,
+        .corner_radius = app.ui.theme.radius.scale(1.5),
         .border_width = 1,
         .border_color = app.ui.theme.toned.value,
     } });
@@ -400,7 +400,7 @@ fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
         .gap = 8,
     }, .{ .rect = .{
         .color = app.ui.theme.muted.value,
-        .corner_radius = app.ui.theme.radius * 0.5,
+        .corner_radius = app.ui.theme.radius.scale(0.5),
         .border_width = 1,
         .border_color = app.ui.theme.toned.value,
     } });

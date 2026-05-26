@@ -15,7 +15,7 @@ struct VertexInput {
     @location(0) pos: vec2f,
     @location(1) uv: vec2f,
     @location(2) color: vec4f,
-    @location(3) corner_radius: f32,
+    @location(3) corner_radius: vec4f,
     @location(4) half_size: vec2f,
     @location(5) border_width: f32,
     @location(6) border_color: vec4f,
@@ -26,7 +26,7 @@ struct VertexOutput {
     @builtin(position) clip_pos: vec4f,
     @location(0) color: vec4f,
     @location(1) uv: vec2f,
-    @location(2) corner_radius: f32,
+    @location(2) corner_radius: vec4f,
     @location(3) half_size: vec2f,
     @location(4) border_width: f32,
     @location(5) border_color: vec4f,
@@ -56,7 +56,7 @@ struct InstanceInput {
     @location(3) uv1: vec2f,
     @location(4) color: vec4f,
     @location(5) border_color: vec4f,
-    @location(6) corner_radius: f32,
+    @location(6) corner_radius: vec4f,
     @location(7) border_width: f32,
     @location(8) prim_type: f32,
     @location(9) _pad: f32,
@@ -95,9 +95,41 @@ fn vs_instance_main(@builtin(vertex_index) vid: u32, inst: InstanceInput) -> Ver
     return out;
 }
 
-fn sdRoundedBox(p: vec2f, half_size: vec2f, radius: f32) -> f32 {
-    let q = abs(p) - half_size + radius;
-    return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+fn normalizedRadii(radii: vec4f, size: vec2f) -> vec4f {
+    let r = max(radii, vec4f(0.0));
+    var scale: f32 = 1.0;
+    if (r.x + r.y > size.x && r.x + r.y > 0.0) {
+        scale = min(scale, size.x / (r.x + r.y));
+    }
+    if (r.y + r.z > size.y && r.y + r.z > 0.0) {
+        scale = min(scale, size.y / (r.y + r.z));
+    }
+    if (r.z + r.w > size.x && r.z + r.w > 0.0) {
+        scale = min(scale, size.x / (r.z + r.w));
+    }
+    if (r.w + r.x > size.y && r.w + r.x > 0.0) {
+        scale = min(scale, size.y / (r.w + r.x));
+    }
+    return r * scale;
+}
+
+fn cornerRadius(p: vec2f, radii: vec4f) -> f32 {
+    if (p.y < 0.0) {
+        if (p.x < 0.0) {
+            return radii.x;
+        }
+        return radii.y;
+    }
+    if (p.x >= 0.0) {
+        return radii.z;
+    }
+    return radii.w;
+}
+
+fn sdRoundedBox(p: vec2f, half_size: vec2f, radii: vec4f) -> f32 {
+    let r = cornerRadius(p, normalizedRadii(radii, half_size * 2.0));
+    let q = abs(p) - half_size + r;
+    return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 fn shadeLinear(in: VertexOutput) -> vec4f {

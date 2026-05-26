@@ -11,7 +11,7 @@ const viewport = uniform(Viewport, "viewport", .{ .descriptor = .{ .set = 0, .bi
 const in_pos = input(Vec2f, "in_pos", .{ .location = 0 });
 const in_uv = input(Vec2f, "in_uv", .{ .location = 1 });
 const in_color = input(Vec4f, "in_color", .{ .location = 2 });
-const in_corner_radius = input(f32, "in_corner_radius", .{ .location = 3 });
+const in_corner_radius = input(Vec4f, "in_corner_radius", .{ .location = 3 });
 const in_half_size = input(Vec2f, "in_half_size", .{ .location = 4 });
 const in_border_width = input(f32, "in_border_width", .{ .location = 5 });
 const in_border_color = input(Vec4f, "in_border_color", .{ .location = 6 });
@@ -19,7 +19,7 @@ const in_prim_type = input(f32, "in_prim_type", .{ .location = 7 });
 
 const out_color = output(Vec4f, "out_color", .{ .location = 0 });
 const out_uv = output(Vec2f, "out_uv", .{ .location = 1 });
-const out_corner_radius = output(f32, "out_corner_radius", .{ .location = 2 });
+const out_corner_radius = output(Vec4f, "out_corner_radius", .{ .location = 2 });
 const out_half_size = output(Vec2f, "out_half_size", .{ .location = 3 });
 const out_border_width = output(f32, "out_border_width", .{ .location = 4 });
 const out_border_color = output(Vec4f, "out_border_color", .{ .location = 5 });

@@ -202,7 +202,7 @@ pub fn SelectInput(comptime T: type) type {
                     const opt_bg: Decoration = if (is_hovered or is_selected)
                         .{ .rect = .{
                             .color = self.option_hover_color.resolve(&ui.theme),
-                            .corner_radius = ui.theme.radius * 0.5,
+                            .corner_radius = ui.theme.radius.scale(0.5),
                         } }
                     else
                         .none;
