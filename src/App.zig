@@ -106,7 +106,6 @@ pub fn start(self: *App, frameCb: Callback) !void {
             defer self.window.clearFrameHandler();
             while (self.window.isOpen()) {
                 try self.stepFrame();
-                try self.takeFrameEventError();
                 self.window.waitEvents(self.io);
                 try self.takeFrameEventError();
             }
@@ -139,8 +138,6 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
     try @call(.auto, frameCb, .{self});
 
     try self.ui.endFrame();
-
-    if (self.ui.anim_active) try self.signal(.redraw);
     if (self.drainSignals()) return;
 
     try self.ui.resolve();
@@ -149,9 +146,8 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
     const hover_changed = self.ui.resolveHit();
     try self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale);
 
-    if (hover_changed) try self.signal(.redraw);
-    if (self.ui.anim_active) try self.signal(.redraw);
-    if (self.drainSignals()) return;
+    if (hover_changed or self.ui.anim_active) try self.signal(.redraw);
+    _ = self.drainSignals();
 }
 
 fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
@@ -184,15 +180,16 @@ fn takeFrameEventError(self: *App) !void {
 }
 
 fn drainSignals(self: *App) bool {
+    var should_exit = false;
     while (self.signals.pop()) |s| switch (s) {
         .redraw => self.window.requestFrame(),
         .exit => {
             @branchHint(.cold);
             self.window.close();
-            return true;
+            should_exit = true;
         },
     };
-    return false;
+    return should_exit;
 }
 
 fn requestFrameHook(ctx: *anyopaque) void {
