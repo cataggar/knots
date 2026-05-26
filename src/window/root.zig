@@ -132,10 +132,31 @@ pub const Config = struct {
     canvas_selector: ?[:0]const u8 = null,
 };
 
+pub const ScrollInput = struct {
+    pixel: [2]f32 = .{ 0, 0 },
+    line: [2]f32 = .{ 0, 0 },
+    page: [2]f32 = .{ 0, 0 },
+
+    pub fn isZero(self: ScrollInput) bool {
+        return self.pixel[0] == 0 and self.pixel[1] == 0 and
+            self.line[0] == 0 and self.line[1] == 0 and
+            self.page[0] == 0 and self.page[1] == 0;
+    }
+
+    pub fn add(self: *ScrollInput, other: ScrollInput) void {
+        self.pixel[0] += other.pixel[0];
+        self.pixel[1] += other.pixel[1];
+        self.line[0] += other.line[0];
+        self.line[1] += other.line[1];
+        self.page[0] += other.page[0];
+        self.page[1] += other.page[1];
+    }
+};
+
 pub const Input = struct {
     pos: [2]f64,
     mouse_down_now: bool,
-    scroll_delta: [2]f32,
+    scroll: ScrollInput,
     chars: []const u21,
     keys: []const Key,
     shift_held: bool,

@@ -45,6 +45,7 @@ pub const Config = struct {
     /// scroll, dropdown-open, selection) survives conditional hiding (Tabs,
     /// Accordion, Tree); short-lived state (anim) is evicted promptly.
     state_ttls: State.Ttls = .{},
+    scroll_line_size: Size.Input = .sm,
     theme: Theme = Theme.light,
 };
 
@@ -66,6 +67,7 @@ hit_records: std.ArrayList(HitRecord),
 hit_counter: u32,
 scroll_geoms: std.ArrayList(scrollbar.SlotGeom),
 content_scale: f32,
+scroll_line_size: Size.Input,
 anim_active: bool,
 theme: Theme,
 last_stats: Stats,
@@ -84,6 +86,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .hit_counter = 0,
         .scroll_geoms = .empty,
         .content_scale = 1.0,
+        .scroll_line_size = cfg.scroll_line_size,
         .anim_active = false,
         .theme = cfg.theme,
         .last_stats = .{},
@@ -147,6 +150,10 @@ pub fn lineHeight(self: *UI, size: Size, font: ?[]const u8) !f32 {
     const face = try self.font.getFace(font);
     const scale = self.content_scale;
     return (try face.lineHeight(size.value * scale)) / scale;
+}
+
+pub fn scrollLineHeight(self: *UI) !f32 {
+    return self.lineHeight(self.scroll_line_size.resolve(), null);
 }
 
 pub fn textDecoration(self: *UI, content: []const u8, size: Size, font: ?[]const u8, wrap: bool) !Decoration {
@@ -743,7 +750,7 @@ test "scroll routing uses previous frame elements" {
     try ui.resolveWindow(.{
         .pos = .{ 150, 100 },
         .mouse_down_now = false,
-        .scroll_delta = .{ 0, 50 },
+        .scroll = .{ .pixel = .{ 0, 50 } },
         .chars = &.{},
         .keys = &.{},
         .shift_held = false,

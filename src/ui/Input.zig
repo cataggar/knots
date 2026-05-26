@@ -8,6 +8,7 @@ now_ms: i64 = 0,
 mouse_down: bool = false,
 mouse_pressed: bool = false,
 mouse_released: bool = false,
+scroll: window.ScrollInput = .{},
 scroll_delta: [2]f32 = .{ 0, 0 },
 chars: []const u21 = &.{},
 keys: []const window.Key = &.{},
@@ -36,7 +37,8 @@ pub fn collect(self: *Input, raw: window.Input, now_ms: i64) void {
     if (self.mouse_moved) self._last_move_ms = now_ms;
     self.mouse_idle_ms = now_ms - self._last_move_ms;
     self.now_ms = now_ms;
-    self.scroll_delta = raw.scroll_delta;
+    self.scroll = raw.scroll;
+    self.scroll_delta = .{ 0, 0 };
     self.shift_held = raw.shift_held;
     self.ctrl_held = raw.ctrl_held;
     self.super_held = raw.super_held;

@@ -8,6 +8,8 @@ const keymap = @import("keymap.zig");
 
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral("KnotsWindow");
 const live_resize_timer_id: usize = 1;
+const WHEEL_PAGESCROLL: u32 = std.math.maxInt(u32);
+const WheelAxis = enum { x, y };
 var class_registered: bool = false;
 
 pub const Backend = struct {
@@ -18,6 +20,8 @@ pub const Backend = struct {
     is_fullscreen: bool = false,
     should_close: bool = false,
     live_resize_timer_active: bool = false,
+    wheel_scroll_lines: u32 = 3,
+    wheel_scroll_chars: u32 = 3,
     saved_placement: win32.WINDOWPLACEMENT = std.mem.zeroes(win32.WINDOWPLACEMENT),
     saved_style: win32.WINDOW_STYLE = .{},
     drop_paths_buf: [64][260]u8 = undefined,
@@ -174,7 +178,37 @@ pub const Backend = struct {
         for (0..n) |i| out[i] = try allocator.dupe(u8, self.drop_slices[i]);
         return out;
     }
+
+    fn refreshWheelSettings(self: *Self) void {
+        self.wheel_scroll_lines = scrollSetting(win32.SPI_GETWHEELSCROLLLINES, 3);
+        self.wheel_scroll_chars = scrollSetting(win32.SPI_GETWHEELSCROLLCHARS, 3);
+    }
 };
+
+fn scrollSetting(action: win32.SYSTEM_PARAMETERS_INFO_ACTION, fallback: u32) u32 {
+    var value: u32 = fallback;
+    if (win32.SystemParametersInfoW(action, 0, @ptrCast(&value), .{}) == 0)
+        return fallback;
+    return value;
+}
+
+fn wheelSteps(delta: i16) f64 {
+    return @as(f64, @floatFromInt(delta)) / @as(f64, @floatFromInt(win32.WHEEL_DELTA));
+}
+
+fn applyWheelLines(owner: *window.Window, axis: WheelAxis, steps: f64, setting: u32) void {
+    if (setting == 0) return;
+    if (axis == .y and setting == WHEEL_PAGESCROLL) {
+        owner.addScrollPages(0, -steps);
+        return;
+    }
+
+    const units = steps * @as(f64, @floatFromInt(setting));
+    switch (axis) {
+        .x => owner.addScrollLines(units, 0),
+        .y => owner.addScrollLines(0, -units),
+    }
+}
 
 pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     _ = win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -242,7 +276,9 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     _ = win32.UpdateWindow(hwnd);
     win32.DragAcceptFiles(hwnd, 1);
 
-    return .{ .hwnd = hwnd, .hinstance = hinstance };
+    var backend = Backend{ .hwnd = hwnd, .hinstance = hinstance };
+    backend.refreshWheelSettings();
+    return backend;
 }
 
 fn ownerOf(hwnd: win32.HWND) ?*window.Window {
@@ -308,15 +344,17 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
         win32.WM_MOUSEWHEEL => {
             const hi: u16 = @truncate((wparam >> 16) & 0xFFFF);
             const delta: i16 = @bitCast(hi);
-            const dy: f64 = @as(f64, @floatFromInt(delta)) / @as(f64, @floatFromInt(win32.WHEEL_DELTA));
-            if (ownerOf(hwnd)) |o| o.addScroll(0, dy);
+            if (ownerOf(hwnd)) |o| applyWheelLines(o, .y, wheelSteps(delta), o.backend.wheel_scroll_lines);
             return 0;
         },
         win32.WM_MOUSEHWHEEL => {
             const hi: u16 = @truncate((wparam >> 16) & 0xFFFF);
             const delta: i16 = @bitCast(hi);
-            const dx: f64 = @as(f64, @floatFromInt(delta)) / @as(f64, @floatFromInt(win32.WHEEL_DELTA));
-            if (ownerOf(hwnd)) |o| o.addScroll(dx, 0);
+            if (ownerOf(hwnd)) |o| applyWheelLines(o, .x, wheelSteps(delta), o.backend.wheel_scroll_chars);
+            return 0;
+        },
+        win32.WM_SETTINGCHANGE => {
+            if (ownerOf(hwnd)) |o| o.backend.refreshWheelSettings();
             return 0;
         },
         win32.WM_KEYDOWN, win32.WM_SYSKEYDOWN => {

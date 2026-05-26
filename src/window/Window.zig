@@ -5,6 +5,7 @@ const impl = @import("window_impl");
 const Key = @import("root.zig").Key;
 const Config = @import("root.zig").Config;
 const Input = @import("root.zig").Input;
+const ScrollInput = @import("root.zig").ScrollInput;
 const KeyAction = @import("root.zig").KeyAction;
 const Mods = @import("root.zig").Mods;
 const KeyEvent = @import("root.zig").KeyEvent;
@@ -13,12 +14,10 @@ const ResizeEvent = @import("root.zig").ResizeEvent;
 const DisplayMode = @import("root.zig").DisplayMode;
 const FrameHandler = @import("root.zig").FrameHandler;
 
-const SCROLL_SPEED: comptime_float = 10;
-
 backend: impl.Backend,
 should_close: bool = false,
 mouse_button_pressed: bool = false,
-scroll: [2]f64 = .{ 0, 0 },
+scroll: ScrollInput = .{},
 char_buf: [32]u21 = @splat(0),
 char_count: u8 = 0,
 key_events: [16]KeyEvent = undefined,
@@ -120,11 +119,8 @@ pub inline fn setCursorVisible(self: *const Window, visible: bool) void {
 pub fn collectInput(self: *Window) Input {
     const pos = self.backend.getCursorPos();
     const mouse_down_now = self.mouse_button_pressed;
-    const scroll_delta: [2]f32 = .{
-        @floatCast(self.scroll[0] * SCROLL_SPEED),
-        @floatCast(-self.scroll[1] * SCROLL_SPEED),
-    };
-    self.scroll = @splat(0);
+    const scroll = self.scroll;
+    self.scroll = .{};
 
     var translated_count: u8 = 0;
     var shift_held = false;
@@ -149,7 +145,7 @@ pub fn collectInput(self: *Window) Input {
     return .{
         .pos = pos,
         .mouse_down_now = mouse_down_now,
-        .scroll_delta = scroll_delta,
+        .scroll = scroll,
         .chars = chars,
         .keys = self.key_buf[0..translated_count],
         .shift_held = shift_held,
@@ -185,9 +181,20 @@ pub fn pushKey(self: *Window, key: i32, action: KeyAction, mods: Mods) void {
     }
 }
 
-pub fn addScroll(self: *Window, dx: f64, dy: f64) void {
-    self.scroll[0] += dx;
-    self.scroll[1] += dy;
+pub fn addScroll(self: *Window, scroll: ScrollInput) void {
+    self.scroll.add(scroll);
+}
+
+pub fn addScrollPixels(self: *Window, dx: f64, dy: f64) void {
+    self.addScroll(.{ .pixel = .{ @floatCast(dx), @floatCast(dy) } });
+}
+
+pub fn addScrollLines(self: *Window, dx: f64, dy: f64) void {
+    self.addScroll(.{ .line = .{ @floatCast(dx), @floatCast(dy) } });
+}
+
+pub fn addScrollPages(self: *Window, dx: f64, dy: f64) void {
+    self.addScroll(.{ .page = .{ @floatCast(dx), @floatCast(dy) } });
 }
 
 pub fn setMouseDown(self: *Window, down: bool) void {

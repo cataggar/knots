@@ -60,8 +60,10 @@ fn scrollWheel(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const dx = event.msgSend(f64, "scrollingDeltaX", .{});
     const dy = event.msgSend(f64, "scrollingDeltaY", .{});
     const precise = event.msgSend(bool, "hasPreciseScrollingDeltas", .{});
-    const scale: f64 = if (precise) 0.1 else 1.0;
-    owner.addScroll(dx * scale, dy * scale);
+    if (precise)
+        owner.addScrollPixels(dx, -dy)
+    else
+        owner.addScrollLines(dx, -dy);
 }
 
 fn keyDown(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {

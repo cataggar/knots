@@ -116,7 +116,7 @@ pub fn build(b: *std.Build) void {
             scanner.addSystemProtocol("unstable/xdg-decoration/xdg-decoration-unstable-v1.xml");
             scanner.generate("wl_compositor", 6);
             scanner.generate("wl_shm", 1);
-            scanner.generate("wl_seat", 7);
+            scanner.generate("wl_seat", 8);
             scanner.generate("wl_output", 4);
             scanner.generate("wl_data_device_manager", 3);
             scanner.generate("xdg_wm_base", 3);

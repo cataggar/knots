@@ -98,6 +98,21 @@ fn lockedWheelDelta(ui: *UI, el: *const Element, delta: math.Vec2) !math.Vec2 {
     };
 }
 
+fn resolveScrollInput(ui: *UI, el: *const Element) !math.Vec2 {
+    const input = ui.input.scroll;
+    const has_line_or_page = input.line[0] != 0 or input.line[1] != 0 or
+        input.page[0] != 0 or input.page[1] != 0;
+    const line_h = if (has_line_or_page) try ui.scrollLineHeight() else 0;
+    const metrics = Element.scrollMetrics(el.overflow, el.box, el.content_w, el.content_h, ui.theme.scrollbar_thickness);
+    const page_x = @max(0, metrics.viewport_w - line_h);
+    const page_y = @max(0, metrics.viewport_h - line_h);
+
+    return .{
+        input.pixel[0] + input.line[0] * line_h + input.page[0] * page_x,
+        input.pixel[1] + input.line[1] * line_h + input.page[1] * page_y,
+    };
+}
+
 pub fn compute(el: *const Element, offset: math.Vec2, theme: *const Theme) ?Geom {
     const thickness = theme.scrollbar_thickness;
     const min_thumb = theme.scrollbar_min_thumb;
@@ -150,7 +165,7 @@ pub fn compute(el: *const Element, offset: math.Vec2, theme: *const Theme) ?Geom
 pub fn route(ui: *UI) !void {
     const elements = ui.layout_ctx.pool.elements.items;
     const p: math.Vec2 = .{ @floatCast(ui.input.mouse_pos[0]), @floatCast(ui.input.mouse_pos[1]) };
-    const has_wheel = ui.input.scroll_delta[0] != 0 or ui.input.scroll_delta[1] != 0;
+    const has_wheel = !ui.input.scroll.isZero();
 
     var wheel_target: ?struct { slot: Element.Slot } = null;
     var press_target: ?struct { slot: Element.Slot, bar: Geom.Bar } = null;
@@ -209,12 +224,14 @@ pub fn route(ui: *UI) !void {
 
     if (wheel_target) |w| {
         const el = &elements[w.slot];
+        const resolved = try resolveScrollInput(ui, el);
         const delta: math.Vec2 = switch (el.overflow) {
-            .scroll_x => .{ ui.input.scroll_delta[0], 0 },
-            .scroll_y => .{ 0, ui.input.scroll_delta[1] },
-            .scroll => try lockedWheelDelta(ui, el, .{ ui.input.scroll_delta[0], ui.input.scroll_delta[1] }),
+            .scroll_x => .{ resolved[0], 0 },
+            .scroll_y => .{ 0, resolved[1] },
+            .scroll => try lockedWheelDelta(ui, el, resolved),
             else => unreachable,
         };
+        ui.input.scroll_delta = delta;
         try ui.state.addScroll(el.id, el, delta, ui.theme.scrollbar_thickness);
     }
 
@@ -343,11 +360,41 @@ fn buildTwoAxisScrollTree(u: *UI) !void {
     u.close();
 }
 
+fn buildScrollYTree(u: *UI) !void {
+    _ = try u.open(.str("root"), .{
+        .width = .fixed(300),
+        .height = .fixed(200),
+        .direction = .column,
+        .overflow = .scroll_y,
+    }, .none);
+    {
+        _ = try u.open(.str("child"), .{
+            .width = .grow(),
+            .height = .fixed(1000),
+        }, .none);
+        u.close();
+    }
+    u.close();
+}
+
 fn wheelInput(delta: math.Vec2) @import("window").Input {
     return .{
         .pos = .{ 50, 50 },
         .mouse_down_now = false,
-        .scroll_delta = delta,
+        .scroll = .{ .pixel = delta },
+        .chars = &.{},
+        .keys = &.{},
+        .shift_held = false,
+        .ctrl_held = false,
+        .super_held = false,
+    };
+}
+
+fn scrollInput(scroll: @import("window").ScrollInput) @import("window").Input {
+    return .{
+        .pos = .{ 50, 50 },
+        .mouse_down_now = false,
+        .scroll = scroll,
         .chars = &.{},
         .keys = &.{},
         .shift_held = false,
@@ -400,6 +447,26 @@ test "two axis wheel scroll locks one axis per gesture" {
     try testing.expectApproxEqAbs(50, s.offset[1], 0.001);
 }
 
+test "pixel wheel scroll is independent of content scale" {
+    const allocator = testing.allocator;
+
+    var ui1 = try UI.init(allocator, .{});
+    defer ui1.deinit();
+    try buildScrollYTree(&ui1);
+    try ui1.resolve();
+    try ui1.resolveWindow(wheelInput(.{ 0, 25 }), 0, 1);
+
+    var ui2 = try UI.init(allocator, .{});
+    defer ui2.deinit();
+    try buildScrollYTree(&ui2);
+    try ui2.resolve();
+    try ui2.resolveWindow(wheelInput(.{ 0, 25 }), 0, 2);
+
+    const root_id = Key.str("root").hash();
+    try testing.expectApproxEqAbs(ui1.state.get(.scroll, root_id).?.offset[1], ui2.state.get(.scroll, root_id).?.offset[1], 0.001);
+    try testing.expectApproxEqAbs(25, ui1.state.get(.scroll, root_id).?.offset[1], 0.001);
+}
+
 test "scrollbar drag moves scroll offset proportionally" {
     const allocator = testing.allocator;
     var ui = try UI.init(allocator, .{});
@@ -445,7 +512,7 @@ test "scrollbar drag moves scroll offset proportionally" {
     try ui.resolveWindow(.{
         .pos = .{ bar.thumb.x() + 1, thumb_top_y + 4 },
         .mouse_down_now = true,
-        .scroll_delta = .{ 0, 0 },
+        .scroll = .{},
         .chars = &.{},
         .keys = &.{},
         .shift_held = false,
@@ -464,7 +531,7 @@ test "scrollbar drag moves scroll offset proportionally" {
     try ui.resolveWindow(.{
         .pos = .{ bar.thumb.x() + 1, drag_target_y },
         .mouse_down_now = true,
-        .scroll_delta = .{ 0, 0 },
+        .scroll = .{},
         .chars = &.{},
         .keys = &.{},
         .shift_held = false,
@@ -483,7 +550,7 @@ test "scrollbar drag moves scroll offset proportionally" {
     try ui.resolveWindow(.{
         .pos = .{ bar.thumb.x() + 1, drag_target_y },
         .mouse_down_now = false,
-        .scroll_delta = .{ 0, 0 },
+        .scroll = .{},
         .chars = &.{},
         .keys = &.{},
         .shift_held = false,
@@ -527,7 +594,7 @@ test "wheel scroll over container updates offset" {
     try ui.resolveWindow(.{
         .pos = .{ 50, 50 },
         .mouse_down_now = false,
-        .scroll_delta = .{ 0, 25 },
+        .scroll = .{ .pixel = .{ 0, 25 } },
         .chars = &.{},
         .keys = &.{},
         .shift_held = false,

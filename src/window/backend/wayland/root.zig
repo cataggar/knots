@@ -14,8 +14,6 @@ const keymap = @import("keymap.zig");
 const xkb = @import("xkb.zig");
 
 const BTN_LEFT: u32 = 0x110;
-const WHEEL_SCROLL_STEP: f64 = 1.0;
-const CONTINUOUS_SCROLL_SCALE: f64 = 1.0 / 15.0;
 const TEXT_URI_LIST: [*:0]const u8 = "text/uri-list";
 
 const OutputState = struct {
@@ -58,6 +56,8 @@ const State = struct {
     cursor_pos: [2]f64 = .{ 0, 0 },
     pending_axis: [2]f64 = .{ 0, 0 },
     pending_axis_discrete: [2]?i32 = .{ null, null },
+    pending_axis_value120: [2]?i32 = .{ null, null },
+    pending_axis_source: ?wl.Pointer.AxisSource = null,
     outputs: [16]OutputState = undefined,
     output_count: usize = 0,
     title_buf: [512:0]u8 = undefined,
@@ -627,18 +627,32 @@ fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, state: *State) void 
             const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;
             state.pending_axis[idx] += axis.value.toDouble();
         },
+        .axis_source => |axis| state.pending_axis_source = axis.axis_source,
         .axis_discrete => |axis| {
             const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;
             state.pending_axis_discrete[idx] = axis.discrete;
         },
+        .axis_value120 => |axis| {
+            const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;
+            state.pending_axis_value120[idx] = axis.value120;
+        },
         .frame => {
-            const dx = axisDelta(state.pending_axis[0], state.pending_axis_discrete[0]);
-            const dy = axisDelta(state.pending_axis[1], state.pending_axis_discrete[1]);
+            const dx = axisAmount(state.pending_axis[0], state.pending_axis_discrete[0], state.pending_axis_value120[0]);
+            const dy = axisAmount(state.pending_axis[1], state.pending_axis_discrete[1], state.pending_axis_value120[1]);
+            const x_is_line = state.pending_axis_value120[0] != null or state.pending_axis_discrete[0] != null;
+            const y_is_line = state.pending_axis_value120[1] != null or state.pending_axis_discrete[1] != null;
             state.pending_axis = .{ 0, 0 };
             state.pending_axis_discrete = .{ null, null };
-            if (owner) |o| if (dx != 0 or dy != 0) o.addScroll(dx, dy);
+            state.pending_axis_value120 = .{ null, null };
+            state.pending_axis_source = null;
+            if (owner) |o| if (dx != 0 or dy != 0) {
+                if ((x_is_line and dx != 0) or (y_is_line and dy != 0))
+                    o.addScrollLines(if (x_is_line) dx else 0, if (y_is_line) dy else 0);
+                if ((!x_is_line and dx != 0) or (!y_is_line and dy != 0))
+                    o.addScrollPixels(if (x_is_line) 0 else dx, if (y_is_line) 0 else dy);
+            };
         },
-        .axis_source, .axis_stop => {},
+        .axis_stop => {},
     }
 }
 
@@ -826,9 +840,10 @@ fn parseUriListIntoBuffers(
     return count;
 }
 
-fn axisDelta(value: f64, discrete: ?i32) f64 {
-    if (discrete) |steps| return -@as(f64, @floatFromInt(steps)) * WHEEL_SCROLL_STEP;
-    return -value * CONTINUOUS_SCROLL_SCALE;
+fn axisAmount(value: f64, discrete: ?i32, value120: ?i32) f64 {
+    if (value120) |v| return @as(f64, @floatFromInt(v)) / 120.0;
+    if (discrete) |steps| return @floatFromInt(steps);
+    return value;
 }
 
 fn createWakePipe() ![2]posix.fd_t {

@@ -61,15 +61,12 @@ pub fn onMouseMove(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*
 
 pub fn onWheel(_: c_int, ev: *const root.EmscriptenWheelEvent, user_data: ?*anyopaque) callconv(.c) bool {
     const owner = ownerOf(user_data) orelse return false;
-    // GLFW yoffset is +up; DOM deltaY is +down. Negate for sign parity.
-    // Normalize by deltaMode so px / line / page wheels feel comparable.
-    const norm: f64 = switch (ev.deltaMode) {
-        0 => 100.0, // DOM_DELTA_PIXEL
-        1 => 1.0, // DOM_DELTA_LINE
-        2 => 0.1, // DOM_DELTA_PAGE
-        else => 1.0,
-    };
-    owner.addScroll(-ev.deltaX / norm, -ev.deltaY / norm);
+    switch (ev.deltaMode) {
+        0 => owner.addScrollPixels(ev.deltaX, ev.deltaY), // DOM_DELTA_PIXEL
+        1 => owner.addScrollLines(ev.deltaX, ev.deltaY), // DOM_DELTA_LINE
+        2 => owner.addScrollPages(ev.deltaX, ev.deltaY), // DOM_DELTA_PAGE
+        else => owner.addScrollPixels(ev.deltaX, ev.deltaY),
+    }
     return true;
 }
 
