@@ -14,14 +14,21 @@ const Entry = struct {
     theme: Theme,
 };
 
-const entries = [_]Entry{
-    .{ .name = "dark", .theme = Theme.dark },
-    .{ .name = "light", .theme = Theme.light },
-    .{ .name = "custom", .theme = Theme.parseWithBase(Theme.dark, @import("../theme.zon")) },
+const entries = blk: {
+    @setEvalBranchQuota(50000);
+    break :blk [_]Entry{
+        .{ .name = "dark", .theme = Theme.dark },
+        .{ .name = "light", .theme = Theme.light },
+        .{ .name = "forest night", .theme = Theme.parse(@import("../themes/forest_night.zon")) },
+        .{ .name = "graphite neon", .theme = Theme.parse(@import("../themes/graphite_neon.zon")) },
+        .{ .name = "gruvbox", .theme = Theme.parse(@import("../themes/gruvbox.zon")) },
+        .{ .name = "midnight ocean", .theme = Theme.parse(@import("../themes/midnight_ocean.zon")) },
+        .{ .name = "monochrome ash", .theme = Theme.parse(@import("../themes/monochrome_ash.zon")) },
+        .{ .name = "nord frost", .theme = Theme.parse(@import("../themes/nord_frost.zon")) },
+        .{ .name = "rose mist", .theme = Theme.parse(@import("../themes/rose_mist.zon")) },
+        .{ .name = "warm sand", .theme = Theme.parse(@import("../themes/warm_sand.zon")) },
+    };
 };
-
-const cols = [_]Rect.GridTrack{ .{ .fr = 1 }, .{ .fr = 1 } };
-const rows = [_]Rect.GridTrack{ .{ .fixed = 112 }, .{ .fixed = 112 } };
 
 pub fn render(app: *knots.App) !void {
     try ui_helpers.panel(app, "Theme", body);
@@ -31,16 +38,21 @@ fn body(app: *knots.App) !void {
     try app.e(.{
         Rect{
             .width = .grow(),
-            .height = .fixed(236),
-            .dir = .grid,
+            .height = .fixed(800),
+            .dir = .column,
             .gap = 12,
-            .grid_template = .{ .cols = &cols, .rows = &rows },
             .key = .src(@src()),
         },
         .{
             Slot(0).render,
             Slot(1).render,
             Slot(2).render,
+            Slot(3).render,
+            Slot(4).render,
+            Slot(5).render,
+            Slot(6).render,
+            Slot(7).render,
+            Slot(8).render,
         },
     });
 }
@@ -56,8 +68,8 @@ fn Slot(comptime idx: u32) type {
                 Rect{
                     .width = .grow(),
                     .height = .grow(),
-                    .grid_placement = .{ .row = idx / 2, .col = idx % 2 },
                     .key = .str("theme.cell:" ++ entry.name),
+                    .dir = .column,
                 },
                 .{
                     Button{
