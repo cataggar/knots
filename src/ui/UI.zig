@@ -598,117 +598,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture_id, clip_arr);
             },
-            .slider => |s| {
-                const bx = el.box.x();
-                const by = el.box.y();
-                const bw = el.box.w();
-                const bh = el.box.h();
-                const cr = s.corner_radius.value;
-                const th = @min(s.track_height, bh);
-                const ty = by + (bh - th) * 0.5;
-                const zero4 = [4]f32{ 0, 0, 0, 0 };
-
-                const track = gpu.Instance{
-                    .pos = .{ bx, ty },
-                    .size = .{ bw, th },
-                    .uv0 = .{ 0, 0 },
-                    .uv1 = .{ 0, 0 },
-                    .color = s.track_color,
-                    .border_color = zero4,
-                    .corner_radius = cr,
-                    .border_width = 0,
-                    .prim_type = 0.0,
-                };
-                try draw_list.pushInstances(&[_]gpu.Instance{track}, null, clip_arr);
-
-                if (s.progress > 0) {
-                    const fill = gpu.Instance{
-                        .pos = .{ bx, ty },
-                        .size = .{ bw * s.progress, th },
-                        .uv0 = .{ 0, 0 },
-                        .uv1 = .{ 0, 0 },
-                        .color = s.fill_color,
-                        .border_color = zero4,
-                        .corner_radius = cr,
-                        .border_width = 0,
-                        .prim_type = 0.0,
-                    };
-                    try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip_arr);
-                }
-
-                if (s.halo_radius > 0 and s.halo_color[3] > 0) {
-                    const hr = s.halo_radius;
-                    const hcx = bx + bw * s.progress;
-                    const hcy = by + bh * 0.5;
-                    const halo = gpu.Instance{
-                        .pos = .{ hcx - hr, hcy - hr },
-                        .size = .{ hr * 2, hr * 2 },
-                        .uv0 = .{ 0, 0 },
-                        .uv1 = .{ 0, 0 },
-                        .color = s.halo_color,
-                        .border_color = zero4,
-                        .corner_radius = Radius.all(hr).value,
-                        .border_width = 0,
-                        .prim_type = 0.0,
-                    };
-                    try draw_list.pushInstances(&[_]gpu.Instance{halo}, null, clip_arr);
-                }
-
-                if (s.knob_radius > 0) {
-                    const kr = s.knob_radius;
-                    const kcx = bx + bw * s.progress;
-                    const kcy = by + bh * 0.5;
-                    const knob = gpu.Instance{
-                        .pos = .{ kcx - kr, kcy - kr },
-                        .size = .{ kr * 2, kr * 2 },
-                        .uv0 = .{ 0, 0 },
-                        .uv1 = .{ 0, 0 },
-                        .color = s.knob_color,
-                        .border_color = zero4,
-                        .corner_radius = Radius.all(kr).value,
-                        .border_width = 0,
-                        .prim_type = 0.0,
-                    };
-                    try draw_list.pushInstances(&[_]gpu.Instance{knob}, null, clip_arr);
-                }
-            },
-            .progress_bar => |p| {
-                const bx = el.box.x();
-                const by = el.box.y();
-                const bw = el.box.w();
-                const bh = el.box.h();
-                const cr = p.corner_radius.value;
-                const progress = std.math.clamp(p.progress, 0.0, 1.0);
-                const zero4 = [4]f32{ 0, 0, 0, 0 };
-
-                const track = gpu.Instance{
-                    .pos = .{ bx, by },
-                    .size = .{ bw, bh },
-                    .uv0 = .{ 0, 0 },
-                    .uv1 = .{ 0, 0 },
-                    .color = p.track_color,
-                    .border_color = zero4,
-                    .corner_radius = cr,
-                    .border_width = 0,
-                    .prim_type = 0.0,
-                };
-                try draw_list.pushInstances(&[_]gpu.Instance{track}, null, clip_arr);
-
-                if (progress > 0) {
-                    const fill = gpu.Instance{
-                        .pos = .{ bx, by },
-                        .size = .{ bw * progress, bh },
-                        .uv0 = .{ 0, 0 },
-                        .uv1 = .{ 0, 0 },
-                        .color = p.fill_color,
-                        .border_color = zero4,
-                        .corner_radius = cr,
-                        .border_width = 0,
-                        .prim_type = 0.0,
-                    };
-                    try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip_arr);
-                }
-            },
+            .range => |r| try renderRange(draw_list, el.box, r, clip_arr),
         }
 
         if (el.overflow != .visible) {
@@ -722,6 +612,54 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
     }
 
     try scrollbar.render(self, draw_list, layer);
+}
+
+fn renderRange(draw_list: *DrawList, box: math.Rect, r: Decoration.Range, clip: ?[4]f32) !void {
+    const bx = box.x();
+    const by = box.y();
+    const bw = box.w();
+    const bh = box.h();
+    const th = @max(0, @min(r.track_height orelse bh, bh));
+    const ty = by + (bh - th) * 0.5;
+    const progress = std.math.clamp(r.progress, 0.0, 1.0);
+
+    const track = solidRectInstance(bx, ty, bw, th, r.track_color, r.corner_radius);
+    try draw_list.pushInstances(&[_]gpu.Instance{track}, null, clip);
+
+    if (progress > 0) {
+        const fill = solidRectInstance(bx, ty, bw * progress, th, r.fill_color, r.corner_radius);
+        try draw_list.pushInstances(&[_]gpu.Instance{fill}, null, clip);
+    }
+
+    if (r.halo_radius > 0 and r.halo_color[3] > 0) {
+        const hr = r.halo_radius;
+        const cx = bx + bw * progress;
+        const cy = by + bh * 0.5;
+        const halo = solidRectInstance(cx - hr, cy - hr, hr * 2, hr * 2, r.halo_color, Radius.all(hr));
+        try draw_list.pushInstances(&[_]gpu.Instance{halo}, null, clip);
+    }
+
+    if (r.knob_radius > 0) {
+        const kr = r.knob_radius;
+        const cx = bx + bw * progress;
+        const cy = by + bh * 0.5;
+        const knob = solidRectInstance(cx - kr, cy - kr, kr * 2, kr * 2, r.knob_color, Radius.all(kr));
+        try draw_list.pushInstances(&[_]gpu.Instance{knob}, null, clip);
+    }
+}
+
+inline fn solidRectInstance(x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius) gpu.Instance {
+    return .{
+        .pos = .{ x, y },
+        .size = .{ w, h },
+        .uv0 = .{ 0, 0 },
+        .uv1 = .{ 0, 0 },
+        .color = color,
+        .border_color = .{ 0, 0, 0, 0 },
+        .corner_radius = corner_radius.value,
+        .border_width = 0,
+        .prim_type = 0.0,
+    };
 }
 
 test "scroll routing uses previous frame elements" {

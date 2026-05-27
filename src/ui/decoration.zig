@@ -6,8 +6,7 @@ pub const Decoration = union(enum) {
     text: Text,
     canvas: Canvas,
     image: Image,
-    slider: Slider,
-    progress_bar: ProgressBar,
+    range: Range,
 
     pub const Rect = struct {
         color: [4]f32 = .{ 0, 0, 0, 0 },
@@ -35,23 +34,16 @@ pub const Decoration = union(enum) {
         tint: [4]f32 = .{ 1, 1, 1, 1 },
     };
 
-    pub const Slider = struct {
-        progress: f32,
-        track_color: [4]f32,
-        fill_color: [4]f32,
-        track_height: f32 = 4,
-        corner_radius: Radius = Radius.all(2),
-        knob_radius: f32 = 0,
-        knob_color: [4]f32 = .{ 1, 1, 1, 1 },
-        halo_radius: f32 = 0,
-        halo_color: [4]f32 = .{ 1, 1, 1, 0 },
-    };
-
-    pub const ProgressBar = struct {
+    pub const Range = struct {
         progress: f32,
         track_color: [4]f32,
         fill_color: [4]f32,
         corner_radius: Radius = Radius.all(4),
+        track_height: ?f32 = null,
+        knob_radius: f32 = 0,
+        knob_color: [4]f32 = .{ 1, 1, 1, 1 },
+        halo_radius: f32 = 0,
+        halo_color: [4]f32 = .{ 1, 1, 1, 0 },
     };
 
     pub const DrawCmd = union(enum) {

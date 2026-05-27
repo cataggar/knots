@@ -3,10 +3,8 @@ const std = @import("std");
 const Element = @import("layout").Element;
 const App = @import("knots").App;
 const ui_mod = @import("ui");
-const Style = ui_mod.Style;
 const Color = ui_mod.Color;
 const Key = ui_mod.Key;
-const Decoration = ui_mod.Decoration;
 const Radius = ui_mod.Radius;
 const animation = ui_mod.animation;
 
@@ -69,12 +67,12 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
         .width = self.width,
         .height = .fixed(element_height),
         .interactive = true,
-    }, .{ .slider = .{
+    }, .{ .range = .{
         .progress = progress,
         .track_color = self.track_color.resolve(&ui.theme),
         .fill_color = self.fill_color.resolve(&ui.theme),
-        .track_height = self.track_height,
         .corner_radius = self.corner_radius.resolve(&ui.theme),
+        .track_height = self.track_height,
         .knob_radius = effective_knob_radius,
         .knob_color = base_knob_color,
         .halo_radius = if (halo_alpha > 0.001) halo_r else 0,

@@ -1,5 +1,3 @@
-const std = @import("std");
-
 const App = @import("knots").App;
 const ui_mod = @import("ui");
 const Color = ui_mod.Color;
@@ -22,8 +20,8 @@ pub fn open(self: *const ProgressBar, app: *App) !Element.Id {
     return try ui.open(self.key, .{
         .width = self.width,
         .height = self.height,
-    }, .{ .progress_bar = .{
-        .progress = std.math.clamp(self.progress, 0.0, 1.0),
+    }, .{ .range = .{
+        .progress = self.progress,
         .track_color = self.track_color.resolve(&ui.theme),
         .fill_color = self.fill_color.resolve(&ui.theme),
         .corner_radius = self.corner_radius.resolve(&ui.theme),
