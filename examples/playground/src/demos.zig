@@ -20,6 +20,7 @@ pub const Demo = struct {
         form_notifications_enabled: bool = true,
         form_volume: f32 = 0.7,
         form_color: knots.ui.Color = knots.ui.Color.hex("#4F8CFFFF") catch unreachable,
+        form_confirm_open: bool = false,
         canvas_effect: u32 = 0,
         pending_async: usize = 0,
         hover_strength: f32 = 0,

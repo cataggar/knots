@@ -10,6 +10,7 @@ const DrawList = @import("render").DrawList;
 
 const State = @import("State.zig");
 const Input = @import("Input.zig");
+const InputScope = @import("InputScope.zig");
 const animation = @import("animation.zig");
 
 const Decoration = @import("decoration.zig").Decoration;
@@ -22,6 +23,9 @@ const scrollbar = @import("scrollbar.zig");
 const canvas_tessellator = @import("canvas_tessellator.zig");
 
 const Allocator = std.mem.Allocator;
+
+pub const INVALID_ID = Element.INVALID_ID;
+pub const InputScopeConfig = InputScope.Config;
 
 const INV_SQRT2: f32 = 0.70710677;
 const TEXT_QUAD_NORMALS = [4][2]f32{
@@ -36,6 +40,7 @@ pub const HitRecord = struct {
     bounds: math.Rect,
     clip: ?math.Rect,
     layer: u8,
+    input_scope: Element.Id,
     insertion_order: u32,
 };
 
@@ -67,6 +72,7 @@ input: Input,
 hit_records: std.ArrayList(HitRecord),
 hit_counter: u32,
 scroll_geoms: std.ArrayList(scrollbar.SlotGeom),
+input_scopes: InputScope,
 content_scale: f32,
 scroll_line_size: Size.Input,
 anim_active: bool,
@@ -86,6 +92,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .hit_records = .empty,
         .hit_counter = 0,
         .scroll_geoms = .empty,
+        .input_scopes = .{},
         .content_scale = 1.0,
         .scroll_line_size = cfg.scroll_line_size,
         .anim_active = false,
@@ -101,14 +108,16 @@ pub fn deinit(self: *UI) void {
     self.state.deinit();
     self.hit_records.deinit(self.allocator);
     self.scroll_geoms.deinit(self.allocator);
+    self.input_scopes.deinit(self.allocator);
 }
 
 pub fn open(self: *UI, key: Key, element: Element.Config, decoration: Decoration) !Element.Id {
     const id = key.hash();
     const slot = try self.layout_ctx.open(id, element);
     try self.decorations.append(self.allocator, decoration);
+    const el = self.layout_ctx.pool.get(slot);
+    el.input_scope = self.input_scopes.current();
     if (decoration == .text) {
-        const el = self.layout_ctx.pool.get(slot);
         el.intrinsic_w = decoration.text.intrinsic_w;
         el.intrinsic_h = decoration.text.intrinsic_h;
     }
@@ -120,10 +129,18 @@ pub fn close(self: *UI) void {
 }
 
 pub fn openRoot(self: *UI, key: Key, x: f32, y: f32, config: Element.Config, decoration: Decoration) !Element.Id {
+    var cfg = config;
+    if (self.layout_ctx.stack.items.len > 0) {
+        const parent_slot = self.layout_ctx.stack.items[self.layout_ctx.stack.items.len - 1];
+        const parent = self.layout_ctx.pool.get(parent_slot);
+        cfg.z_index = @max(cfg.z_index, parent.z_index);
+    }
+
     const id = key.hash();
-    const slot = try self.layout_ctx.openRoot(id, config);
+    const slot = try self.layout_ctx.openRoot(id, cfg);
     try self.decorations.append(self.allocator, decoration);
     const el = self.layout_ctx.pool.get(slot);
+    el.input_scope = self.input_scopes.current();
     el.box.setX(x);
     el.box.setY(y);
     if (decoration == .text) {
@@ -145,6 +162,29 @@ pub fn openAt(self: *UI, key: Key, x: f32, y: f32, w: f32, h: f32, config: Eleme
     cfg.height = .fixed(h);
     cfg.offset = .{ x, y };
     return self.open(key, cfg, decoration);
+}
+
+pub fn beginInputScope(self: *UI, id: Element.Id, config: InputScopeConfig) !void {
+    const slot = self.layout_ctx.slotForId(id) orelse unreachable;
+    const el = self.layout_ctx.pool.get(slot);
+    try self.input_scopes.begin(self.allocator, id, config, el.z_index);
+    el.input_scope = id;
+}
+
+pub fn endInputScope(self: *UI, id: Element.Id) void {
+    self.input_scopes.end(id);
+}
+
+pub fn cancelInputScope(self: *UI, id: Element.Id) void {
+    self.input_scopes.cancel(id);
+}
+
+pub fn isActiveScope(self: *UI, id: Element.Id) bool {
+    return self.input_scopes.isActive(id);
+}
+
+pub fn acceptsInput(self: *UI, id: Element.Id) bool {
+    return self.inputScopeAllowsId(id);
 }
 
 pub fn lineHeight(self: *UI, size: Size, font: ?[]const u8) !f32 {
@@ -197,6 +237,7 @@ pub fn reset(self: *UI) void {
     self.hit_records.clearRetainingCapacity();
     self.hit_counter = 0;
     self.scroll_geoms.clearRetainingCapacity();
+    self.input_scopes.resetFrame();
     self.anim_active = false;
 }
 
@@ -324,18 +365,22 @@ fn syncStateBounds(self: *UI) void {
 }
 
 pub fn hovering(self: *UI, id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(id)) return false;
     return self.state.hovered == id;
 }
 
 pub fn pressing(self: *UI, id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(id)) return false;
     return self.state.active == id;
 }
 
 pub fn clicked(self: *UI, id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(id)) return false;
     return self.input.mouse_pressed and self.state.active == id;
 }
 
 pub fn focused(self: *UI, id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(id)) return false;
     return self.state.focused == id;
 }
 
@@ -345,10 +390,12 @@ pub fn selectionText(self: *UI) ?[]const u8 {
 }
 
 pub fn isHoveredWithin(self: *UI, ancestor_id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(ancestor_id)) return false;
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
 }
 
 pub fn clickedWithin(self: *UI, ancestor_id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(ancestor_id)) return false;
     if (!self.input.mouse_released) return false;
     if (self.state.press_drag) return false;
     if (!self.isDescendantOrSelf(self.state.press_origin, ancestor_id)) return false;
@@ -369,6 +416,13 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
     self.input.collect(input, now_ms);
 
     if (self.layout_ctx.has_scroll) try scrollbar.route(self);
+
+    if (self.input_scopes.hasActive()) {
+        if (!self.inputScopeAllowsId(self.state.hovered)) self.state.hovered = Element.INVALID_ID;
+        if (!self.inputScopeAllowsId(self.state.focused)) self.state.focused = Element.INVALID_ID;
+        if (!self.inputScopeAllowsId(self.state.active)) self.state.active = Element.INVALID_ID;
+        if (!self.inputScopeAllowsId(self.state.press_origin)) self.state.press_origin = Element.INVALID_ID;
+    }
 
     if (self.input.mouse_pressed) {
         self.state.active = self.state.hovered;
@@ -392,6 +446,7 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
 /// entries lose a frame of TTL grace before the sweep sees them.
 pub fn endFrame(self: *UI) !void {
     try self.state.endFrame();
+    self.input_scopes.resolveActive();
 }
 
 const press_drag_threshold_sq: f64 = 9.0;
@@ -404,11 +459,16 @@ fn clearOtherTextSelect(hovered: Element.Id, id: Element.Id, s: *State.TextSelec
 }
 
 pub fn appendHit(self: *UI, id: Element.Id, bounds: math.Rect, clip: ?math.Rect, layer: u8) !void {
+    try self.appendHitWithScope(id, bounds, clip, layer, self.inputScopeForId(id) orelse Element.INVALID_ID);
+}
+
+pub fn appendHitWithScope(self: *UI, id: Element.Id, bounds: math.Rect, clip: ?math.Rect, layer: u8, input_scope: Element.Id) !void {
     try self.hit_records.append(self.allocator, .{
         .id = id,
         .bounds = bounds,
         .clip = clip,
         .layer = layer,
+        .input_scope = input_scope,
         .insertion_order = self.hit_counter,
     });
     self.hit_counter += 1;
@@ -424,6 +484,7 @@ pub fn resolveHit(self: *UI) bool {
     for (self.hit_records.items) |rec| {
         if (!rec.bounds.contains(p)) continue;
         if (rec.clip) |c| if (!c.contains(p)) continue;
+        if (!self.input_scopes.allows(rec.input_scope)) continue;
 
         if (best_id == Element.INVALID_ID or
             rec.layer > best_layer or
@@ -439,6 +500,30 @@ pub fn resolveHit(self: *UI) bool {
     self.state.hovered = best_id;
     self.updateStats();
     return changed;
+}
+
+fn inputScopeAllowsId(self: *UI, id: Element.Id) bool {
+    if (!self.input_scopes.hasActive()) return true;
+    if (self.inputScopeForId(id)) |scope| return self.input_scopes.allows(scope);
+
+    const current = self.input_scopes.current();
+    return current != Element.INVALID_ID and self.input_scopes.allows(current);
+}
+
+fn inputScopeForId(self: *UI, id: Element.Id) ?Element.Id {
+    if (id == Element.INVALID_ID) return null;
+
+    if (self.layout_ctx.slotForId(id)) |slot|
+        return self.layout_ctx.pool.get(slot).input_scope;
+
+    var i = self.hit_records.items.len;
+    while (i > 0) {
+        i -= 1;
+        const rec = self.hit_records.items[i];
+        if (rec.id == id) return rec.input_scope;
+    }
+
+    return null;
 }
 
 fn updateStats(self: *UI) void {
@@ -491,7 +576,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
 
         if (el.overflow.isScroll()) try scrollbar.recordForTessellate(self, slot, clip, layer);
 
-        if (el.interactive) try self.appendHit(el.id, el.box, clip, layer);
+        if (el.interactive) try self.appendHitWithScope(el.id, el.box, clip, layer, el.input_scope);
 
         switch (self.decorations.items[slot]) {
             .none => {},

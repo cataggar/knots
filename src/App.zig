@@ -262,8 +262,9 @@ pub fn e(self: *App, tree: anytype) !void {
             inline while (i < s.fields.len) : (i += 1) {
                 const val = @field(tree, s.fields[i].name);
                 if (comptime isComponent(@TypeOf(val)) and i + 1 < s.fields.len and isChildren(s.fields[i + 1].type)) {
-                    _ = try val.open(self);
-                    try self.e(@field(tree, s.fields[i + 1].name));
+                    const id = try val.open(self);
+                    if (id != UI.INVALID_ID)
+                        try self.e(@field(tree, s.fields[i + 1].name));
                     try val.close(self);
                     i += 1;
                 } else try self.e(val);

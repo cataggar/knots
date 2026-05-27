@@ -171,6 +171,9 @@ z_index: u8,
 // Parent-local offset applied during layout. Only honored when position == .absolute.
 offset: [2]f32,
 
+// internal routing state
+input_scope: Id = INVALID_ID,
+
 // computed by layout passes
 box: math.Rect = .zero,
 intrinsic_w: f32 = 0,

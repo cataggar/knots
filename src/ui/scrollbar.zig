@@ -172,6 +172,7 @@ pub fn route(ui: *UI) !void {
 
     for (ui.layout_ctx.scroll_slots.items) |slot| {
         const el = &elements[slot];
+        if (!ui.acceptsInput(el.id)) continue;
         _ = ui.state.clampScroll(el.id, el, ui.theme.scrollbar_thickness);
         const offset = ui.state.getScroll(el.id);
         const geom = compute(el, .{ offset[0], offset[1] }, &ui.theme) orelse continue;
@@ -306,7 +307,7 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
             };
             try draw_list.pushInstances(&[_]gpu.Instance{thumb_inst}, null, clip_arr);
 
-            try ui.appendHit(sb_id, bar.thumb, sg.parent_clip, layer);
+            try ui.appendHitWithScope(sb_id, bar.thumb, sg.parent_clip, layer, el.input_scope);
         }
 
         // Corner fill when both bars are present.

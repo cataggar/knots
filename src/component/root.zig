@@ -11,3 +11,4 @@ pub const Checkbox = @import("Checkbox.zig");
 pub const Canvas = @import("Canvas.zig");
 pub const Image = @import("Image.zig");
 pub const Graph = @import("Graph.zig");
+pub const Dialog = @import("Dialog.zig");

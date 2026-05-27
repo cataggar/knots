@@ -72,7 +72,10 @@ pub fn SelectInput(comptime T: type) type {
                     }
                 }
 
-                if (ui.input.containsKey(.escape)) s.open = false;
+                if (ui.acceptsInput(id) and ui.input.containsKey(.escape)) {
+                    s.open = false;
+                    ui.input.consumeKeyboard();
+                }
             }
 
             if (s.open and ui.input.mouse_pressed) {

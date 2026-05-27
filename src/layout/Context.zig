@@ -416,13 +416,18 @@ fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup, scroll
             if (child.height.kind == .grow)
                 child.box.setH(std.math.clamp(content_h, child.height.min, child.height.max));
 
-            const ax_off: f32 = switch (el.alignment) {
+            const x_off: f32 = switch (el.justify) {
+                .start, .space_between, .space_around => 0,
+                .center => (content_w - child.box.w()) / 2,
+                .end => content_w - child.box.w(),
+            };
+            const y_off: f32 = switch (el.alignment) {
                 .start, .stretch => 0,
                 .center => (content_h - child.box.h()) / 2,
                 .end => content_h - child.box.h(),
             };
-            child.box.setX(origin_x);
-            child.box.setY(origin_y + ax_off);
+            child.box.setX(origin_x + x_off);
+            child.box.setY(origin_y + y_off);
 
             try self.computeLayoutNode(child_slot, child.box.x(), child.box.y(), scroll, scrollbar_thickness);
         } else {

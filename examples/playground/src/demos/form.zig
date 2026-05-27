@@ -12,6 +12,7 @@ const ColorPicker = knots.component.ColorPicker;
 const Checkbox = knots.component.Checkbox;
 const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
+const Dialog = knots.component.Dialog;
 
 const Role = enum { admin, editor, viewer, guest };
 
@@ -44,7 +45,7 @@ fn body(app: *knots.App) !void {
                 .style = .{ .color = .{ .color = self.demo_state.form_color }, .corner_radius = .sm },
                 .hover_anim = .{},
                 .key = .src(@src()),
-                .onClick = submit,
+                .onClick = openConfirm,
                 .justify = .center,
                 .@"align" = .center,
                 .text = .{ .content = "submit" },
@@ -54,6 +55,49 @@ fn body(app: *knots.App) !void {
                 .size = .xs,
                 .color = .dimmed,
                 .key = .src(@src()),
+            },
+        },
+        Dialog{
+            .is_open = &self.demo_state.form_confirm_open,
+            .key = .src(@src()),
+            .width = .fixed(320),
+            .gap = 16,
+        },
+        .{
+            Text{
+                .content = "Are you sure?",
+                .size = .lg,
+                .key = .src(@src()),
+            },
+            Rect{
+                .width = .grow(),
+                .dir = .row,
+                .gap = 8,
+                .justify = .end,
+                .key = .src(@src()),
+            },
+            .{
+                Button{
+                    .width = .fixed(80),
+                    .height = .fixed(32),
+                    .style = .{ .color = .success, .corner_radius = .sm },
+                    .hover_anim = .{},
+                    .key = .src(@src()),
+                    .onClick = submit,
+                    .justify = .center,
+                    .@"align" = .center,
+                    .text = .{ .content = "Yes", .color = .on_success },
+                },
+                Button{
+                    .width = .fixed(80),
+                    .height = .fixed(32),
+                    .style = .{ .color = .@"error", .corner_radius = .sm },
+                    .key = .src(@src()),
+                    .onClick = closeConfirm,
+                    .justify = .center,
+                    .@"align" = .center,
+                    .text = .{ .content = "Cancel", .color = .on_error },
+                },
             },
         },
     });
@@ -140,6 +184,18 @@ fn colorInput(app: *knots.App) !void {
     });
 }
 
+fn openConfirm(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    self.demo_state.form_confirm_open = true;
+    try app.signal(.redraw);
+}
+
+fn closeConfirm(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    self.demo_state.form_confirm_open = false;
+    try app.signal(.redraw);
+}
+
 fn submit(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     std.log.info(
@@ -152,6 +208,8 @@ fn submit(app: *knots.App) !void {
             self.demo_state.form_volume,
         },
     );
+    self.demo_state.form_confirm_open = false;
+    try app.signal(.redraw);
 }
 
 fn onRoleSelect(app: *knots.App, _: Role, idx: u32) !void {
