@@ -27,6 +27,8 @@ pub const Demo = struct {
         dropped_paths: std.ArrayList([]const u8) = .empty,
         notes_buf: std.ArrayList(u8) = .empty,
         theme_idx: u32 = 1,
+        context_menu_last_action: []const u8 = "none",
+        context_menu_last_target: []const u8 = "none",
         show_source: bool = true,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
@@ -59,6 +61,7 @@ fn demo(
 
 pub const all = [_]Demo{
     demo("demos/buttons.zig", "\u{e913}", "Buttons", "Click handlers, hover animations, corner radii.", @import("demos/buttons.zig").render),
+    demo("demos/context_menu.zig", "\u{e5d2}", "Context menu", "Right-click wrapper component with custom user-defined actions.", @import("demos/context_menu.zig").render),
     demo("demos/sizing.zig", "\u{e85b}", "Sizing", "grow, fixed, percent and fit on the same axis.", @import("demos/sizing.zig").render),
     demo("demos/nesting.zig", "\u{e97a}", "Nesting", "Three levels of nested containers with shared layout.", @import("demos/nesting.zig").render),
     demo("demos/alignment.zig", "\u{e234}", "Alignment", "Cross-axis alignment: start, center, end.", @import("demos/alignment.zig").render),

@@ -52,6 +52,14 @@ pub const ColorPicker = struct {
     viewport_box: math.Rect = .zero,
 };
 
+pub const ContextMenu = struct {
+    open: bool = false,
+    click_pos: math.Vec2 = .{ 0, 0 },
+    anchor_box: math.Rect = .zero,
+    viewport_box: math.Rect = .zero,
+    popup_box: math.Rect = .zero,
+};
+
 pub const Measured = struct {
     box: math.Rect = .zero,
     width: f32 = 0,
@@ -91,6 +99,7 @@ pub const Ttls = struct {
     select_input: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     slider: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     color_picker: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    context_menu: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     measured: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     anim: u32 = DEFAULT_ANIM_TTL_FRAMES,
 };
@@ -161,6 +170,7 @@ pub const Storage = struct {
         select_input: Pool(SelectInput) = .{},
         slider: Pool(Slider) = .{},
         color_picker: Pool(ColorPicker) = .{},
+        context_menu: Pool(ContextMenu) = .{},
         measured: Pool(Measured) = .{},
         anim: Pool(Anim) = .{},
     };

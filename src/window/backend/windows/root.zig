@@ -351,6 +351,7 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
             if (ownerOf(hwnd)) |o| o.setMouseRightDown(false);
             return 0;
         },
+        win32.WM_CONTEXTMENU => return 0,
         win32.WM_MOUSEWHEEL => {
             const hi: u16 = @truncate((wparam >> 16) & 0xFFFF);
             const delta: i16 = @bitCast(hi);

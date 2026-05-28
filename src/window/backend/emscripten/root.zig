@@ -104,6 +104,7 @@ pub const Backend = struct {
         // Listen on document so a drag released outside the canvas still fires mouseup.
         _ = emscripten_set_mouseup_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, @ptrCast(owner), false, events.onMouseUp, 0);
         _ = emscripten_set_mousemove_callback_on_thread(sel, @ptrCast(owner), false, events.onMouseMove, 0);
+        suppressNativeContextMenu(self.selector);
         _ = emscripten_set_wheel_callback_on_thread(sel, @ptrCast(owner), false, events.onWheel, 0);
         _ = em.emscripten_set_resize_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), false, events.onResize, 0);
         _ = emscripten_set_blur_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), false, events.onBlur, 0);
@@ -187,6 +188,18 @@ pub const Backend = struct {
         return &[_][]const u8{};
     }
 };
+
+// Not good.
+fn suppressNativeContextMenu(selector: [:0]const u8) void {
+    var buf: [512]u8 = undefined;
+    const script = std.fmt.bufPrintSentinel(
+        &buf,
+        "(() => {{ const el = document.querySelector(\"{s}\"); if (el) el.oncontextmenu = (e) => e.preventDefault(); }})()",
+        .{selector},
+        0x00,
+    ) catch return;
+    std.os.emscripten.emscripten_run_script(script.ptr);
+}
 
 pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     const selector = cfg.canvas_selector orelse @panic("canvas_selector must be set for emscripten windows");

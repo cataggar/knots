@@ -361,6 +361,10 @@ fn syncStateBounds(self: *UI) void {
             s.anchor_box = el.box;
             s.viewport_box = root_box;
         }
+        if (self.state.get(.context_menu, el.id)) |s| {
+            s.anchor_box = el.box;
+            s.viewport_box = root_box;
+        }
     }
 }
 
