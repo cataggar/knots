@@ -10,11 +10,15 @@ const SelectInput = knots.component.SelectInput;
 const SliderInput = knots.component.SliderInput;
 const ColorPicker = knots.component.ColorPicker;
 const Checkbox = knots.component.Checkbox;
+const RadioGroup = knots.component.RadioGroup;
 const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 const Dialog = knots.component.Dialog;
+const Tooltip = knots.component.Tooltip;
 
 const Role = enum { admin, editor, viewer, guest };
+const delivery_values = [_]u32{ 0, 1, 2 };
+const delivery_labels = [_][]const u8{ "immediate", "daily digest", "weekly digest" };
 
 pub fn render(app: *knots.App) !void {
     try ui_helpers.panel(app, "Form", body);
@@ -36,19 +40,27 @@ fn body(app: *knots.App) !void {
             passwordField,
             roleField,
             notificationsField,
+            deliveryField,
             volumeField,
             colorField,
             Spacer{ .height = .fixed(4), .key = .src(@src()) },
-            Button{
-                .width = .fixed(120),
-                .height = .fixed(34),
-                .style = .{ .color = .{ .color = self.demo_state.form_color }, .corner_radius = .sm },
-                .hover_anim = .{},
+            Tooltip{
                 .key = .src(@src()),
-                .onClick = openConfirm,
-                .justify = .center,
                 .@"align" = .center,
-                .text = .{ .content = "submit" },
+                .content = "Open the confirmation dialog.",
+            },
+            .{
+                Button{
+                    .width = .fixed(120),
+                    .height = .fixed(34),
+                    .style = .{ .color = .{ .color = self.demo_state.form_color }, .corner_radius = .sm },
+                    .hover_anim = .{},
+                    .key = .src(@src()),
+                    .onClick = openConfirm,
+                    .justify = .center,
+                    .@"align" = .center,
+                    .text = .{ .content = "submit" },
+                },
             },
             Text{
                 .content = try std.fmt.allocPrint(arena, "current volume: {d:.0}%", .{self.demo_state.form_volume * 100}),
@@ -154,6 +166,22 @@ fn notificationsField(app: *knots.App) !void {
     });
 }
 
+fn deliveryField(app: *knots.App) !void {
+    try labeled(app, "delivery cadence", deliveryInput);
+}
+
+fn deliveryInput(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    try app.e(RadioGroup(u32){
+        .key = .src(@src()),
+        .selected = &self.demo_state.form_delivery_cadence,
+        .values = &delivery_values,
+        .labels = &delivery_labels,
+        .dir = .row,
+        .gap = 14,
+    });
+}
+
 fn volumeField(app: *knots.App) !void {
     try labeled(app, "notification volume", volumeInput);
 }
@@ -199,12 +227,13 @@ fn closeConfirm(app: *knots.App) !void {
 fn submit(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     std.log.info(
-        "form submit -> email='{s}' password='{s}' role={d} notifications={} volume={d:.2}",
+        "form submit -> email='{s}' password='{s}' role={d} notifications={} cadence={d} volume={d:.2}",
         .{
             self.demo_state.form_email.items,
             self.demo_state.form_password.items,
             self.demo_state.form_role,
             self.demo_state.form_notifications_enabled,
+            self.demo_state.form_delivery_cadence,
             self.demo_state.form_volume,
         },
     );

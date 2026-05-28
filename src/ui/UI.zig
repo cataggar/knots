@@ -365,6 +365,10 @@ fn syncStateBounds(self: *UI) void {
             s.anchor_box = el.box;
             s.viewport_box = root_box;
         }
+        if (self.state.get(.tooltip, el.id)) |s| {
+            s.anchor_box = el.box;
+            s.viewport_box = root_box;
+        }
     }
 }
 
@@ -396,6 +400,11 @@ pub fn selectionText(self: *UI) ?[]const u8 {
 pub fn isHoveredWithin(self: *UI, ancestor_id: Element.Id) bool {
     if (!self.inputScopeAllowsId(ancestor_id)) return false;
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
+}
+
+pub fn isFocusedWithin(self: *UI, ancestor_id: Element.Id) bool {
+    if (!self.inputScopeAllowsId(ancestor_id)) return false;
+    return self.isDescendantOrSelf(self.state.focused, ancestor_id);
 }
 
 pub fn leftClickedWithin(self: *UI, ancestor_id: Element.Id) bool {

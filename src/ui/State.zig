@@ -60,6 +60,13 @@ pub const ContextMenu = struct {
     popup_box: math.Rect = .zero,
 };
 
+pub const Tooltip = struct {
+    anchor_box: math.Rect = .zero,
+    viewport_box: math.Rect = .zero,
+    popup_box: math.Rect = .zero,
+    hover_started_ms: ?i64 = null,
+};
+
 pub const Measured = struct {
     box: math.Rect = .zero,
     width: f32 = 0,
@@ -100,6 +107,7 @@ pub const Ttls = struct {
     slider: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     color_picker: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     context_menu: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    tooltip: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     measured: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     anim: u32 = DEFAULT_ANIM_TTL_FRAMES,
 };
@@ -171,6 +179,7 @@ pub const Storage = struct {
         slider: Pool(Slider) = .{},
         color_picker: Pool(ColorPicker) = .{},
         context_menu: Pool(ContextMenu) = .{},
+        tooltip: Pool(Tooltip) = .{},
         measured: Pool(Measured) = .{},
         anim: Pool(Anim) = .{},
     };
