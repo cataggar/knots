@@ -81,7 +81,7 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
     }, .{ .rect = deco_rect });
 
     if (self.onClick) |cb|
-        if (ui.clickedWithin(rect)) try cb(app);
+        if (ui.leftClickedWithin(rect)) try cb(app);
 
     if (self.onHover) |cb|
         if (is_hovered) try cb(app);

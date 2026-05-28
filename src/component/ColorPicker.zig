@@ -45,7 +45,7 @@ pub fn open(self: *const ColorPicker, app: *App) !Element.Id {
 
     syncStateFromColor(s, self.value.*);
 
-    if (ui.clicked(id)) {
+    if (ui.leftClicked(id)) {
         s.open = !s.open;
         s.editing_hex = false;
         if (s.open) {
@@ -58,7 +58,7 @@ pub fn open(self: *const ColorPicker, app: *App) !Element.Id {
 
     if (s.open) {
         try handlePickerInput(self, app, s);
-        if (ui.input.mouse_pressed and !self.isPointerInside(app, s)) {
+        if (ui.input.mouse_left_pressed and !self.isPointerInside(app, s)) {
             s.open = false;
             s.editing_hex = false;
             s.has_original = false;
@@ -131,7 +131,7 @@ fn handlePickerInput(self: *const ColorPicker, app: *App, s: *State.ColorPicker)
     const alpha_id = self.key.indexed(ALPHA_INDEX).hash();
     const hex_id = self.key.indexed(HEX_INDEX).hash();
 
-    if (ui.pressing(sv_id) and ui.input.mouse_down) {
+    if (ui.pressing(sv_id) and ui.input.mouse_left_down) {
         if (ui.state.get(.measured, sv_id)) |m| {
             const p = pointInBox(m, ui.input.mouse_pos);
             s.saturation = p[0];
@@ -140,14 +140,14 @@ fn handlePickerInput(self: *const ColorPicker, app: *App, s: *State.ColorPicker)
         }
     }
 
-    if (ui.pressing(hue_id) and ui.input.mouse_down) {
+    if (ui.pressing(hue_id) and ui.input.mouse_left_down) {
         if (ui.state.get(.measured, hue_id)) |m| {
             s.hue = pointInBox(m, ui.input.mouse_pos)[0];
             try setColorFromState(self, app, s);
         }
     }
 
-    if (ui.pressing(alpha_id) and ui.input.mouse_down) {
+    if (ui.pressing(alpha_id) and ui.input.mouse_left_down) {
         if (ui.state.get(.measured, alpha_id)) |m| {
             s.alpha = pointInBox(m, ui.input.mouse_pos)[0];
             try setColorFromState(self, app, s);

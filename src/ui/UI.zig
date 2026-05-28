@@ -374,9 +374,9 @@ pub fn pressing(self: *UI, id: Element.Id) bool {
     return self.state.active == id;
 }
 
-pub fn clicked(self: *UI, id: Element.Id) bool {
+pub fn leftClicked(self: *UI, id: Element.Id) bool {
     if (!self.inputScopeAllowsId(id)) return false;
-    return self.input.mouse_pressed and self.state.active == id;
+    return self.input.mouse_left_pressed and self.state.active == id;
 }
 
 pub fn focused(self: *UI, id: Element.Id) bool {
@@ -394,9 +394,9 @@ pub fn isHoveredWithin(self: *UI, ancestor_id: Element.Id) bool {
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
 }
 
-pub fn clickedWithin(self: *UI, ancestor_id: Element.Id) bool {
+pub fn leftClickedWithin(self: *UI, ancestor_id: Element.Id) bool {
     if (!self.inputScopeAllowsId(ancestor_id)) return false;
-    if (!self.input.mouse_released) return false;
+    if (!self.input.mouse_left_released) return false;
     if (self.state.press_drag) return false;
     if (!self.isDescendantOrSelf(self.state.press_origin, ancestor_id)) return false;
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
@@ -424,7 +424,7 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
         if (!self.inputScopeAllowsId(self.state.press_origin)) self.state.press_origin = Element.INVALID_ID;
     }
 
-    if (self.input.mouse_pressed) {
+    if (self.input.mouse_left_pressed) {
         self.state.active = self.state.hovered;
         self.state.focused = self.state.hovered;
         self.state.press_origin = self.state.hovered;
@@ -433,12 +433,12 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
 
         self.state.forEach(.text_select, self.state.hovered, clearOtherTextSelect);
     }
-    if (self.input.mouse_down and !self.state.press_drag) {
+    if (self.input.mouse_left_down and !self.state.press_drag) {
         const dx = self.input.mouse_pos[0] - self.state.press_pos[0];
         const dy = self.input.mouse_pos[1] - self.state.press_pos[1];
         if (dx * dx + dy * dy > press_drag_threshold_sq) self.state.press_drag = true;
     }
-    if (self.input.mouse_released) self.state.active = Element.INVALID_ID;
+    if (self.input.mouse_left_released) self.state.active = Element.INVALID_ID;
 }
 
 /// Advance the per widget state TTL clock. Call once per frame after the
@@ -773,7 +773,8 @@ test "scroll routing uses previous frame elements" {
 
     try ui.resolveWindow(.{
         .pos = .{ 150, 100 },
-        .mouse_down_now = false,
+        .mouse_left_down_now = false,
+        .mouse_right_down_now = false,
         .scroll = .{ .pixel = .{ 0, 50 } },
         .chars = &.{},
         .keys = &.{},

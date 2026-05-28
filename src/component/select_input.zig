@@ -58,12 +58,12 @@ pub fn SelectInput(comptime T: type) type {
             const s = try ui.state.getOrCreate(.select_input, ui.allocator, id);
             if (!existed) s.selected = self.initial_selected;
 
-            if (ui.clicked(id)) s.open = !s.open;
+            if (ui.leftClicked(id)) s.open = !s.open;
 
             if (s.open) {
                 for (self.labels, 0..) |_, i| {
                     const opt_id = self.key.indexed(4 + i).hash();
-                    if (ui.clicked(opt_id)) {
+                    if (ui.leftClicked(opt_id)) {
                         const idx_u32: u32 = @intCast(i);
                         s.selected = idx_u32;
                         s.open = false;
@@ -78,7 +78,7 @@ pub fn SelectInput(comptime T: type) type {
                 }
             }
 
-            if (s.open and ui.input.mouse_pressed) {
+            if (s.open and ui.input.mouse_left_pressed) {
                 const popup_id = self.key.indexed(3).hash();
                 if (ui.state.hovered != id and !ui.isHoveredWithin(popup_id)) s.open = false;
             }

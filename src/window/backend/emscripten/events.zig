@@ -40,16 +40,22 @@ pub fn onKeyUp(_: c_int, ev: *const root.EmscriptenKeyboardEvent, user_data: ?*a
 }
 
 pub fn onMouseDown(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*anyopaque) callconv(.c) bool {
-    if (ev.button != 0) return false;
     const owner = ownerOf(user_data) orelse return false;
-    owner.setMouseDown(true);
+    switch (ev.button) {
+        0 => owner.setMouseLeftDown(true),
+        2 => owner.setMouseRightDown(true),
+        else => return false,
+    }
     return true;
 }
 
 pub fn onMouseUp(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*anyopaque) callconv(.c) bool {
-    if (ev.button != 0) return false;
     const owner = ownerOf(user_data) orelse return false;
-    owner.setMouseDown(false);
+    switch (ev.button) {
+        0 => owner.setMouseLeftDown(false),
+        2 => owner.setMouseRightDown(false),
+        else => return false,
+    }
     return true;
 }
 
@@ -83,6 +89,7 @@ pub fn onBlur(_: c_int, _: *const root.EmscriptenFocusEvent, user_data: ?*anyopa
     const owner = ownerOf(user_data) orelse return false;
     owner.key_count = 0;
     owner.char_count = 0;
-    owner.mouse_button_pressed = false;
+    owner.mouse_button_left_pressed = false;
+    owner.mouse_button_right_pressed = false;
     return true;
 }

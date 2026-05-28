@@ -86,7 +86,7 @@ pub fn close(self: *const Dialog, app: *App) !void {
 
     if (ui.isActiveScope(root_id)) {
         const backdrop_id = self.key.indexed(BACKDROP_INDEX).hash();
-        if (self.close_on_backdrop_press and ui.clicked(backdrop_id)) {
+        if (self.close_on_backdrop_press and ui.leftClicked(backdrop_id)) {
             try self.requestClose(app, .backdrop);
         } else if (self.close_on_escape and ui.input.containsKey(.escape)) {
             try self.requestClose(app, .escape);

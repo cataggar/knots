@@ -30,7 +30,7 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
 
     const slider_state = try ui.state.getOrCreate(.slider, ui.allocator, id);
 
-    if (ui.pressing(id) and ui.input.mouse_down) {
+    if (ui.pressing(id) and ui.input.mouse_left_down) {
         const bounds = slider_state.bounds;
         if (bounds.w() > 0) {
             const mx: f32 = @floatCast(ui.input.mouse_pos[0]);
@@ -48,7 +48,7 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
     const progress: f32 = if (range > 0) std.math.clamp((display_value - self.min) / range, 0, 1) else 0;
 
     const is_hovered = ui.hovering(id);
-    const is_dragging = ui.pressing(id) and ui.input.mouse_down;
+    const is_dragging = ui.pressing(id) and ui.input.mouse_left_down;
     const opts: animation.Options = .{ .duration_ms = 100 };
     const hover_t = ui.anim(id, "hover", if (is_hovered) 1.0 else 0.0, opts);
     const drag_t = ui.anim(id, "drag", if (is_dragging) 1.0 else 0.0, opts);

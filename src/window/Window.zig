@@ -16,7 +16,8 @@ const FrameHandler = @import("root.zig").FrameHandler;
 
 backend: impl.Backend,
 should_close: bool = false,
-mouse_button_pressed: bool = false,
+mouse_button_left_pressed: bool = false,
+mouse_button_right_pressed: bool = false,
 scroll: ScrollInput = .{},
 char_buf: [32]u21 = @splat(0),
 char_count: u8 = 0,
@@ -117,8 +118,6 @@ pub inline fn setCursorVisible(self: *const Window, visible: bool) void {
 }
 
 pub fn collectInput(self: *Window) Input {
-    const pos = self.backend.getCursorPos();
-    const mouse_down_now = self.mouse_button_pressed;
     const scroll = self.scroll;
     self.scroll = .{};
 
@@ -139,14 +138,14 @@ pub fn collectInput(self: *Window) Input {
         translated_count += 1;
     }
 
-    const chars = self.char_buf[0..self.char_count];
     self.char_count = 0;
     self.key_count = 0;
     return .{
-        .pos = pos,
-        .mouse_down_now = mouse_down_now,
+        .pos = self.backend.getCursorPos(),
+        .mouse_left_down_now = self.mouse_button_left_pressed,
+        .mouse_right_down_now = self.mouse_button_right_pressed,
         .scroll = scroll,
-        .chars = chars,
+        .chars = self.char_buf[0..self.char_count],
         .keys = self.key_buf[0..translated_count],
         .shift_held = shift_held,
         .ctrl_held = ctrl_held,
@@ -197,8 +196,12 @@ pub fn addScrollPages(self: *Window, dx: f64, dy: f64) void {
     self.addScroll(.{ .page = .{ @floatCast(dx), @floatCast(dy) } });
 }
 
-pub fn setMouseDown(self: *Window, down: bool) void {
-    self.mouse_button_pressed = down;
+pub fn setMouseLeftDown(self: *Window, down: bool) void {
+    self.mouse_button_left_pressed = down;
+}
+
+pub fn setMouseRightDown(self: *Window, down: bool) void {
+    self.mouse_button_right_pressed = down;
 }
 
 pub fn markResized(self: *Window) void {

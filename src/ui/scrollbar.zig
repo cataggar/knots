@@ -181,14 +181,14 @@ pub fn route(ui: *UI) !void {
 
         for (geom.bars) |maybe_bar| {
             const bar = maybe_bar orelse continue;
-            if (ui.input.mouse_pressed and bar.thumb.contains(p))
+            if (ui.input.mouse_left_pressed and bar.thumb.contains(p))
                 press_target = .{ .slot = slot, .bar = bar };
         }
 
         const s = ui.state.get(.scroll, el.id) orelse continue;
         if (s.drag_axis == .none) continue;
 
-        if (!ui.input.mouse_down) {
+        if (!ui.input.mouse_left_down) {
             s.drag_axis = .none;
             continue;
         }
@@ -381,7 +381,8 @@ fn buildScrollYTree(u: *UI) !void {
 fn wheelInput(delta: math.Vec2) @import("window").Input {
     return .{
         .pos = .{ 50, 50 },
-        .mouse_down_now = false,
+        .mouse_left_down_now = false,
+        .mouse_right_down_now = false,
         .scroll = .{ .pixel = delta },
         .chars = &.{},
         .keys = &.{},
@@ -394,7 +395,8 @@ fn wheelInput(delta: math.Vec2) @import("window").Input {
 fn scrollInput(scroll: @import("window").ScrollInput) @import("window").Input {
     return .{
         .pos = .{ 50, 50 },
-        .mouse_down_now = false,
+        .mouse_left_down_now = false,
+        .mouse_right_down_now = false,
         .scroll = scroll,
         .chars = &.{},
         .keys = &.{},
@@ -512,7 +514,8 @@ test "scrollbar drag moves scroll offset proportionally" {
 
     try ui.resolveWindow(.{
         .pos = .{ bar.thumb.x() + 1, thumb_top_y + 4 },
-        .mouse_down_now = true,
+        .mouse_left_down_now = true,
+        .mouse_right_down_now = false,
         .scroll = .{},
         .chars = &.{},
         .keys = &.{},
@@ -531,7 +534,8 @@ test "scrollbar drag moves scroll offset proportionally" {
     const drag_target_y = thumb_top_y + 30;
     try ui.resolveWindow(.{
         .pos = .{ bar.thumb.x() + 1, drag_target_y },
-        .mouse_down_now = true,
+        .mouse_left_down_now = true,
+        .mouse_right_down_now = false,
         .scroll = .{},
         .chars = &.{},
         .keys = &.{},
@@ -550,7 +554,8 @@ test "scrollbar drag moves scroll offset proportionally" {
 
     try ui.resolveWindow(.{
         .pos = .{ bar.thumb.x() + 1, drag_target_y },
-        .mouse_down_now = false,
+        .mouse_left_down_now = false,
+        .mouse_right_down_now = false,
         .scroll = .{},
         .chars = &.{},
         .keys = &.{},
@@ -594,7 +599,8 @@ test "wheel scroll over container updates offset" {
 
     try ui.resolveWindow(.{
         .pos = .{ 50, 50 },
-        .mouse_down_now = false,
+        .mouse_left_down_now = false,
+        .mouse_right_down_now = false,
         .scroll = .{ .pixel = .{ 0, 25 } },
         .chars = &.{},
         .keys = &.{},

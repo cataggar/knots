@@ -115,10 +115,10 @@ pub fn render(self: *const DevTools, app: *knots.App) anyerror!void {
     const trigger_y = @max(0, h - trigger_visible_h);
 
     try self.renderTrigger(app, trigger_x, trigger_y);
-    if (app.ui.clickedWithin(trigger_button_key.hash())) self.state.panel_open = !self.state.panel_open;
+    if (app.ui.leftClickedWithin(trigger_button_key.hash())) self.state.panel_open = !self.state.panel_open;
 
     if (self.state.panel_open) try self.renderPanel(app, w, trigger_y);
-    if (app.ui.clickedWithin(close_key.hash())) self.state.panel_open = false;
+    if (app.ui.leftClickedWithin(close_key.hash())) self.state.panel_open = false;
 }
 
 fn renderTrigger(_: *const DevTools, app: *knots.App, x: f32, y: f32) !void {
@@ -193,9 +193,9 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
     });
 
     try self.renderTabs(app);
-    if (app.ui.clickedWithin(metrics_tab_key.hash())) self.state.active_tab = .metrics;
-    if (app.ui.clickedWithin(runtime_tab_key.hash())) self.state.active_tab = .runtime;
-    if (app.ui.clickedWithin(renderer_tab_key.hash())) self.state.active_tab = .renderer;
+    if (app.ui.leftClickedWithin(metrics_tab_key.hash())) self.state.active_tab = .metrics;
+    if (app.ui.leftClickedWithin(runtime_tab_key.hash())) self.state.active_tab = .runtime;
+    if (app.ui.leftClickedWithin(renderer_tab_key.hash())) self.state.active_tab = .renderer;
 
     const content_w = @max(0, width - 28.0);
     switch (self.state.active_tab) {
@@ -206,7 +206,7 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
 
     app.ui.close();
 
-    if (app.ui.clickedWithin(apply_key.hash())) {
+    if (app.ui.leftClickedWithin(apply_key.hash())) {
         const backend_idx = selectedIdx(app, backend_key, self.state.backend_idx);
         const present_mode_idx = selectedIdx(app, present_mode_key, self.state.present_mode_idx);
         self.state.backend_idx = backend_idx;

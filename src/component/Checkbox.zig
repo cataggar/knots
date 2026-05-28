@@ -40,7 +40,7 @@ pub fn open(self: *const Checkbox, app: *App) !Element.Id {
         .interactive = true,
     }, .none);
 
-    if (ui.clickedWithin(id) or (ui.focused(id) and ui.input.containsKey(.space))) {
+    if (ui.leftClickedWithin(id) or (ui.focused(id) and ui.input.containsKey(.space))) {
         self.checked.* = !self.checked.*;
         ui.input.consumeKeyboard();
         if (self.onChange) |cb| try cb(app);

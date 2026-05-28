@@ -12,8 +12,10 @@ pub const view_misc_methods = .{
 };
 
 pub const mouse_methods = .{
-    .{ "mouseDown:", mouseDown },
-    .{ "mouseUp:", mouseUp },
+    .{ "mouseDown:", mouseLeftDown },
+    .{ "mouseUp:", mouseLeftUp },
+    .{ "rightMouseDown:", mouseRightDown },
+    .{ "rightMouseUp:", mouseRightUp },
     .{ "scrollWheel:", scrollWheel },
 };
 
@@ -44,14 +46,24 @@ fn isFlipped(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
     return ak.boolParam(true);
 }
 
-fn mouseDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+fn mouseLeftDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
-    owner.setMouseDown(true);
+    owner.setMouseLeftDown(true);
 }
 
-fn mouseUp(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+fn mouseLeftUp(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
-    owner.setMouseDown(false);
+    owner.setMouseLeftDown(false);
+}
+
+fn mouseRightDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setMouseRightDown(true);
+}
+
+fn mouseRightUp(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setMouseRightDown(false);
 }
 
 fn scrollWheel(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
