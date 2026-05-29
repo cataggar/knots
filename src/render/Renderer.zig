@@ -15,6 +15,8 @@ const INIT_TEXT_VERTEX_BYTES = 128 * 1024;
 const INIT_TEXT_INDEX_COUNT = 16 * 1024;
 const TEX_INDEX_BITS: u5 = 16;
 const TEX_INDEX_MASK: u32 = (@as(u32, 1) << TEX_INDEX_BITS) - 1;
+const PIXEL_TEXTURE_TTL_FRAMES: u32 = 2;
+const PixelTextureKey = u64;
 
 const CURVE_TEX_WIDTH: u32 = text.GlyphBuilder.TEXTURE_WIDTH;
 const BAND_TEX_WIDTH: u32 = text.GlyphBuilder.TEXTURE_WIDTH;
@@ -62,6 +64,35 @@ const TextureSlot = struct {
     gen: u16,
 };
 
+const PixelTextureCacheEntry = struct {
+    texture_id: ?u32 = null,
+    width: u32 = 0,
+    height: u32 = 0,
+    format: gpu.Texture.Format = .rgba8,
+    data_ptr: usize = 0,
+    len: usize = 0,
+    bytes_per_row: ?u32 = null,
+    version: u64 = 0,
+    last_seen: u32 = 0,
+};
+
+const PixelTextureIdContext = struct {
+    pub fn hash(_: PixelTextureIdContext, id: PixelTextureKey) u64 {
+        return id;
+    }
+
+    pub fn eql(_: PixelTextureIdContext, a: PixelTextureKey, b: PixelTextureKey) bool {
+        return a == b;
+    }
+};
+
+const PixelTextureCache = std.HashMapUnmanaged(
+    PixelTextureKey,
+    PixelTextureCacheEntry,
+    PixelTextureIdContext,
+    std.hash_map.default_max_load_percentage,
+);
+
 allocator: std.mem.Allocator,
 window: Window,
 cfg: Config,
@@ -108,6 +139,9 @@ cached_phys_width: u32 = 0,
 cached_phys_height: u32 = 0,
 texture_slots: std.ArrayList(TextureSlot),
 free_slot_indices: std.ArrayList(u32),
+pixel_texture_cache: PixelTextureCache,
+pixel_texture_scratch: std.ArrayList(PixelTextureKey),
+pixel_texture_frame: u32,
 draw_list: DrawList,
 
 const Renderer = @This();
@@ -307,6 +341,9 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .draw_list = .init(allocator),
         .texture_slots = .empty,
         .free_slot_indices = .empty,
+        .pixel_texture_cache = .empty,
+        .pixel_texture_scratch = .empty,
+        .pixel_texture_frame = 0,
     };
 }
 
@@ -332,6 +369,8 @@ pub fn deinit(self: *Renderer) void {
     }
     self.texture_slots.deinit(self.allocator);
     self.free_slot_indices.deinit(self.allocator);
+    self.pixel_texture_cache.deinit(self.allocator);
+    self.pixel_texture_scratch.deinit(self.allocator);
     self.pipeline.deinit();
     self.instance_pipeline.deinit();
     self.text_pipeline.deinit();
@@ -388,7 +427,8 @@ pub fn createTexture(self: *Renderer, width: u32, height: u32, format: gpu.Textu
 pub fn writeTexture(self: *Renderer, id: u32, data: [*]const u8, len: usize, width: u32, height: u32, bytes_per_row: ?u32) !void {
     const reg = (try self.lookupTexture(id)) orelse return error.InvalidTextureId;
     if (width > reg.width or height > reg.height) return error.InvalidTextureWrite;
-    if (len < @as(usize, width) * @as(usize, height) * bytesPerPixel(reg.format)) return error.InvalidTextureWrite;
+    const required = try requiredTextureBytes(width, height, bytesPerGpuPixel(reg.format), bytes_per_row);
+    if (len < required) return error.InvalidTextureWrite;
     try reg.texture.write(data, len, 0, 0, width, height, bytes_per_row);
 }
 
@@ -398,14 +438,82 @@ pub fn destroyTexture(self: *Renderer, id: u32) !void {
     const slot = &self.texture_slots.items[idx];
     if ((id >> TEX_INDEX_BITS) != slot.gen) return error.InvalidTextureId;
     if (slot.binding) |*reg| {
+        try self.free_slot_indices.ensureUnusedCapacity(self.allocator, 1);
         if (slot.bg) |bg| bg.deinit();
         slot.bg = null;
         reg.texture.deinit();
         reg.sampler.deinit();
         slot.binding = null;
         slot.gen +%= 1;
-        try self.free_slot_indices.append(self.allocator, idx);
+        self.free_slot_indices.appendAssumeCapacity(idx);
     } else return error.InvalidTextureId;
+}
+
+pub fn textureFromPixels(
+    self: *Renderer,
+    id: PixelTextureKey,
+    data: []const u8,
+    width: u32,
+    height: u32,
+    format: gpu.Texture.Format,
+    bytes_per_row: ?u32,
+    version: u64,
+) !u32 {
+    const required = try requiredTextureBytes(width, height, bytesPerGpuPixel(format), bytes_per_row);
+    if (data.len < required) return error.InvalidTextureWrite;
+
+    const data_ptr = @intFromPtr(data.ptr);
+    const gop = try self.pixel_texture_cache.getOrPutContext(self.allocator, id, .{});
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    errdefer _ = if (!gop.found_existing) self.pixel_texture_cache.remove(id);
+
+    const entry = gop.value_ptr;
+    entry.last_seen = self.pixel_texture_frame;
+
+    const needs_recreate =
+        entry.texture_id == null or
+        entry.width != width or
+        entry.height != height or
+        entry.format != format;
+
+    var texture_id = entry.texture_id;
+    var new_texture_id: ?u32 = null;
+    errdefer if (new_texture_id) |tex| self.destroyTexture(tex) catch {};
+
+    if (needs_recreate) {
+        const tex = try self.createTexture(width, height, format);
+        new_texture_id = tex;
+        texture_id = tex;
+    }
+
+    const needs_upload =
+        needs_recreate or
+        entry.data_ptr != data_ptr or
+        entry.len != data.len or
+        entry.bytes_per_row != bytes_per_row or
+        entry.version != version;
+
+    if (needs_upload) {
+        try self.writeTexture(texture_id.?, data.ptr, data.len, width, height, bytes_per_row);
+    }
+
+    if (needs_recreate) {
+        if (entry.texture_id) |old_tex| try self.destroyTexture(old_tex);
+        entry.texture_id = new_texture_id.?;
+        entry.width = width;
+        entry.height = height;
+        entry.format = format;
+        new_texture_id = null;
+    }
+
+    if (needs_upload) {
+        entry.data_ptr = data_ptr;
+        entry.len = data.len;
+        entry.bytes_per_row = bytes_per_row;
+        entry.version = version;
+    }
+
+    return entry.texture_id.?;
 }
 
 fn lookupTexture(self: *Renderer, id: u32) !?*TextureBinding {
@@ -421,12 +529,32 @@ fn packTextureId(idx: u32, gen: u16) u32 {
     return (@as(u32, gen) << TEX_INDEX_BITS) | (idx & TEX_INDEX_MASK);
 }
 
-fn bytesPerPixel(format: gpu.Texture.Format) usize {
+fn bytesPerGpuPixel(format: gpu.Texture.Format) usize {
     return switch (format) {
         .r8 => 1,
         .rgba8, .rgba8_srgb, .bgra8, .bgra8_srgb => 4,
         .rgba32f, .rgba32u => 16,
     };
+}
+
+fn requiredTextureBytes(width: u32, height: u32, bpp: usize, bytes_per_row: ?u32) !usize {
+    if (width == 0 or height == 0) return error.InvalidTextureWrite;
+
+    const row_bytes = std.math.mul(usize, @as(usize, width), bpp) catch
+        return error.InvalidTextureWrite;
+
+    if (bytes_per_row) |stride_u32| {
+        const stride: usize = stride_u32;
+        if (stride < row_bytes) return error.InvalidTextureWrite;
+
+        const prefix = std.math.mul(usize, @as(usize, height - 1), stride) catch
+            return error.InvalidTextureWrite;
+        return std.math.add(usize, prefix, row_bytes) catch
+            return error.InvalidTextureWrite;
+    }
+
+    return std.math.mul(usize, row_bytes, @as(usize, height)) catch
+        return error.InvalidTextureWrite;
 }
 
 pub fn resize(self: *Renderer, width: u32, height: u32) !void {
@@ -455,7 +583,26 @@ pub fn beginFrame(self: *Renderer) *DrawList {
 }
 
 pub fn endFrame(self: *Renderer, glyph_builder: *text.GlyphBuilder, content_scale: f32) !void {
-    return self.draw(&self.draw_list, glyph_builder, content_scale);
+    try self.draw(&self.draw_list, glyph_builder, content_scale);
+    try self.sweepPixelTextureCache();
+    self.pixel_texture_frame +%= 1;
+}
+
+fn sweepPixelTextureCache(self: *Renderer) !void {
+    self.pixel_texture_scratch.clearRetainingCapacity();
+
+    var it = self.pixel_texture_cache.iterator();
+    while (it.next()) |kv| {
+        if (self.pixel_texture_frame -% kv.value_ptr.last_seen >= PIXEL_TEXTURE_TTL_FRAMES) {
+            try self.pixel_texture_scratch.append(self.allocator, kv.key_ptr.*);
+        }
+    }
+
+    for (self.pixel_texture_scratch.items) |id| {
+        const entry = self.pixel_texture_cache.get(id) orelse continue;
+        if (entry.texture_id) |tex| try self.destroyTexture(tex);
+        _ = self.pixel_texture_cache.remove(id);
+    }
 }
 
 const FrameSizes = struct {

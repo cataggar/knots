@@ -1,8 +1,23 @@
 const App = @import("knots").App;
 const Key = @import("ui").Key;
 const Element = @import("layout").Element;
+const gpu = @import("gpu");
 
-texture_id: u32,
+pub const Pixels = struct {
+    data: []const u8,
+    width: u32,
+    height: u32,
+    format: gpu.Texture.Format = .rgba8,
+    bytes_per_row: ?u32 = null,
+    version: u64 = 0,
+};
+
+pub const Source = union(enum) {
+    texture: u32,
+    pixels: Pixels,
+};
+
+source: Source,
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .grow(),
 position: Element.Position = .static,
@@ -12,13 +27,18 @@ key: Key,
 const Image = @This();
 
 pub fn open(self: *const Image, app: *App) !Element.Id {
+    const texture_id = switch (self.source) {
+        .texture => |id| id,
+        .pixels => |p| try app.renderer.textureFromPixels(self.key.hash(), p.data, p.width, p.height, p.format, p.bytes_per_row, p.version),
+    };
+
     return try app.ui.open(self.key, .{
         .width = self.width,
         .height = self.height,
         .position = self.position,
         .overflow = .hidden,
     }, .{ .image = .{
-        .texture_id = self.texture_id,
+        .texture_id = texture_id,
         .tint = self.tint,
     } });
 }
