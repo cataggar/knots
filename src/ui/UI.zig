@@ -384,7 +384,7 @@ pub fn pressing(self: *UI, id: Element.Id) bool {
 
 pub fn leftClicked(self: *UI, id: Element.Id) bool {
     if (!self.inputScopeAllowsId(id)) return false;
-    return self.input.mouse_left_pressed and self.state.active == id;
+    return self.input.mouse_left_pressed and self.state.press_origin == id;
 }
 
 pub fn focused(self: *UI, id: Element.Id) bool {
@@ -415,6 +415,14 @@ pub fn leftClickedWithin(self: *UI, ancestor_id: Element.Id) bool {
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
 }
 
+fn currentMouseHit(self: *UI) Element.Id {
+    return self.mouseHit(self.input.mouse_pos);
+}
+
+fn mouseHit(self: *UI, pos: [2]f64) Element.Id {
+    return self.hitTarget(.{ @floatCast(pos[0]), @floatCast(pos[1]) });
+}
+
 fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element.Id) bool {
     if (descendant_id == Element.INVALID_ID) return false;
     if (descendant_id == ancestor_id) return true;
@@ -437,21 +445,25 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
         if (!self.inputScopeAllowsId(self.state.press_origin)) self.state.press_origin = Element.INVALID_ID;
     }
 
+    self.state.hovered = self.currentMouseHit();
+
     if (self.input.mouse_left_pressed) {
-        self.state.active = self.state.hovered;
-        self.state.focused = self.state.hovered;
-        self.state.press_origin = self.state.hovered;
-        self.state.press_pos = self.input.mouse_pos;
+        const press_pos = self.input.mouse_left_pressed_pos orelse self.input.mouse_pos;
+        const press_hit = self.mouseHit(press_pos);
+        self.state.active = press_hit;
+        self.state.focused = press_hit;
+        self.state.press_origin = press_hit;
+        self.state.press_pos = press_pos;
         self.state.press_drag = false;
 
-        self.state.forEach(.text_select, self.state.hovered, clearOtherTextSelect);
+        self.state.forEach(.text_select, press_hit, clearOtherTextSelect);
     }
     if (self.input.mouse_left_down and !self.state.press_drag) {
         const dx = self.input.mouse_pos[0] - self.state.press_pos[0];
         const dy = self.input.mouse_pos[1] - self.state.press_pos[1];
         if (dx * dx + dy * dy > press_drag_threshold_sq) self.state.press_drag = true;
     }
-    if (self.input.mouse_left_released) self.state.active = Element.INVALID_ID;
+    if (self.input.mouse_left_released and !self.input.mouse_left_down) self.state.active = Element.INVALID_ID;
 }
 
 /// Advance the per widget state TTL clock. Call once per frame after the
@@ -488,8 +500,14 @@ pub fn appendHitWithScope(self: *UI, id: Element.Id, bounds: math.Rect, clip: ?m
 }
 
 pub fn resolveHit(self: *UI) bool {
-    const p: math.Vec2 = .{ @floatCast(self.input.mouse_pos[0]), @floatCast(self.input.mouse_pos[1]) };
+    const best_id = self.currentMouseHit();
+    const changed = self.state.hovered != best_id;
+    self.state.hovered = best_id;
+    self.updateStats();
+    return changed;
+}
 
+fn hitTarget(self: *UI, p: math.Vec2) Element.Id {
     var best_id: Element.Id = Element.INVALID_ID;
     var best_layer: u8 = 0;
     var best_order: u32 = 0;
@@ -509,10 +527,7 @@ pub fn resolveHit(self: *UI) bool {
         }
     }
 
-    const changed = self.state.hovered != best_id;
-    self.state.hovered = best_id;
-    self.updateStats();
-    return changed;
+    return best_id;
 }
 
 fn inputScopeAllowsId(self: *UI, id: Element.Id) bool {

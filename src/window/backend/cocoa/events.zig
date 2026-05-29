@@ -14,8 +14,11 @@ pub const view_misc_methods = .{
 pub const mouse_methods = .{
     .{ "mouseDown:", mouseLeftDown },
     .{ "mouseUp:", mouseLeftUp },
+    .{ "mouseMoved:", mouseMoved },
+    .{ "mouseDragged:", mouseDragged },
     .{ "rightMouseDown:", mouseRightDown },
     .{ "rightMouseUp:", mouseRightUp },
+    .{ "rightMouseDragged:", rightMouseDragged },
     .{ "scrollWheel:", scrollWheel },
 };
 
@@ -46,28 +49,52 @@ fn isFlipped(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
     return ak.boolParam(true);
 }
 
-fn mouseLeftDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
-    const owner = ak.unwrapOwner(self) orelse return;
-    owner.setMouseLeftDown(true);
+fn eventPos(self: c.id, event_id: c.id) [2]f64 {
+    const view = objc.Object.fromId(self);
+    const event = objc.Object.fromId(event_id);
+    const point_in_window = event.msgSend(ak.NSPoint, "locationInWindow", .{});
+    const point = view.msgSend(ak.NSPoint, "convertPoint:fromView:", .{ point_in_window, @as(c.id, null) });
+    return .{ point.x, point.y };
 }
 
-fn mouseLeftUp(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+fn mouseLeftDown(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
-    owner.setMouseLeftDown(false);
+    owner.setMouseButton(.left, true, eventPos(self, event_id));
 }
 
-fn mouseRightDown(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+fn mouseLeftUp(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
-    owner.setMouseRightDown(true);
+    owner.setMouseButton(.left, false, eventPos(self, event_id));
 }
 
-fn mouseRightUp(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+fn mouseMoved(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
-    owner.setMouseRightDown(false);
+    owner.setCursorPos(eventPos(self, event_id));
+}
+
+fn mouseDragged(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setCursorPos(eventPos(self, event_id));
+}
+
+fn mouseRightDown(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setMouseButton(.right, true, eventPos(self, event_id));
+}
+
+fn mouseRightUp(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setMouseButton(.right, false, eventPos(self, event_id));
+}
+
+fn rightMouseDragged(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setCursorPos(eventPos(self, event_id));
 }
 
 fn scrollWheel(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
+    owner.setCursorPos(eventPos(self, event_id));
     const event = objc.Object.fromId(event_id);
     const dx = event.msgSend(f64, "scrollingDeltaX", .{});
     const dy = event.msgSend(f64, "scrollingDeltaY", .{});

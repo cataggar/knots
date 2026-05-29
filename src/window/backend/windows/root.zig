@@ -12,6 +12,26 @@ const WHEEL_PAGESCROLL: u32 = std.math.maxInt(u32);
 const WheelAxis = enum { x, y };
 var class_registered: bool = false;
 
+fn mousePos(lparam: win32.LPARAM) [2]f64 {
+    const pt = lparamPoint(lparam);
+    return .{ @floatFromInt(pt.x), @floatFromInt(pt.y) };
+}
+
+fn lparamPoint(lparam: win32.LPARAM) win32.POINT {
+    const lp: u64 = @bitCast(@as(i64, lparam));
+    const x_raw: u16 = @truncate(lp & 0xFFFF);
+    const y_raw: u16 = @truncate((lp >> 16) & 0xFFFF);
+    const x: i16 = @bitCast(x_raw);
+    const y: i16 = @bitCast(y_raw);
+    return .{ .x = @intCast(x), .y = @intCast(y) };
+}
+
+fn wheelMousePos(hwnd: win32.HWND, lparam: win32.LPARAM) [2]f64 {
+    var pt = lparamPoint(lparam);
+    _ = win32.ScreenToClient(hwnd, &pt);
+    return .{ @floatFromInt(pt.x), @floatFromInt(pt.y) };
+}
+
 pub const Backend = struct {
     hwnd: win32.HWND,
     hinstance: win32.HINSTANCE,
@@ -331,37 +351,55 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
             }
             return win32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
+        win32.WM_MOUSEMOVE => {
+            if (ownerOf(hwnd)) |o| o.setCursorPos(mousePos(lparam));
+            return 0;
+        },
         win32.WM_LBUTTONDOWN => {
             _ = win32.SetCapture(hwnd);
-            if (ownerOf(hwnd)) |o| o.setMouseLeftDown(true);
+            if (ownerOf(hwnd)) |o| o.setMouseButton(.left, true, mousePos(lparam));
             return 0;
         },
         win32.WM_LBUTTONUP => {
-            _ = win32.ReleaseCapture();
-            if (ownerOf(hwnd)) |o| o.setMouseLeftDown(false);
+            if (ownerOf(hwnd)) |o| {
+                o.setMouseButton(.left, false, mousePos(lparam));
+                if (!o.anyMouseButtonDown()) _ = win32.ReleaseCapture();
+            } else {
+                _ = win32.ReleaseCapture();
+            }
             return 0;
         },
         win32.WM_RBUTTONDOWN => {
             _ = win32.SetCapture(hwnd);
-            if (ownerOf(hwnd)) |o| o.setMouseRightDown(true);
+            if (ownerOf(hwnd)) |o| o.setMouseButton(.right, true, mousePos(lparam));
             return 0;
         },
         win32.WM_RBUTTONUP => {
-            _ = win32.ReleaseCapture();
-            if (ownerOf(hwnd)) |o| o.setMouseRightDown(false);
+            if (ownerOf(hwnd)) |o| {
+                o.setMouseButton(.right, false, mousePos(lparam));
+                if (!o.anyMouseButtonDown()) _ = win32.ReleaseCapture();
+            } else {
+                _ = win32.ReleaseCapture();
+            }
             return 0;
         },
         win32.WM_CONTEXTMENU => return 0,
         win32.WM_MOUSEWHEEL => {
             const hi: u16 = @truncate((wparam >> 16) & 0xFFFF);
             const delta: i16 = @bitCast(hi);
-            if (ownerOf(hwnd)) |o| applyWheelLines(o, .y, wheelSteps(delta), o.backend.wheel_scroll_lines);
+            if (ownerOf(hwnd)) |o| {
+                o.setCursorPos(wheelMousePos(hwnd, lparam));
+                applyWheelLines(o, .y, wheelSteps(delta), o.backend.wheel_scroll_lines);
+            }
             return 0;
         },
         win32.WM_MOUSEHWHEEL => {
             const hi: u16 = @truncate((wparam >> 16) & 0xFFFF);
             const delta: i16 = @bitCast(hi);
-            if (ownerOf(hwnd)) |o| applyWheelLines(o, .x, wheelSteps(delta), o.backend.wheel_scroll_chars);
+            if (ownerOf(hwnd)) |o| {
+                o.setCursorPos(wheelMousePos(hwnd, lparam));
+                applyWheelLines(o, .x, wheelSteps(delta), o.backend.wheel_scroll_chars);
+            }
             return 0;
         },
         win32.WM_SETTINGCHANGE => {

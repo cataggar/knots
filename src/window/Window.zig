@@ -16,8 +16,7 @@ const FrameHandler = @import("root.zig").FrameHandler;
 
 backend: impl.Backend,
 should_close: bool = false,
-mouse_button_left_pressed: bool = false,
-mouse_button_right_pressed: bool = false,
+mouse: Mouse = .{},
 scroll: ScrollInput = .{},
 char_buf: [32]u21 = @splat(0),
 char_count: u8 = 0,
@@ -30,13 +29,49 @@ canvas_selector: ?[:0]const u8,
 content_scale: f32 = 1.0,
 display_mode: DisplayMode = .windowed,
 frame_handler: ?FrameHandler = null,
+input_dirty: bool = false,
 
 const Window = @This();
+
+pub const MouseButton = enum(u1) {
+    left = 0,
+    right = 1,
+};
+
+const Mouse = struct {
+    pos: [2]f64 = .{ 0, 0 },
+    down: u8 = 0,
+    pressed: u8 = 0,
+    released: u8 = 0,
+    pressed_pos: [2]?[2]f64 = .{ null, null },
+    released_pos: [2]?[2]f64 = .{ null, null },
+
+    fn bit(button: MouseButton) u8 {
+        return @as(u8, 1) << @intFromEnum(button);
+    }
+
+    fn index(button: MouseButton) usize {
+        return @intFromEnum(button);
+    }
+
+    fn isDown(self: Mouse, button: MouseButton) bool {
+        return (self.down & bit(button)) != 0;
+    }
+
+    fn wasPressed(self: Mouse, button: MouseButton) bool {
+        return (self.pressed & bit(button)) != 0;
+    }
+
+    fn wasReleased(self: Mouse, button: MouseButton) bool {
+        return (self.released & bit(button)) != 0;
+    }
+};
 
 pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !Window {
     var be: impl.Backend = try impl.init(io, allocator, cfg);
     return Window{
         .backend = be,
+        .mouse = .{ .pos = be.getCursorPos() },
         .canvas_selector = cfg.canvas_selector,
         .content_scale = be.computeContentScale(),
     };
@@ -119,7 +154,15 @@ pub inline fn setCursorVisible(self: *const Window, visible: bool) void {
 
 pub fn collectInput(self: *Window) Input {
     const scroll = self.scroll;
+    const mouse = self.mouse;
+    const char_count = self.char_count;
+
+    self.input_dirty = false;
     self.scroll = .{};
+    self.mouse.pressed = 0;
+    self.mouse.released = 0;
+    self.mouse.pressed_pos = .{ null, null };
+    self.mouse.released_pos = .{ null, null };
 
     var translated_count: u8 = 0;
     var shift_held = false;
@@ -141,11 +184,19 @@ pub fn collectInput(self: *Window) Input {
     self.char_count = 0;
     self.key_count = 0;
     return .{
-        .pos = self.backend.getCursorPos(),
-        .mouse_left_down_now = self.mouse_button_left_pressed,
-        .mouse_right_down_now = self.mouse_button_right_pressed,
+        .pos = mouse.pos,
+        .mouse_left_down_now = mouse.isDown(.left),
+        .mouse_left_pressed = mouse.wasPressed(.left),
+        .mouse_left_released = mouse.wasReleased(.left),
+        .mouse_left_pressed_pos = mouse.pressed_pos[Mouse.index(.left)],
+        .mouse_left_released_pos = mouse.released_pos[Mouse.index(.left)],
+        .mouse_right_down_now = mouse.isDown(.right),
+        .mouse_right_pressed = mouse.wasPressed(.right),
+        .mouse_right_released = mouse.wasReleased(.right),
+        .mouse_right_pressed_pos = mouse.pressed_pos[Mouse.index(.right)],
+        .mouse_right_released_pos = mouse.released_pos[Mouse.index(.right)],
         .scroll = scroll,
-        .chars = self.char_buf[0..self.char_count],
+        .chars = self.char_buf[0..char_count],
         .keys = self.key_buf[0..translated_count],
         .shift_held = shift_held,
         .ctrl_held = ctrl_held,
@@ -170,6 +221,7 @@ pub fn pushChar(self: *Window, codepoint: u21) void {
     if (self.char_count < self.char_buf.len) {
         self.char_buf[self.char_count] = codepoint;
         self.char_count += 1;
+        self.markInputChanged();
     }
 }
 
@@ -177,11 +229,13 @@ pub fn pushKey(self: *Window, key: i32, action: KeyAction, mods: Mods) void {
     if (self.key_count < self.key_events.len) {
         self.key_events[self.key_count] = .{ .key = key, .action = action, .mods = mods };
         self.key_count += 1;
+        self.markInputChanged();
     }
 }
 
 pub fn addScroll(self: *Window, scroll: ScrollInput) void {
     self.scroll.add(scroll);
+    if (!scroll.isZero()) self.markInputChanged();
 }
 
 pub fn addScrollPixels(self: *Window, dx: f64, dy: f64) void {
@@ -196,12 +250,41 @@ pub fn addScrollPages(self: *Window, dx: f64, dy: f64) void {
     self.addScroll(.{ .page = .{ @floatCast(dx), @floatCast(dy) } });
 }
 
+pub fn setCursorPos(self: *Window, pos: [2]f64) void {
+    if (self.mouse.pos[0] == pos[0] and self.mouse.pos[1] == pos[1]) return;
+    self.mouse.pos = pos;
+    self.markInputChanged();
+}
+
+pub fn setMouseButton(self: *Window, button: MouseButton, down: bool, pos: [2]f64) void {
+    const b = Mouse.bit(button);
+    const i = Mouse.index(button);
+    if (down == ((self.mouse.down & b) != 0)) return;
+
+    self.setCursorPos(pos);
+
+    if (down) {
+        self.mouse.down |= b;
+        self.mouse.pressed |= b;
+        self.mouse.pressed_pos[i] = pos;
+    } else {
+        self.mouse.down &= ~b;
+        self.mouse.released |= b;
+        self.mouse.released_pos[i] = pos;
+    }
+    self.markInputChanged();
+}
+
 pub fn setMouseLeftDown(self: *Window, down: bool) void {
-    self.mouse_button_left_pressed = down;
+    self.setMouseButton(.left, down, self.mouse.pos);
 }
 
 pub fn setMouseRightDown(self: *Window, down: bool) void {
-    self.mouse_button_right_pressed = down;
+    self.setMouseButton(.right, down, self.mouse.pos);
+}
+
+pub fn anyMouseButtonDown(self: *const Window) bool {
+    return self.mouse.down != 0;
 }
 
 pub fn markResized(self: *Window) void {
@@ -214,4 +297,11 @@ pub fn markClosed(self: *Window) void {
 
 pub fn markDropped(self: *Window, count: usize) void {
     self.pending_drop_count = @intCast(@min(count, std.math.maxInt(u8)));
+    if (count > 0) self.markInputChanged();
+}
+
+fn markInputChanged(self: *Window) void {
+    if (self.input_dirty) return;
+    self.input_dirty = true;
+    self.requestFrame();
 }

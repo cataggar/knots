@@ -212,6 +212,7 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     );
     ns_window.msgSend(void, "setTitle:", .{ak.nsstring(cfg.title)});
     ns_window.msgSend(void, "setReleasedWhenClosed:", .{ak.boolParam(false)});
+    ns_window.msgSend(void, "setAcceptsMouseMovedEvents:", .{ak.boolParam(true)});
     ns_window.msgSend(void, "center", .{});
 
     const view = KnotsView

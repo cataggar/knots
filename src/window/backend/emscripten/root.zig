@@ -86,7 +86,6 @@ pub const Backend = struct {
     physical_size: window.Size,
     content_scale: f32,
     pending_resize: ?window.ResizeEvent,
-    cursor_pos: [2]f64 = .{ 0, 0 },
     is_fullscreen: bool = false,
     cursor_visible: bool = true,
 
@@ -101,6 +100,7 @@ pub const Backend = struct {
         _ = emscripten_set_keydown_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), true, events.onKeyDown, 0);
         _ = emscripten_set_keyup_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_WINDOW, @ptrCast(owner), true, events.onKeyUp, 0);
         _ = emscripten_set_mousedown_callback_on_thread(sel, @ptrCast(owner), false, events.onMouseDown, 0);
+        _ = emscripten_set_mouseup_callback_on_thread(sel, @ptrCast(owner), false, events.onMouseUp, 0);
         // Listen on document so a drag released outside the canvas still fires mouseup.
         _ = emscripten_set_mouseup_callback_on_thread(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, @ptrCast(owner), false, events.onMouseUp, 0);
         _ = emscripten_set_mousemove_callback_on_thread(sel, @ptrCast(owner), false, events.onMouseMove, 0);
@@ -132,8 +132,8 @@ pub const Backend = struct {
         return self.content_scale;
     }
 
-    pub fn getCursorPos(self: *const Self) [2]f64 {
-        return self.cursor_pos;
+    pub fn getCursorPos(_: *const Self) [2]f64 {
+        return .{ 0, 0 };
     }
 
     pub fn getNativeHandle(_: *const Self, canvas_selector: ?[:0]const u8) gpu.Context.WindowHandle {

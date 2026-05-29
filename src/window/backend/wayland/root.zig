@@ -615,15 +615,19 @@ fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, state: *State) void 
         .enter => |enter| {
             state.pointer_enter_serial = enter.serial;
             state.cursor_pos = .{ enter.surface_x.toDouble(), enter.surface_y.toDouble() };
+            if (owner) |o| o.setCursorPos(state.cursor_pos);
             state.applyCursor();
         },
         .leave => {},
-        .motion => |motion| state.cursor_pos = .{ motion.surface_x.toDouble(), motion.surface_y.toDouble() },
+        .motion => |motion| {
+            state.cursor_pos = .{ motion.surface_x.toDouble(), motion.surface_y.toDouble() };
+            if (owner) |o| o.setCursorPos(state.cursor_pos);
+        },
         .button => |button| {
             if (button.button == BTN_LEFT) {
-                if (owner) |o| o.setMouseLeftDown(button.state == .pressed);
+                if (owner) |o| o.setMouseButton(.left, button.state == .pressed, state.cursor_pos);
             } else if (button.button == BTN_RIGHT) {
-                if (owner) |o| o.setMouseRightDown(button.state == .pressed);
+                if (owner) |o| o.setMouseButton(.right, button.state == .pressed, state.cursor_pos);
             }
         },
         .axis => |axis| {

@@ -41,9 +41,10 @@ pub fn onKeyUp(_: c_int, ev: *const root.EmscriptenKeyboardEvent, user_data: ?*a
 
 pub fn onMouseDown(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*anyopaque) callconv(.c) bool {
     const owner = ownerOf(user_data) orelse return false;
+    const pos = mousePos(ev);
     switch (ev.button) {
-        0 => owner.setMouseLeftDown(true),
-        2 => owner.setMouseRightDown(true),
+        0 => owner.setMouseButton(.left, true, pos),
+        2 => owner.setMouseButton(.right, true, pos),
         else => return false,
     }
     return true;
@@ -51,9 +52,10 @@ pub fn onMouseDown(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*
 
 pub fn onMouseUp(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*anyopaque) callconv(.c) bool {
     const owner = ownerOf(user_data) orelse return false;
+    const pos = mousePos(ev);
     switch (ev.button) {
-        0 => owner.setMouseLeftDown(false),
-        2 => owner.setMouseRightDown(false),
+        0 => owner.setMouseButton(.left, false, pos),
+        2 => owner.setMouseButton(.right, false, pos),
         else => return false,
     }
     return true;
@@ -61,12 +63,13 @@ pub fn onMouseUp(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*an
 
 pub fn onMouseMove(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*anyopaque) callconv(.c) bool {
     const owner = ownerOf(user_data) orelse return false;
-    owner.backend.cursor_pos = .{ @floatFromInt(ev.targetX), @floatFromInt(ev.targetY) };
+    owner.setCursorPos(mousePos(ev));
     return true;
 }
 
 pub fn onWheel(_: c_int, ev: *const root.EmscriptenWheelEvent, user_data: ?*anyopaque) callconv(.c) bool {
     const owner = ownerOf(user_data) orelse return false;
+    owner.setCursorPos(mousePos(&ev.*.mouse));
     switch (ev.deltaMode) {
         0 => owner.addScrollPixels(ev.deltaX, ev.deltaY), // DOM_DELTA_PIXEL
         1 => owner.addScrollLines(ev.deltaX, ev.deltaY), // DOM_DELTA_LINE
@@ -84,12 +87,14 @@ pub fn onResize(_: c_int, _: *const root.EmscriptenUiEvent, user_data: ?*anyopaq
 }
 
 pub fn onBlur(_: c_int, _: *const root.EmscriptenFocusEvent, user_data: ?*anyopaque) callconv(.c) bool {
-    // Synthesize release events for any keys we believe are still held would
-    // require tracking pressed-key state. For now just clear pending key buffer.
     const owner = ownerOf(user_data) orelse return false;
     owner.key_count = 0;
     owner.char_count = 0;
-    owner.mouse_button_left_pressed = false;
-    owner.mouse_button_right_pressed = false;
+    owner.setMouseLeftDown(false);
+    owner.setMouseRightDown(false);
     return true;
+}
+
+fn mousePos(ev: *const root.EmscriptenMouseEvent) [2]f64 {
+    return .{ @floatFromInt(ev.targetX), @floatFromInt(ev.targetY) };
 }
