@@ -149,7 +149,7 @@ fn shadeLinear(in: VertexOutput) -> vec4f {
         let coverage = sampled.r;
         return vec4f(in.color.rgb, in.color.a * coverage);
     } else if in.prim_type < 2.5 {
-        return vec4f(sampled.rgb * in.color.rgb, in.color.a);
+        return vec4f(sampled.rgb * in.color.rgb, sampled.a * in.color.a);
     } else {
         return in.color;
     }

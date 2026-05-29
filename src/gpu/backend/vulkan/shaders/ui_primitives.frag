@@ -76,7 +76,7 @@ void main() {
         float coverage = sampled.r;
         col = vec4(in_color.rgb, in_color.a * coverage);
     } else if (in_prim_type < 2.5) {
-        col = vec4(sampled.rgb * in_color.rgb, in_color.a);
+        col = vec4(sampled.rgb * in_color.rgb, sampled.a * in_color.a);
     } else {
         col = in_color;
     }
