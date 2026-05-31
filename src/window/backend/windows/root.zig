@@ -7,6 +7,8 @@ const events = @import("events.zig");
 const keymap = @import("keymap.zig");
 
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral("KnotsWindow");
+const system_theme_registry_key = std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+
 const live_resize_timer_id: usize = 1;
 const WHEEL_PAGESCROLL: u32 = std.math.maxInt(u32);
 const WheelAxis = enum { x, y };
@@ -46,6 +48,33 @@ fn wheelMousePos(hwnd: win32.HWND, lparam: win32.LPARAM) [2]f64 {
         @floatFromInt(pt.x),
         @floatFromInt(pt.y),
     });
+}
+
+fn systemPrefersDarkTheme() bool {
+    var hkey: ?win32.HKEY = undefined;
+
+    if (win32.RegOpenKeyExW(win32.HKEY_CURRENT_USER, system_theme_registry_key, 0, win32.KEY_READ, &hkey) != win32.ERROR_SUCCESS)
+        return false;
+
+    defer _ = win32.RegCloseKey(hkey);
+
+    var value: u32 = 1;
+    var value_size: u32 = @sizeOf(u32);
+    var value_type: win32.REG_VALUE_TYPE = .NONE;
+    const value_name = std.unicode.utf8ToUtf16LeStringLiteral("AppsUseLightTheme");
+
+    if (win32.RegQueryValueExW(
+        hkey,
+        value_name,
+        null,
+        &value_type,
+        @ptrCast(&value),
+        &value_size,
+    ) != win32.ERROR_SUCCESS) {
+        return false;
+    }
+
+    return value_type == win32.REG_DWORD and value == 0;
 }
 
 pub const Backend = struct {
@@ -219,6 +248,16 @@ pub const Backend = struct {
         return out;
     }
 
+    pub fn applyTitleBarTheme(self: *const Self) void {
+        var enabled: win32.BOOL = @intFromBool(systemPrefersDarkTheme());
+        _ = win32.DwmSetWindowAttribute(
+            self.hwnd,
+            win32.DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &enabled,
+            @sizeOf(win32.BOOL),
+        );
+    }
+
     fn refreshWheelSettings(self: *Self) void {
         self.wheel_scroll_lines = scrollSetting(win32.SPI_GETWHEELSCROLLLINES, 3);
         self.wheel_scroll_chars = scrollSetting(win32.SPI_GETWHEELSCROLLCHARS, 3);
@@ -317,8 +356,13 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     _ = win32.UpdateWindow(hwnd);
     win32.DragAcceptFiles(hwnd, 1);
 
-    var backend = Backend{ .hwnd = hwnd, .hinstance = hinstance };
+    var backend = Backend{
+        .hwnd = hwnd,
+        .hinstance = hinstance,
+    };
     backend.refreshWheelSettings();
+    backend.applyTitleBarTheme();
+
     return backend;
 }
 
@@ -424,7 +468,10 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
             return 0;
         },
         win32.WM_SETTINGCHANGE => {
-            if (ownerOf(hwnd)) |o| o.backend.refreshWheelSettings();
+            if (ownerOf(hwnd)) |o| {
+                o.backend.refreshWheelSettings();
+                o.backend.applyTitleBarTheme();
+            }
             return 0;
         },
         win32.WM_KEYDOWN, win32.WM_SYSKEYDOWN => {
