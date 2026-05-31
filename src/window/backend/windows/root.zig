@@ -12,9 +12,22 @@ const WHEEL_PAGESCROLL: u32 = std.math.maxInt(u32);
 const WheelAxis = enum { x, y };
 var class_registered: bool = false;
 
-fn mousePos(lparam: win32.LPARAM) [2]f64 {
+fn clientPxToLogical(hwnd: win32.HWND, pos: [2]f64) [2]f64 {
+    const dpi = win32.GetDpiForWindow(hwnd);
+    const scale: f64 = if (dpi == 0) 1.0 else @as(f64, @floatFromInt(dpi)) / 96.0;
+
+    return .{
+        pos[0] / scale,
+        pos[1] / scale,
+    };
+}
+
+fn mousePos(hwnd: win32.HWND, lparam: win32.LPARAM) [2]f64 {
     const pt = lparamPoint(lparam);
-    return .{ @floatFromInt(pt.x), @floatFromInt(pt.y) };
+    return clientPxToLogical(hwnd, .{
+        @floatFromInt(pt.x),
+        @floatFromInt(pt.y),
+    });
 }
 
 fn lparamPoint(lparam: win32.LPARAM) win32.POINT {
@@ -29,7 +42,10 @@ fn lparamPoint(lparam: win32.LPARAM) win32.POINT {
 fn wheelMousePos(hwnd: win32.HWND, lparam: win32.LPARAM) [2]f64 {
     var pt = lparamPoint(lparam);
     _ = win32.ScreenToClient(hwnd, &pt);
-    return .{ @floatFromInt(pt.x), @floatFromInt(pt.y) };
+    return clientPxToLogical(hwnd, .{
+        @floatFromInt(pt.x),
+        @floatFromInt(pt.y),
+    });
 }
 
 pub const Backend = struct {
@@ -116,7 +132,11 @@ pub const Backend = struct {
         var pt: win32.POINT = undefined;
         _ = win32.GetCursorPos(&pt);
         _ = win32.ScreenToClient(self.hwnd, &pt);
-        return .{ @floatFromInt(pt.x), @floatFromInt(pt.y) };
+
+        return clientPxToLogical(self.hwnd, .{
+            @floatFromInt(pt.x),
+            @floatFromInt(pt.y),
+        });
     }
 
     pub fn getNativeHandle(self: *const Self, _: ?[:0]const u8) gpu.Context.WindowHandle {
@@ -261,11 +281,12 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     }
 
     const dpi = win32.GetDpiForSystem();
+    const scale = @as(f32, @floatFromInt(dpi)) / 96.0;
     var rect = win32.RECT{
         .left = 0,
         .top = 0,
-        .right = @intCast(cfg.width),
-        .bottom = @intCast(cfg.height),
+        .right = @intFromFloat(@round(@as(f32, @floatFromInt(cfg.width)) * scale)),
+        .bottom = @intFromFloat(@round(@as(f32, @floatFromInt(cfg.height)) * scale)),
     };
     _ = win32.AdjustWindowRectExForDpi(&rect, style, 0, .{}, dpi);
     const win_w = rect.right - rect.left;
@@ -352,17 +373,17 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
             return win32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         win32.WM_MOUSEMOVE => {
-            if (ownerOf(hwnd)) |o| o.setCursorPos(mousePos(lparam));
+            if (ownerOf(hwnd)) |o| o.setCursorPos(mousePos(hwnd, lparam));
             return 0;
         },
         win32.WM_LBUTTONDOWN => {
             _ = win32.SetCapture(hwnd);
-            if (ownerOf(hwnd)) |o| o.setMouseButton(.left, true, mousePos(lparam));
+            if (ownerOf(hwnd)) |o| o.setMouseButton(.left, true, mousePos(hwnd, lparam));
             return 0;
         },
         win32.WM_LBUTTONUP => {
             if (ownerOf(hwnd)) |o| {
-                o.setMouseButton(.left, false, mousePos(lparam));
+                o.setMouseButton(.left, false, mousePos(hwnd, lparam));
                 if (!o.anyMouseButtonDown()) _ = win32.ReleaseCapture();
             } else {
                 _ = win32.ReleaseCapture();
@@ -371,12 +392,12 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
         },
         win32.WM_RBUTTONDOWN => {
             _ = win32.SetCapture(hwnd);
-            if (ownerOf(hwnd)) |o| o.setMouseButton(.right, true, mousePos(lparam));
+            if (ownerOf(hwnd)) |o| o.setMouseButton(.right, true, mousePos(hwnd, lparam));
             return 0;
         },
         win32.WM_RBUTTONUP => {
             if (ownerOf(hwnd)) |o| {
-                o.setMouseButton(.right, false, mousePos(lparam));
+                o.setMouseButton(.right, false, mousePos(hwnd, lparam));
                 if (!o.anyMouseButtonDown()) _ = win32.ReleaseCapture();
             } else {
                 _ = win32.ReleaseCapture();
