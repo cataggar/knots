@@ -353,6 +353,7 @@ fn syncStateBounds(self: *UI) void {
             s.width = el.box.w();
             s.height = el.box.h();
         }
+        if (self.state.get(.resize, el.id)) |s| s.box = el.box;
         if (self.state.get(.select_input, el.id)) |s| {
             s.anchor_box = el.box;
             s.viewport_box = root_box;

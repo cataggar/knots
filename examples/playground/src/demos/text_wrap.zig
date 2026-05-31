@@ -4,7 +4,7 @@ const ui_helpers = @import("../ui_helpers.zig");
 
 const Rect = knots.component.Rect;
 const Text = knots.component.Text;
-const TextInput = knots.component.TextInput;
+const TextArea = knots.component.TextArea;
 const Spacer = knots.component.Spacer;
 
 const lorem =
@@ -133,20 +133,12 @@ fn newlinesSection(app: *knots.App) !void {
 
 fn multiLineInputSection(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
-    try caption(app, "TextInput with wrap=true, enter inserts a newline, arrow up/down navigate lines", .src(@src()));
-    try app.e(.{
-        Rect{
-            .width = .fixed(360),
-            .padding = .init(8, 8, 8, 8),
-            .style = .{ .color = .muted, .corner_radius = .sm },
-            .key = .src(@src()),
-        },
-        .{TextInput{
-            .key = .src(@src()),
-            .buf = &self.demo_state.notes_buf,
-            .wrap = true,
-            .placeholder = "type a multi-line note...",
-            .width = .grow(),
-        }},
+    try caption(app, "TextArea: multi-line, enter inserts a newline, arrow up/down navigate lines; drag the bottom edge to resize height (persists)", .src(@src()));
+    try app.e(TextArea{
+        .key = .src(@src()),
+        .buf = &self.demo_state.notes_buf,
+        .placeholder = "type a multi-line note... drag the bottom edge to grow it",
+        .width = .fixed(360),
+        .height = .fixed(96),
     });
 }

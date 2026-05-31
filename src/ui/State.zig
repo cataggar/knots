@@ -73,6 +73,11 @@ pub const Measured = struct {
     height: f32 = 0,
 };
 
+pub const Resize = struct {
+    box: math.Rect = .zero,
+    height: f32 = 0,
+};
+
 pub const Anim = struct {
     current: f32 = 0,
     start_value: f32 = 0,
@@ -109,6 +114,7 @@ pub const Ttls = struct {
     context_menu: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     tooltip: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     measured: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    resize: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     anim: u32 = DEFAULT_ANIM_TTL_FRAMES,
 };
 
@@ -181,6 +187,7 @@ pub const Storage = struct {
         context_menu: Pool(ContextMenu) = .{},
         tooltip: Pool(Tooltip) = .{},
         measured: Pool(Measured) = .{},
+        resize: Pool(Resize) = .{},
         anim: Pool(Anim) = .{},
     };
 

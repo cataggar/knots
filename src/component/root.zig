@@ -3,6 +3,7 @@ pub const Text = @import("Text.zig");
 pub const Button = @import("Button.zig");
 pub const Spacer = @import("Spacer.zig");
 pub const TextInput = @import("TextInput.zig");
+pub const TextArea = @import("TextArea.zig");
 pub const SelectInput = @import("select_input.zig").SelectInput;
 pub const SliderInput = @import("SliderInput.zig");
 pub const ProgressBar = @import("ProgressBar.zig");
