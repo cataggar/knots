@@ -7,12 +7,8 @@ const builtin = @import("builtin");
 
 const DrawList = @import("DrawList.zig");
 const pipelines = @import("pipelines.zig");
+const FrameUploads = @import("FrameUploads.zig");
 
-const INIT_VERTEX_BYTES = 256 * 1024;
-const INIT_INSTANCE_BYTES = 64 * 1024;
-const INIT_INDEX_COUNT = 64 * 1024;
-const INIT_TEXT_VERTEX_BYTES = 128 * 1024;
-const INIT_TEXT_INDEX_COUNT = 16 * 1024;
 const TEX_INDEX_BITS: u5 = 16;
 const TEX_INDEX_MASK: u32 = (@as(u32, 1) << TEX_INDEX_BITS) - 1;
 const PIXEL_TEXTURE_TTL_FRAMES: u32 = 2;
@@ -104,23 +100,11 @@ linear_pipeline: ?gpu.Pipeline = null,
 linear_instance_pipeline: ?gpu.Pipeline = null,
 linear_text_pipeline: ?gpu.Pipeline = null,
 
-vertex_uniform_buf: gpu.Buffer,
-instance_uniform_buf: gpu.Buffer,
-text_uniform_buf: gpu.Buffer,
-vertex_uniform_bg: gpu.BindGroup,
-instance_uniform_bg: gpu.BindGroup,
-text_uniform_bg: gpu.BindGroup,
-
 atlas_texture_bg: gpu.BindGroup,
 text_curveband_bg: gpu.BindGroup,
 
-vertex_buf: gpu.Buffer,
-index_buf: gpu.Buffer,
-instance_buf: gpu.Buffer,
+frame_uploads: []FrameUploads,
 unit_index_buf: gpu.Buffer,
-composite_instance_buf: gpu.Buffer,
-text_vertex_buf: gpu.Buffer,
-text_index_buf: gpu.Buffer,
 atlas_texture: gpu.Texture,
 atlas_sampler: gpu.Sampler,
 linear_target: ?gpu.Texture = null,
@@ -133,10 +117,6 @@ band_texture: gpu.Texture,
 curve_tex_height: u32,
 band_tex_height: u32,
 frame: gpu.Frame,
-cached_vp_width: u32 = 0,
-cached_vp_height: u32 = 0,
-cached_phys_width: u32 = 0,
-cached_phys_height: u32 = 0,
 texture_slots: std.ArrayList(TextureSlot),
 free_slot_indices: std.ArrayList(u32),
 pixel_texture_cache: PixelTextureCache,
@@ -188,49 +168,6 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
     else
         null;
     errdefer if (linear_text_pipeline) |p| p.deinit();
-
-    const vertex_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
-    errdefer vertex_uniform_buf.deinit();
-    const instance_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
-    errdefer instance_uniform_buf.deinit();
-    const text_uniform_buf = try ctx.createBuffer(@sizeOf(pipelines.SlugUniforms), .{ .uniform = true, .copy_dst = true });
-    errdefer text_uniform_buf.deinit();
-
-    const vertex_uniform_bg = try ctx.createBindGroup(.{
-        .label = "vertex_uniform_bg",
-        .pipeline = &pipeline,
-        .layout_index = 0,
-        .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &vertex_uniform_buf, .size = @sizeOf(pipelines.ViewportUniform) } } }},
-    });
-    errdefer vertex_uniform_bg.deinit();
-
-    const instance_uniform_bg = try ctx.createBindGroup(.{
-        .label = "instance_uniform_bg",
-        .pipeline = &instance_pipeline,
-        .layout_index = 0,
-        .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &instance_uniform_buf, .size = @sizeOf(pipelines.ViewportUniform) } } }},
-    });
-    errdefer instance_uniform_bg.deinit();
-
-    const text_uniform_bg = try ctx.createBindGroup(.{
-        .label = "text_uniform_bg",
-        .pipeline = &text_pipeline,
-        .layout_index = 0,
-        .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &text_uniform_buf, .size = @sizeOf(pipelines.SlugUniforms) } } }},
-    });
-    errdefer text_uniform_bg.deinit();
-
-    const vertex_buf = try ctx.createBuffer(INIT_VERTEX_BYTES, .{ .vertex = true, .copy_dst = true });
-    errdefer vertex_buf.deinit();
-
-    const instance_buf = try ctx.createBuffer(INIT_INSTANCE_BYTES, .{ .vertex = true, .copy_dst = true });
-    errdefer instance_buf.deinit();
-
-    const composite_instance_buf = try ctx.createBuffer(@sizeOf(gpu.Instance), .{ .vertex = true, .copy_dst = true });
-    errdefer composite_instance_buf.deinit();
-
-    const text_vertex_buf = try ctx.createBuffer(INIT_TEXT_VERTEX_BYTES, .{ .vertex = true, .copy_dst = true });
-    errdefer text_vertex_buf.deinit();
 
     const atlas_texture = try ctx.createTexture(.{
         .width = 1,
@@ -293,16 +230,22 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
     });
     errdefer text_curveband_bg.deinit();
 
-    const index_buf = try ctx.createBuffer(INIT_INDEX_COUNT * @sizeOf(u32), .{ .index = true, .copy_dst = true });
-    errdefer index_buf.deinit();
-
-    const text_index_buf = try ctx.createBuffer(INIT_TEXT_INDEX_COUNT * @sizeOf(u32), .{ .index = true, .copy_dst = true });
-    errdefer text_index_buf.deinit();
-
     const unit_index_buf = try ctx.createBuffer(6 * @sizeOf(u32), .{ .index = true, .copy_dst = true });
     errdefer unit_index_buf.deinit();
     const unit_indices = [_]u32{ 0, 1, 2, 0, 2, 3 };
     unit_index_buf.load(u32, &unit_indices);
+
+    var frame = try ctx.createFrame();
+    errdefer frame.deinit();
+
+    const uploads = try allocator.alloc(FrameUploads, @intCast(frame.uploadSlotCount()));
+    errdefer allocator.free(uploads);
+    var upload_count: usize = 0;
+    errdefer for (uploads[0..upload_count]) |*u| u.deinit();
+    for (uploads) |*u| {
+        u.* = try .init(&ctx, &pipeline, &instance_pipeline, &text_pipeline);
+        upload_count += 1;
+    }
 
     return .{
         .allocator = allocator,
@@ -315,21 +258,10 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .linear_pipeline = linear_pipeline,
         .linear_instance_pipeline = linear_instance_pipeline,
         .linear_text_pipeline = linear_text_pipeline,
-        .vertex_uniform_buf = vertex_uniform_buf,
-        .instance_uniform_buf = instance_uniform_buf,
-        .text_uniform_buf = text_uniform_buf,
-        .vertex_uniform_bg = vertex_uniform_bg,
-        .instance_uniform_bg = instance_uniform_bg,
-        .text_uniform_bg = text_uniform_bg,
         .atlas_texture_bg = atlas_texture_bg,
         .text_curveband_bg = text_curveband_bg,
-        .vertex_buf = vertex_buf,
-        .index_buf = index_buf,
-        .instance_buf = instance_buf,
-        .composite_instance_buf = composite_instance_buf,
+        .frame_uploads = uploads,
         .unit_index_buf = unit_index_buf,
-        .text_vertex_buf = text_vertex_buf,
-        .text_index_buf = text_index_buf,
         .atlas_texture = atlas_texture,
         .atlas_sampler = atlas_sampler,
         .linear_sampler = linear_sampler,
@@ -337,7 +269,7 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .band_texture = band_texture,
         .curve_tex_height = INITIAL_TEX_HEIGHT,
         .band_tex_height = INITIAL_TEX_HEIGHT,
-        .frame = try ctx.createFrame(),
+        .frame = frame,
         .draw_list = .init(allocator),
         .texture_slots = .empty,
         .free_slot_indices = .empty,
@@ -353,12 +285,8 @@ pub fn deinit(self: *Renderer) void {
 
     self.atlas_texture_bg.deinit();
     self.text_curveband_bg.deinit();
-    self.vertex_uniform_bg.deinit();
-    self.instance_uniform_bg.deinit();
-    self.text_uniform_bg.deinit();
-    self.vertex_uniform_buf.deinit();
-    self.instance_uniform_buf.deinit();
-    self.text_uniform_buf.deinit();
+    for (self.frame_uploads) |*u| u.deinit();
+    self.allocator.free(self.frame_uploads);
 
     for (self.texture_slots.items) |*slot| {
         if (slot.bg) |bg| bg.deinit();
@@ -380,13 +308,7 @@ pub fn deinit(self: *Renderer) void {
     if (self.linear_target_bg) |bg| bg.deinit();
     if (self.linear_target) |t| t.deinit();
     if (self.linear_sampler) |s| s.deinit();
-    self.vertex_buf.deinit();
-    self.index_buf.deinit();
-    self.instance_buf.deinit();
-    self.composite_instance_buf.deinit();
     self.unit_index_buf.deinit();
-    self.text_vertex_buf.deinit();
-    self.text_index_buf.deinit();
     self.atlas_texture.deinit();
     self.atlas_sampler.deinit();
     self.curve_texture.deinit();
@@ -614,26 +536,30 @@ const FrameSizes = struct {
 };
 
 fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder, content_scale: f32) !void {
-    try self.frame.waitForFence();
+    var frame_ctx = try self.frame.begin();
+    const upload_slot: usize = @intCast(frame_ctx.upload_slot);
+    std.debug.assert(upload_slot < self.frame_uploads.len);
+    const upload = &self.frame_uploads[upload_slot];
+
     try self.syncGlyphBuilder(glyph_builder);
 
     const has_work = !dl.isEmpty() and self.atlas_texture.isReady();
     if (!has_work) {
-        var pass = try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+        var pass = try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
         pass.end();
-        try self.frame.submit();
+        try frame_ctx.submit();
         return;
     }
 
-    self.updateViewport(content_scale);
-    const sizes = try self.uploadFrameData(dl);
+    self.updateViewport(upload, content_scale);
+    const sizes = try uploadFrameData(upload, dl);
     const use_linear_target = self.linear_pipeline != null;
     if (use_linear_target) try self.ensureLinearTarget();
 
     var pass = if (use_linear_target)
-        try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color, .target = &self.linear_target.? } })
+        try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color, .target = &self.linear_target.? } })
     else
-        try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+        try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
 
     const phys_w = self.ctx.cfg.window_width;
     const phys_h = self.ctx.cfg.window_height;
@@ -646,7 +572,7 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
         const r = dl.layer_ranges[z];
         for (dl.layer_cmds.items[r.start .. r.start + r.len]) |cmd| {
             if (current_kind != cmd.kind) {
-                self.bindKind(&pass, cmd.kind, sizes, use_linear_target);
+                self.bindKind(&pass, upload, cmd.kind, sizes, use_linear_target);
                 current_texture = null;
                 current_kind = cmd.kind;
             }
@@ -664,46 +590,37 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
     }
     pass.end();
 
-    if (use_linear_target) try self.compositeLinearTarget(content_scale);
-    try self.frame.submit();
+    if (use_linear_target) try self.compositeLinearTarget(&frame_ctx, upload, content_scale);
+    try frame_ctx.submit();
 }
 
-fn updateViewport(self: *Renderer, content_scale: f32) void {
+fn updateViewport(self: *Renderer, uploads: *FrameUploads, content_scale: f32) void {
     const logical_w: u32 = @max(1, @as(u32, @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_width)) / content_scale)));
     const logical_h: u32 = @max(1, @as(u32, @intFromFloat(@as(f32, @floatFromInt(self.ctx.cfg.window_height)) / content_scale)));
     const phys_w_u = self.ctx.cfg.window_width;
     const phys_h_u = self.ctx.cfg.window_height;
-    if (logical_w == self.cached_vp_width and
-        logical_h == self.cached_vp_height and
-        phys_w_u == self.cached_phys_width and
-        phys_h_u == self.cached_phys_height) return;
 
     const w_f: f32 = @floatFromInt(logical_w);
     const h_f: f32 = @floatFromInt(logical_h);
     const viewport: pipelines.ViewportUniform = .{ w_f, h_f };
-    self.vertex_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
-    self.instance_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
+    uploads.vertex_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
+    uploads.instance_uniform_buf.load(pipelines.ViewportUniform, &.{viewport});
 
     const phys_w: f32 = @floatFromInt(phys_w_u);
     const phys_h: f32 = @floatFromInt(phys_h_u);
     const u = pipelines.computeSlugUniforms(w_f, h_f, phys_w, phys_h, self.ctx.clipSpaceYDown());
-    self.text_uniform_buf.load(pipelines.SlugUniforms, &.{u});
-
-    self.cached_vp_width = logical_w;
-    self.cached_vp_height = logical_h;
-    self.cached_phys_width = phys_w_u;
-    self.cached_phys_height = phys_h_u;
+    uploads.text_uniform_buf.load(pipelines.SlugUniforms, &.{u});
 }
 
-fn uploadFrameData(self: *Renderer, dl: *const DrawList) !FrameSizes {
+fn uploadFrameData(uploads: *FrameUploads, dl: *const DrawList) !FrameSizes {
     const verts = dl.vertices.items;
     const insts = dl.instances.items;
     const tverts = dl.text_vertices.items;
-    try self.ensureAndLoad(&self.vertex_buf, gpu.Vertex, verts);
-    try self.ensureAndLoad(&self.instance_buf, gpu.Instance, insts);
-    try self.ensureAndLoad(&self.index_buf, u32, dl.indices.items);
-    try self.ensureAndLoad(&self.text_vertex_buf, gpu.SlugVertex, tverts);
-    try self.ensureAndLoad(&self.text_index_buf, u32, dl.text_indices.items);
+    try ensureAndLoad(&uploads.vertex_buf, gpu.Vertex, verts);
+    try ensureAndLoad(&uploads.instance_buf, gpu.Instance, insts);
+    try ensureAndLoad(&uploads.index_buf, u32, dl.indices.items);
+    try ensureAndLoad(&uploads.text_vertex_buf, gpu.SlugVertex, tverts);
+    try ensureAndLoad(&uploads.text_index_buf, u32, dl.text_indices.items);
     return .{
         .verts_bytes = verts.len * @sizeOf(gpu.Vertex),
         .insts_bytes = insts.len * @sizeOf(gpu.Instance),
@@ -713,31 +630,31 @@ fn uploadFrameData(self: *Renderer, dl: *const DrawList) !FrameSizes {
     };
 }
 
-fn bindKind(self: *Renderer, pass: *gpu.RenderPass, kind: DrawList.CommandKind, sizes: FrameSizes, linear_target: bool) void {
+fn bindKind(self: *Renderer, pass: *gpu.RenderPass, uploads: *FrameUploads, kind: DrawList.CommandKind, sizes: FrameSizes, linear_target: bool) void {
     switch (kind) {
         .vertex => {
             const pipeline = if (linear_target) &self.linear_pipeline.? else &self.pipeline;
             pass.bindPipeline(pipeline);
-            pass.setBindGroup(0, &self.vertex_uniform_bg);
+            pass.setBindGroup(0, &uploads.vertex_uniform_bg);
             pass.setBindGroup(1, &self.atlas_texture_bg);
-            pass.setVertexBuffer(0, &self.vertex_buf, 0, sizes.verts_bytes);
-            pass.setIndexBuffer(&self.index_buf, 0, sizes.indices_bytes);
+            pass.setVertexBuffer(0, &uploads.vertex_buf, 0, sizes.verts_bytes);
+            pass.setIndexBuffer(&uploads.index_buf, 0, sizes.indices_bytes);
         },
         .instance => {
             const pipeline = if (linear_target) &self.linear_instance_pipeline.? else &self.instance_pipeline;
             pass.bindPipeline(pipeline);
-            pass.setBindGroup(0, &self.instance_uniform_bg);
+            pass.setBindGroup(0, &uploads.instance_uniform_bg);
             pass.setBindGroup(1, &self.atlas_texture_bg);
-            pass.setVertexBuffer(0, &self.instance_buf, 0, sizes.insts_bytes);
+            pass.setVertexBuffer(0, &uploads.instance_buf, 0, sizes.insts_bytes);
             pass.setIndexBuffer(&self.unit_index_buf, 0, 6 * @sizeOf(u32));
         },
         .text => {
             const pipeline = if (linear_target) &self.linear_text_pipeline.? else &self.text_pipeline;
             pass.bindPipeline(pipeline);
-            pass.setBindGroup(0, &self.text_uniform_bg);
+            pass.setBindGroup(0, &uploads.text_uniform_bg);
             pass.setBindGroup(1, &self.text_curveband_bg);
-            pass.setVertexBuffer(0, &self.text_vertex_buf, 0, sizes.tverts_bytes);
-            pass.setIndexBuffer(&self.text_index_buf, 0, sizes.tindices_bytes);
+            pass.setVertexBuffer(0, &uploads.text_vertex_buf, 0, sizes.tverts_bytes);
+            pass.setIndexBuffer(&uploads.text_index_buf, 0, sizes.tindices_bytes);
         },
     }
 }
@@ -793,7 +710,7 @@ fn ensureLinearTarget(self: *Renderer) !void {
     });
 }
 
-fn compositeLinearTarget(self: *Renderer, content_scale: f32) !void {
+fn compositeLinearTarget(self: *Renderer, frame_ctx: *gpu.Frame.Context, uploads: *FrameUploads, content_scale: f32) !void {
     const logical_w: f32 = @as(f32, @floatFromInt(self.ctx.cfg.window_width)) / content_scale;
     const logical_h: f32 = @as(f32, @floatFromInt(self.ctx.cfg.window_height)) / content_scale;
     const inst = gpu.Instance{
@@ -807,13 +724,13 @@ fn compositeLinearTarget(self: *Renderer, content_scale: f32) !void {
         .border_width = 0,
         .prim_type = 2.0,
     };
-    self.composite_instance_buf.load(gpu.Instance, &.{inst});
+    uploads.composite_instance_buf.load(gpu.Instance, &.{inst});
 
-    var pass = try self.frame.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+    var pass = try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
     pass.bindPipeline(&self.instance_pipeline);
-    pass.setBindGroup(0, &self.instance_uniform_bg);
+    pass.setBindGroup(0, &uploads.instance_uniform_bg);
     pass.setBindGroup(1, &self.linear_target_bg.?);
-    pass.setVertexBuffer(0, &self.composite_instance_buf, 0, @sizeOf(gpu.Instance));
+    pass.setVertexBuffer(0, &uploads.composite_instance_buf, 0, @sizeOf(gpu.Instance));
     pass.setIndexBuffer(&self.unit_index_buf, 0, 6 * @sizeOf(u32));
     pass.setScissorRect(0, 0, self.ctx.cfg.window_width, self.ctx.cfg.window_height);
     pass.drawIndexed(6, 1, 0, 0, 0);
@@ -968,16 +885,15 @@ fn sanitizeClip(c: ?[4]f32) ?[4]f32 {
     return v;
 }
 
-fn ensureBufferCapacity(self: *Renderer, buf: *gpu.Buffer, required: usize) !void {
+fn ensureBufferCapacity(buf: *gpu.Buffer, required: usize) !void {
     const current_size = buf.getSize();
     if (required <= current_size) return;
     const new_size = @max(required, current_size + current_size / 2);
-    try self.frame.waitForCompletion();
     try buf.resize(new_size);
 }
 
-fn ensureAndLoad(self: *Renderer, buf: *gpu.Buffer, comptime T: type, items: []const T) !void {
+fn ensureAndLoad(buf: *gpu.Buffer, comptime T: type, items: []const T) !void {
     if (items.len == 0) return;
-    try self.ensureBufferCapacity(buf, items.len * @sizeOf(T));
+    try ensureBufferCapacity(buf, items.len * @sizeOf(T));
     buf.load(T, items);
 }

@@ -21,7 +21,8 @@ image_index: u32,
 
 const vtable = gpu.Frame.VTable{
     .deinit = &deinit,
-    .waitForFence = &waitForFence,
+    .begin = &begin,
+    .uploadSlotCount = &uploadSlotCount,
     .prepareResize = &prepareResize,
     .beginRenderPass = &beginRenderPass,
     .submit = &submit,
@@ -85,10 +86,16 @@ fn deinit(ptr: *anyopaque) void {
     self.allocator.destroy(self);
 }
 
-fn waitForFence(ptr: *anyopaque) !void {
-    const self: *Frame = @ptrCast(@alignCast(ptr));
+fn begin(ptr: *anyopaque) !u32 {
+    const self: *const Frame = @ptrCast(@alignCast(ptr));
     const f = &self.frames[self.current];
     _ = try self.ctx.vkd.waitForFences(self.ctx.device, &.{f.in_flight}, .true, std.math.maxInt(u64));
+    return self.current;
+}
+
+fn uploadSlotCount(ptr: *anyopaque) u32 {
+    const self: *const Frame = @ptrCast(@alignCast(ptr));
+    return @intCast(self.frames.len);
 }
 
 fn prepareResize(_: *anyopaque) void {}
@@ -102,8 +109,6 @@ fn beginRenderPass(ptr: *anyopaque, desc: gpu.RenderPass.Desc) !gpu.RenderPass {
     const self: *Frame = @ptrCast(@alignCast(ptr));
     const ctx = self.ctx;
     const f = &self.frames[self.current];
-
-    _ = try ctx.vkd.waitForFences(ctx.device, &.{f.in_flight}, .true, std.math.maxInt(u64));
 
     const image_index = acquireImage(ctx, f.image_available) catch |err| blk: {
         if (err != error.OutOfDateKHR) return err;

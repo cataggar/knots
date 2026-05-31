@@ -26,16 +26,22 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context) !gpu.Frame {
 
 const vtable = gpu.Frame.VTable{
     .deinit = &deinit,
-    .waitForFence = &waitForFence,
+    .begin = &begin,
+    .uploadSlotCount = &uploadSlotCount,
     .prepareResize = &prepareResize,
     .beginRenderPass = &beginRenderPass,
     .submit = &submit,
     .waitForCompletion = &waitForCompletion,
 };
 
-fn waitForFence(ptr: *anyopaque) !void {
+fn begin(ptr: *anyopaque) !u32 {
     const self: *Frame = @ptrCast(@alignCast(ptr));
     _ = self.ctx.device.poll(true);
+    return 0;
+}
+
+fn uploadSlotCount(_: *anyopaque) u32 {
+    return 1;
 }
 
 fn prepareResize(ptr: *anyopaque) void {
