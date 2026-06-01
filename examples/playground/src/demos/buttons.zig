@@ -6,7 +6,10 @@ const ui_helpers = @import("../ui_helpers.zig");
 const Rect = knots.component.Rect;
 const Text = knots.component.Text;
 const Button = knots.component.Button;
+const MenuButton = knots.component.MenuButton;
 const Spacer = knots.component.Spacer;
+
+const Menu = MenuButton(ButtonMenu);
 
 pub fn render(app: *knots.App) !void {
     try ui_helpers.panel(app, "Buttons", body);
@@ -19,6 +22,10 @@ fn body(app: *knots.App) !void {
     try app.e(.{
         Text{
             .content = try std.fmt.allocPrint(arena, "counter: {d}", .{self.demo_state.counter}),
+            .key = .src(@src()),
+        },
+        Text{
+            .content = try std.fmt.allocPrint(arena, "menu action: {s}", .{self.demo_state.menu_button_last_action}),
             .key = .src(@src()),
         },
         Spacer{ .height = .fixed(12), .key = .src(@src()) },
@@ -81,8 +88,45 @@ fn body(app: *knots.App) !void {
                 .@"align" = .center,
                 .text = .{ .content = "ghost" },
             },
+            Menu{
+                .key = .str("buttons.menu"),
+                .menu = .{},
+                .height = .fixed(32),
+                .width = .fixed(96),
+                .padding = .init(0, 12, 0, 12),
+                .style = .{ .color = .primary, .corner_radius = .sm },
+                .hover_anim = .{},
+                .justify = .center,
+                .@"align" = .center,
+                .text = .{ .content = "menu" },
+            },
         },
     });
+}
+
+const ButtonMenu = struct {
+    pub fn render(_: *const ButtonMenu, app: *knots.App) anyerror!void {
+        try app.e(.{
+            menuAction("Copy", knots.ui.Key.str("buttons.menu.copy"), copy),
+            menuAction("Rename", knots.ui.Key.str("buttons.menu.rename"), rename),
+            menuAction("Archive", knots.ui.Key.str("buttons.menu.archive"), archive),
+        });
+    }
+};
+
+fn menuAction(comptime label: []const u8, key: knots.ui.Key, onClick: knots.App.Callback) Button {
+    return Button{
+        .key = key,
+        .onClick = onClick,
+        .width = .grow(),
+        .height = .fixed(30),
+        .padding = .init(0, 10, 0, 10),
+        .justify = .start,
+        .@"align" = .center,
+        .style = .{ .color = .elevated, .corner_radius = .sm },
+        .hover_style = .{ .color = .muted },
+        .text = .{ .content = label, .size = .sm, .color = .text },
+    };
 }
 
 fn increment(app: *knots.App) !void {
@@ -103,5 +147,23 @@ fn reset(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.counter = 0;
     self.demo_state.counter_items.clearRetainingCapacity();
+    try app.signal(.redraw);
+}
+
+fn copy(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    self.demo_state.menu_button_last_action = "copy";
+    try app.signal(.redraw);
+}
+
+fn rename(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    self.demo_state.menu_button_last_action = "rename";
+    try app.signal(.redraw);
+}
+
+fn archive(app: *knots.App) !void {
+    const self: *Self = @fieldParentPtr("app", app);
+    self.demo_state.menu_button_last_action = "archive";
     try app.signal(.redraw);
 }

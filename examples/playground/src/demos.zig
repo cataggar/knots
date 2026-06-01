@@ -24,12 +24,12 @@ pub const Demo = struct {
         form_confirm_open: bool = false,
         canvas_effect: u32 = 0,
         pending_async: usize = 0,
-        hover_strength: f32 = 0,
         dropped_paths: std.ArrayList([]const u8) = .empty,
         notes_buf: std.ArrayList(u8) = .empty,
         theme_idx: u32 = 1,
         context_menu_last_action: []const u8 = "none",
         context_menu_last_target: []const u8 = "none",
+        menu_button_last_action: []const u8 = "none",
         show_source: bool = true,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
@@ -61,7 +61,7 @@ fn demo(
 }
 
 pub const all = [_]Demo{
-    demo("demos/buttons.zig", "\u{e913}", "Buttons", "Click handlers, hover animations, corner radii.", @import("demos/buttons.zig").render),
+    demo("demos/buttons.zig", "\u{e913}", "Buttons", "Click handlers, hover animations, menu buttons and corner radii.", @import("demos/buttons.zig").render),
     demo("demos/context_menu.zig", "\u{e5d2}", "Context menu", "Right-click wrapper component with custom user-defined actions.", @import("demos/context_menu.zig").render),
     demo("demos/sizing.zig", "\u{e85b}", "Sizing", "grow, fixed, percent and fit on the same axis.", @import("demos/sizing.zig").render),
     demo("demos/nesting.zig", "\u{e97a}", "Nesting", "Three levels of nested containers with shared layout.", @import("demos/nesting.zig").render),
@@ -73,7 +73,6 @@ pub const all = [_]Demo{
     demo("demos/overflow.zig", "\u{e5d7}", "Overflow", "visible, hidden, scroll_x and scroll_y side by side.", @import("demos/overflow.zig").render),
     demo("demos/grid.zig", "\u{e871}", "Grid", "Dashboard tiles using fr tracks and cell spans.", @import("demos/grid.zig").render),
     demo("demos/virtual_list.zig", "\u{e8ef}", "Virtual list", "100,000 rows scrolled smoothly via VirtualList.", @import("demos/virtual_list.zig").render),
-    demo("demos/hover.zig", "\u{e323}", "Hover", "Button hover animation, hover_style and a custom ui.anim() channel.", @import("demos/hover.zig").render),
     demo("demos/canvas.zig", "\u{e3ae}", "Canvas", "Painter primitives: gradient grid, clock face, bar chart, polygon.", @import("demos/canvas.zig").render),
     demo("demos/async_dispatch.zig", "\u{e627}", "Async dispatch", "Schedule background work via app.dispatch and react to wakeups.", @import("demos/async_dispatch.zig").render),
     demo("demos/drops.zig", "\u{e2c6}", "Drops", "Drag files onto the window and consume them via app.window.consumeDrops.", @import("demos/drops.zig").render),
