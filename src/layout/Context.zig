@@ -89,6 +89,22 @@ const AxisInfo = struct {
     fn childMainMax(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.width.max else child.height.max;
     }
+
+    fn childCrossMin(self: AxisInfo, child: *const Element) f32 {
+        return if (self.is_row) child.height.min else child.width.min;
+    }
+
+    fn childCrossMax(self: AxisInfo, child: *const Element) f32 {
+        return if (self.is_row) child.height.max else child.width.max;
+    }
+
+    fn childMainPercent(self: AxisInfo, child: *const Element) f32 {
+        return if (self.is_row) child.width.value else child.height.value;
+    }
+
+    fn childCrossPercent(self: AxisInfo, child: *const Element) f32 {
+        return if (self.is_row) child.height.value else child.width.value;
+    }
 };
 
 const Measurement = struct {
@@ -391,6 +407,8 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
     }
 
     const axis = AxisInfo.init(el);
+    const static_count = countStaticChildren(self, el);
+    resolvePercentChildren(self, el, axis, static_count);
     const m = self.measureChildren(el, axis);
     const gap = gapTotal(el, m.static_count);
     const avail = axis.available();
@@ -413,8 +431,12 @@ fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup, scroll
         if (child.position != .absolute) {
             if (child.width.kind == .grow)
                 child.box.setW(std.math.clamp(content_w, child.width.min, child.width.max));
+            if (child.width.kind == .percent)
+                child.box.setW(std.math.clamp(child.width.value * content_w, child.width.min, child.width.max));
             if (child.height.kind == .grow)
                 child.box.setH(std.math.clamp(content_h, child.height.min, child.height.max));
+            if (child.height.kind == .percent)
+                child.box.setH(std.math.clamp(child.height.value * content_h, child.height.min, child.height.max));
 
             const x_off: f32 = switch (el.justify) {
                 .start, .space_between, .space_around => 0,
@@ -432,7 +454,9 @@ fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup, scroll
             try self.computeLayoutNode(child_slot, child.box.x(), child.box.y(), scroll, scrollbar_thickness);
         } else {
             if (child.width.kind == .grow) child.box.setW(content_w);
+            if (child.width.kind == .percent) child.box.setW(std.math.clamp(child.width.value * content_w, child.width.min, child.width.max));
             if (child.height.kind == .grow) child.box.setH(content_h);
+            if (child.height.kind == .percent) child.box.setH(std.math.clamp(child.height.value * content_h, child.height.min, child.height.max));
             try self.computeLayoutNode(child_slot, origin_x + child.offset[0], origin_y + child.offset[1], scroll, scrollbar_thickness);
         }
         child_slot = child.next_sibling;
@@ -539,7 +563,9 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
         const child = self.pool.get(child_slot);
         if (child.position == .absolute) {
             if (child.width.kind == .grow) child.box.setW(content_w);
+            if (child.width.kind == .percent) child.box.setW(std.math.clamp(child.width.value * content_w, child.width.min, child.width.max));
             if (child.height.kind == .grow) child.box.setH(content_h);
+            if (child.height.kind == .percent) child.box.setH(std.math.clamp(child.height.value * content_h, child.height.min, child.height.max));
             try self.computeLayoutNode(child_slot, origin_x + child.offset[0], origin_y + child.offset[1], scroll, scrollbar_thickness);
         }
         child_slot = child.next_sibling;
@@ -551,6 +577,42 @@ fn gapTotal(el: *const Element, count: u32) f32 {
         el.gap * @as(f32, @floatFromInt(count - 1))
     else
         0;
+}
+
+fn countStaticChildren(self: *Context, el: *const Element) u32 {
+    var count: u32 = 0;
+    var child_slot = el.first_child;
+    while (child_slot != Element.INVALID_SLOT) {
+        const child = self.pool.get(child_slot);
+        if (child.position != .absolute) count += 1;
+        child_slot = child.next_sibling;
+    }
+    return count;
+}
+
+fn resolvePercentChildren(self: *Context, el: *const Element, axis: AxisInfo, static_count: u32) void {
+    const main_base = @max(0, axis.available() - gapTotal(el, static_count));
+    const cross_base = @max(0, axis.cross_size);
+
+    var child_slot = el.first_child;
+    while (child_slot != Element.INVALID_SLOT) {
+        const child = self.pool.get(child_slot);
+        if (child.position != .absolute) {
+            if (axis.childMainKind(child) == .percent) {
+                axis.setChildMainSize(
+                    child,
+                    std.math.clamp(axis.childMainPercent(child) * main_base, axis.childMainMin(child), axis.childMainMax(child)),
+                );
+            }
+            if (axis.childCrossKind(child) == .percent) {
+                axis.setChildCrossSize(
+                    child,
+                    std.math.clamp(axis.childCrossPercent(child) * cross_base, axis.childCrossMin(child), axis.childCrossMax(child)),
+                );
+            }
+        }
+        child_slot = child.next_sibling;
+    }
 }
 
 fn measureChildren(self: *Context, el: *const Element, axis: AxisInfo) Measurement {
@@ -705,7 +767,9 @@ fn positionChildren(self: *Context, el: *Element, axis: AxisInfo, fixed_used: f3
             const abs_content_w = el.box.w() - el.padding.left() - el.padding.right();
             const abs_content_h = el.box.h() - el.padding.top() - el.padding.bottom();
             if (child.width.kind == .grow) child.box.setW(abs_content_w);
+            if (child.width.kind == .percent) child.box.setW(std.math.clamp(child.width.value * abs_content_w, child.width.min, child.width.max));
             if (child.height.kind == .grow) child.box.setH(abs_content_h);
+            if (child.height.kind == .percent) child.box.setH(std.math.clamp(child.height.value * abs_content_h, child.height.min, child.height.max));
             const cx = el.box.x() + el.padding.left() + child.offset[0];
             const cy = el.box.y() + el.padding.top() + child.offset[1];
             try self.computeLayoutNode(child_slot, cx, cy, scroll, scrollbar_thickness);
