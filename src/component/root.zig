@@ -1,6 +1,7 @@
 pub const Rect = @import("Rect.zig");
 pub const Text = @import("Text.zig");
 pub const Button = @import("Button.zig");
+pub const MenuButton = @import("MenuButton.zig").MenuButton;
 pub const Spacer = @import("Spacer.zig");
 pub const TextInput = @import("TextInput.zig");
 pub const TextArea = @import("TextArea.zig");

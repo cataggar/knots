@@ -37,6 +37,10 @@ pub inline fn h(self: Rect) f32 {
     return self.v[3];
 }
 
+pub inline fn eql(self: Rect, b: Rect) bool {
+    return @reduce(.And, self.v == b.v);
+}
+
 pub inline fn setX(self: *Rect, val: f32) void {
     self.v[0] = val;
 }
