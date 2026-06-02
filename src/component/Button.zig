@@ -27,9 +27,11 @@ justify: Element.Justify = .start,
 width: Element.sizing.Axis = .fit(),
 height: Element.sizing.Axis = .fit(),
 padding: Element.Padding = .init(0, 0, 0, 0),
-style: Style = .{ .color = .primary },
+style: Style = .{},
 hover_style: ?Style.Override = null,
+disabled_style: ?Style.Override = null,
 hover_anim: ?HoverAnim = null,
+disabled: bool = false,
 key: Key,
 onClick: ?*const fn (*App) anyerror!void = null,
 onHover: ?*const fn (*App) anyerror!void = null,
@@ -47,28 +49,34 @@ const Button = @This();
 pub fn open(self: *const Button, app: *App) !Element.Id {
     const ui = &app.ui;
     const id = self.key.hash();
-    const is_hovered = ui.hovering(id);
+    const is_hovered = !self.disabled and ui.hovering(id);
+    const effective_style = if (self.disabled)
+        if (self.disabled_style) |ds| self.style.merge(ds) else self.style
+    else
+        self.style;
 
     const t: f32 = if (self.hover_anim) |ha|
         ui.anim(id, "hover", if (is_hovered) 1.0 else 0.0, ha.opts)
     else if (is_hovered) 1.0 else 0.0;
 
-    var deco_rect = self.style.toRect(&ui.theme);
-    if (self.hover_style) |hs| {
-        const hover_rect = self.style.merge(hs).toRect(&ui.theme);
-        deco_rect.color = math.lerp(@as(math.Vec4, deco_rect.color), @as(math.Vec4, hover_rect.color), t);
-        deco_rect.corner_radius = .lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
-        deco_rect.border_width = math.lerp(deco_rect.border_width, hover_rect.border_width, t);
-        deco_rect.border_color = math.lerp(@as(math.Vec4, deco_rect.border_color), @as(math.Vec4, hover_rect.border_color), t);
-    } else if (t > 0.0) {
-        const brighten = if (self.hover_anim) |ha| ha.brighten else default_brighten;
-        const f = t * brighten;
-        deco_rect.color = .{
-            deco_rect.color[0] + (1.0 - deco_rect.color[0]) * f,
-            deco_rect.color[1] + (1.0 - deco_rect.color[1]) * f,
-            deco_rect.color[2] + (1.0 - deco_rect.color[2]) * f,
-            deco_rect.color[3],
-        };
+    var deco_rect = effective_style.toRect(&ui.theme);
+    if (!self.disabled) {
+        if (self.hover_style) |hs| {
+            const hover_rect = self.style.merge(hs).toRect(&ui.theme);
+            deco_rect.color = math.lerp(@as(math.Vec4, deco_rect.color), @as(math.Vec4, hover_rect.color), t);
+            deco_rect.corner_radius = .lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
+            deco_rect.border_width = math.lerp(deco_rect.border_width, hover_rect.border_width, t);
+            deco_rect.border_color = math.lerp(@as(math.Vec4, deco_rect.border_color), @as(math.Vec4, hover_rect.border_color), t);
+        } else if (t > 0.0) {
+            const brighten = if (self.hover_anim) |ha| ha.brighten else default_brighten;
+            const f = t * brighten;
+            deco_rect.color = .{
+                deco_rect.color[0] + (1.0 - deco_rect.color[0]) * f,
+                deco_rect.color[1] + (1.0 - deco_rect.color[1]) * f,
+                deco_rect.color[2] + (1.0 - deco_rect.color[2]) * f,
+                deco_rect.color[3],
+            };
+        }
     }
 
     const rect = try ui.open(self.key, .{
@@ -77,18 +85,20 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
         .width = self.width,
         .height = self.height,
         .padding = self.padding,
-        .interactive = true,
+        .interactive = !self.disabled,
     }, .{ .rect = deco_rect });
 
-    if (self.onClick) |cb|
-        if (ui.leftClickedWithin(rect)) try cb(app);
+    if (!self.disabled) {
+        if (self.onClick) |cb|
+            if (ui.leftClickedWithin(rect)) try cb(app);
 
-    if (self.onHover) |cb|
-        if (is_hovered) try cb(app);
+        if (self.onHover) |cb|
+            if (is_hovered) try cb(app);
+    }
 
     if (self.text) |text| {
         const text_color: Color.Input =
-            self.style.color.onColor() orelse
+            effective_style.color.onColor() orelse
             text.color orelse .text;
         const txt = Text{
             .content = text.content,

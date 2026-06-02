@@ -31,7 +31,7 @@ fn body(app: *knots.App) !void {
         Spacer{ .height = .fixed(12), .key = .src(@src()) },
         Rect{
             .width = .grow(),
-            .dir = .row,
+            .dir = .column,
             .gap = 8,
             .key = .src(@src()),
             .overflow = .scroll,
@@ -99,6 +99,17 @@ fn body(app: *knots.App) !void {
                 .justify = .center,
                 .@"align" = .center,
                 .text = .{ .content = "menu" },
+            },
+            Button{
+                .height = .fixed(32),
+                .width = .fixed(80),
+                .key = .src(@src()),
+                .onClick = increment,
+                .justify = .center,
+                .@"align" = .center,
+                .text = .{ .content = "disabled" },
+                .disabled = true,
+                .disabled_style = .{ .color = .muted, .corner_radius = .md },
             },
         },
     });
