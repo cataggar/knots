@@ -4,7 +4,7 @@ const Color = @import("Color.zig");
 const Radius = @import("Radius.zig");
 
 color: Color.Input = .{ .color = Color.transparent },
-corner_radius: Radius.Input = .md,
+corner_radius: Radius.Input = .none,
 border_width: f32 = 0,
 border_color: Color.Input = .{ .color = Color.transparent },
 
