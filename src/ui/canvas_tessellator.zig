@@ -4,6 +4,7 @@ const DrawList = @import("render").DrawList;
 
 const Decoration = @import("decoration.zig").Decoration;
 const Radius = @import("Radius.zig");
+const BorderWidth = @import("BorderWidth.zig");
 
 const zero2 = [2]f32{ 0, 0 };
 const zero4 = [4]f32{ 0, 0, 0, 0 };
@@ -24,7 +25,7 @@ pub fn tessellate(allocator: std.mem.Allocator, draw_list: *DrawList, cmds: []co
                     .color = fr.color,
                     .border_color = zero4,
                     .corner_radius = fr.corner_radius.value,
-                    .border_width = 0,
+                    .border_width = BorderWidth.zero.value,
                     .prim_type = 0.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
@@ -52,7 +53,7 @@ pub fn tessellate(allocator: std.mem.Allocator, draw_list: *DrawList, cmds: []co
                     .color = zero4,
                     .border_color = sr.color,
                     .corner_radius = sr.corner_radius.value,
-                    .border_width = sr.thickness,
+                    .border_width = (sr.edge_widths orelse BorderWidth.all(sr.thickness)).value,
                     .prim_type = 0.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
@@ -67,7 +68,7 @@ pub fn tessellate(allocator: std.mem.Allocator, draw_list: *DrawList, cmds: []co
                     .color = fc.color,
                     .border_color = zero4,
                     .corner_radius = Radius.all(cr).value,
-                    .border_width = 0,
+                    .border_width = BorderWidth.zero.value,
                     .prim_type = 0.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
@@ -82,7 +83,7 @@ pub fn tessellate(allocator: std.mem.Allocator, draw_list: *DrawList, cmds: []co
                     .color = zero4,
                     .border_color = sc.color,
                     .corner_radius = Radius.all(cr).value,
-                    .border_width = sc.thickness,
+                    .border_width = BorderWidth.all(sc.thickness).value,
                     .prim_type = 0.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip);
@@ -151,7 +152,7 @@ fn vertex(
         .color = color,
         .corner_radius = corner_radius.value,
         .half_size = half_size,
-        .border_width = 0,
+        .border_width = BorderWidth.zero.value,
         .border_color = zero4,
         .prim_type = prim_type,
     };

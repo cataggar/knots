@@ -19,7 +19,7 @@ fn body(app: *knots.App) !void {
             .overflow = .hidden,
             .padding = .init(8, 8, 8, 8),
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{
             Rect{
@@ -43,7 +43,7 @@ fn body(app: *knots.App) !void {
             .dir = .column,
             .gap = 4,
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{scrollOnlyYRows},
     });
@@ -60,7 +60,7 @@ fn body(app: *knots.App) !void {
             .dir = .row,
             .gap = 6,
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{scrollXBoxes},
     });
@@ -77,7 +77,7 @@ fn body(app: *knots.App) !void {
             .dir = .column,
             .gap = 4,
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{scrollBothRows},
     });

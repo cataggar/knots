@@ -77,7 +77,7 @@ fn body(app: *knots.App) !void {
                 .style = .{
                     .color = .{ .color = .rgba(0, 0, 0, 0) },
                     .corner_radius = .sm,
-                    .border_width = 1,
+                    .border_width = .all(1),
                     .border_color = .dimmed,
                 },
                 .hover_style = .{ .border_color = .primary },

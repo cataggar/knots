@@ -7,6 +7,7 @@ pub const State = @import("State.zig");
 pub const Theme = @import("Theme.zig");
 pub const Color = @import("Color.zig");
 pub const Radius = @import("Radius.zig");
+pub const BorderWidth = @import("BorderWidth.zig");
 pub const Size = @import("Size.zig");
 pub const animation = @import("animation.zig");
 pub const scrollbar = @import("scrollbar.zig");

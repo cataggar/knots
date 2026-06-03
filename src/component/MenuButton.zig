@@ -10,6 +10,7 @@ const Button = @import("Button.zig");
 const Text = @import("Text.zig");
 
 const Color = ui_mod.Color;
+const BorderWidth = ui_mod.BorderWidth;
 const Key = ui_mod.Key;
 const State = ui_mod.State;
 const Style = ui_mod.Style;
@@ -42,7 +43,7 @@ pub fn MenuButton(comptime Menu: type) type {
         popup_z_index: u8 = 10,
         popup_padding: Element.Padding = .init(4, 4, 4, 4),
         popup_gap: f32 = 2,
-        popup_style: Style = .{ .color = .elevated, .corner_radius = .sm, .border_color = .toned, .border_width = 1 },
+        popup_style: Style = .{ .color = .elevated, .corner_radius = .sm, .border_color = .toned, .border_width = .all(1) },
         close_on_popup_click: bool = true,
 
         const Self = @This();
@@ -85,7 +86,7 @@ pub fn MenuButton(comptime Menu: type) type {
                 const hover_rect = self.style.merge(hs).toRect(&ui.theme);
                 deco_rect.color = math.lerp(@as(math.Vec4, deco_rect.color), @as(math.Vec4, hover_rect.color), t);
                 deco_rect.corner_radius = .lerp(deco_rect.corner_radius, hover_rect.corner_radius, t);
-                deco_rect.border_width = math.lerp(deco_rect.border_width, hover_rect.border_width, t);
+                deco_rect.border_width = BorderWidth.lerp(deco_rect.border_width, hover_rect.border_width, t);
                 deco_rect.border_color = math.lerp(@as(math.Vec4, deco_rect.border_color), @as(math.Vec4, hover_rect.border_color), t);
             } else if (t > 0.0) {
                 const brighten = if (self.hover_anim) |ha| ha.brighten else 0.15;

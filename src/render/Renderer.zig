@@ -721,7 +721,7 @@ fn compositeLinearTarget(self: *Renderer, frame_ctx: *gpu.Frame.Context, uploads
         .color = .{ 1, 1, 1, 1 },
         .border_color = .{ 0, 0, 0, 0 },
         .corner_radius = .{ 0, 0, 0, 0 },
-        .border_width = 0,
+        .border_width = .{ 0, 0, 0, 0 },
         .prim_type = 2.0,
     };
     uploads.composite_instance_buf.load(gpu.Instance, &.{inst});

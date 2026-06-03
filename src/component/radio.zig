@@ -48,8 +48,8 @@ pub fn RadioButton(comptime T: type) type {
         gap: f32 = 8,
         label_size: Size.Input = .sm,
         label_color: Color.Input = .text,
-        unchecked_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = 1 },
-        checked_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
+        unchecked_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = .all(1) },
+        checked_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = .all(1) },
         dot_color: Color.Input = .primary,
         hover_border_color: Color.Input = .primary,
 
@@ -113,7 +113,7 @@ pub fn RadioButton(comptime T: type) type {
                 .cy = center,
                 .radius = outer_radius,
                 .color = rect.border_color,
-                .thickness = @max(1, rect.border_width),
+                .thickness = @max(1, rect.border_width.max()),
             } };
             cmds[2] = .{ .fill_circle = .{
                 .cx = center,
@@ -165,8 +165,8 @@ pub fn RadioGroup(comptime T: type) type {
         dot_size: f32 = 18,
         label_size: Size.Input = .sm,
         label_color: Color.Input = .text,
-        unchecked_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = 1 },
-        checked_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = 1 },
+        unchecked_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = .all(1) },
+        checked_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = .all(1) },
         dot_color: Color.Input = .primary,
         hover_border_color: Color.Input = .primary,
 

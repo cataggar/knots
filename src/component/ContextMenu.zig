@@ -41,7 +41,7 @@ pub fn ContextMenu(comptime Menu: type) type {
         popup_z_index: u8 = 10,
         popup_padding: Element.Padding = .init(4, 4, 4, 4),
         popup_gap: f32 = 2,
-        popup_style: Style = .{ .color = .elevated, .corner_radius = .sm, .border_color = .toned, .border_width = 1 },
+        popup_style: Style = .{ .color = .elevated, .corner_radius = .sm, .border_color = .toned, .border_width = .all(1) },
 
         const Self = @This();
         const POPUP_INDEX: usize = 1;

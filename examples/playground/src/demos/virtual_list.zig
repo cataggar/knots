@@ -24,7 +24,7 @@ fn body(app: *knots.App) !void {
             .style = .{
                 .color = .muted,
                 .corner_radius = .sm,
-                .border_width = 1,
+                .border_width = .all(1),
                 .border_color = .toned,
             },
         },

@@ -20,8 +20,8 @@ box_size: f32 = 18,
 gap: f32 = 8,
 label_size: Size.Input = .sm,
 label_color: Color.Input = .text,
-unchecked_style: Style = .{ .color = .muted, .corner_radius = .sm, .border_color = .toned, .border_width = 1 },
-checked_style: Style = .{ .color = .primary, .corner_radius = .sm, .border_color = .primary, .border_width = 1 },
+unchecked_style: Style = .{ .color = .muted, .corner_radius = .sm, .border_color = .toned, .border_width = .all(1) },
+checked_style: Style = .{ .color = .primary, .corner_radius = .sm, .border_color = .primary, .border_width = .all(1) },
 check_color: Color.Input = .on_primary,
 hover_border_color: Color.Input = .primary,
 
@@ -83,7 +83,8 @@ pub fn close(self: *const Checkbox, app: *App) !void {
         .h = self.box_size - 1,
         .color = rect.border_color,
         .corner_radius = rect.corner_radius.shrink(0.5),
-        .thickness = rect.border_width,
+        .thickness = rect.border_width.max(),
+        .edge_widths = rect.border_width,
     } };
     cmds[2] = .{ .line = .{
         .from = .{ self.box_size * 0.28, self.box_size * 0.53 },

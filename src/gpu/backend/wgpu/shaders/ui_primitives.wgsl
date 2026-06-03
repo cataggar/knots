@@ -17,7 +17,7 @@ struct VertexInput {
     @location(2) color: vec4f,
     @location(3) corner_radius: vec4f,
     @location(4) half_size: vec2f,
-    @location(5) border_width: f32,
+    @location(5) border_width: vec4f,
     @location(6) border_color: vec4f,
     @location(7) prim_type: f32,
 }
@@ -28,7 +28,7 @@ struct VertexOutput {
     @location(1) uv: vec2f,
     @location(2) corner_radius: vec4f,
     @location(3) half_size: vec2f,
-    @location(4) border_width: f32,
+    @location(4) border_width: vec4f,
     @location(5) border_color: vec4f,
     @location(6) prim_type: f32,
 }
@@ -57,9 +57,8 @@ struct InstanceInput {
     @location(4) color: vec4f,
     @location(5) border_color: vec4f,
     @location(6) corner_radius: vec4f,
-    @location(7) border_width: f32,
+    @location(7) border_width: vec4f,
     @location(8) prim_type: f32,
-    @location(9) _pad: f32,
 }
 
 @vertex
@@ -132,6 +131,15 @@ fn sdRoundedBox(p: vec2f, half_size: vec2f, radii: vec4f) -> f32 {
     return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
+fn innerRadii(radii: vec4f, width: vec4f) -> vec4f {
+    return max(radii - vec4f(
+        max(width.x, width.w),
+        max(width.x, width.y),
+        max(width.z, width.y),
+        max(width.z, width.w),
+    ), vec4f(0.0));
+}
+
 fn shadeLinear(in: VertexOutput) -> vec4f {
     let sampled = textureSample(atlas_texture, atlas_sampler, in.uv);
 
@@ -140,10 +148,24 @@ fn shadeLinear(in: VertexOutput) -> vec4f {
 
         let fill_alpha = 1.0 - smoothstep(-0.5, 0.5, d);
 
-        let border_d = abs(d) - in.border_width;
-        let border_alpha = 1.0 - smoothstep(-0.5, 0.5, border_d);
+        let width = max(in.border_width, vec4f(0.0));
+        let max_width = max(max(width.x, width.y), max(width.z, width.w));
+        var border_alpha = 0.0;
+        if max_width > 0.0 {
+            let inner_half_size = max(
+                in.half_size - vec2f(width.w + width.y, width.x + width.z) * 0.5,
+                vec2f(0.0),
+            );
+            let inner_center = vec2f(
+                (width.w - width.y) * 0.5,
+                (width.x - width.z) * 0.5,
+            );
+            let inner_d = sdRoundedBox(in.uv - inner_center, inner_half_size, innerRadii(in.corner_radius, width));
+            let inner_alpha = 1.0 - smoothstep(-0.5, 0.5, inner_d);
+            border_alpha = fill_alpha * (1.0 - inner_alpha);
+        }
 
-        let col = mix(in.color, in.border_color, border_alpha * fill_alpha);
+        let col = mix(in.color, in.border_color, border_alpha);
         return vec4f(col.rgb, col.a * fill_alpha);
     } else if in.prim_type < 1.5 {
         let coverage = sampled.r;

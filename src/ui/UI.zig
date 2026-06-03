@@ -19,6 +19,7 @@ const Style = @import("Style.zig");
 const Size = @import("Size.zig");
 const Theme = @import("Theme.zig");
 const Radius = @import("Radius.zig");
+const BorderWidth = @import("BorderWidth.zig");
 const scrollbar = @import("scrollbar.zig");
 const canvas_tessellator = @import("canvas_tessellator.zig");
 
@@ -622,7 +623,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .color = r.color,
                     .border_color = r.border_color,
                     .corner_radius = r.corner_radius.value,
-                    .border_width = r.border_width,
+                    .border_width = r.border_width.value,
                     .prim_type = 0.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, null, clip_arr);
@@ -711,7 +712,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .color = img.tint,
                     .border_color = zero4,
                     .corner_radius = Radius.zero.value,
-                    .border_width = 0,
+                    .border_width = BorderWidth.zero.value,
                     .prim_type = 2.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture_id, clip_arr);
@@ -775,7 +776,7 @@ inline fn solidRectInstance(x: f32, y: f32, w: f32, h: f32, color: [4]f32, corne
         .color = color,
         .border_color = .{ 0, 0, 0, 0 },
         .corner_radius = corner_radius.value,
-        .border_width = 0,
+        .border_width = BorderWidth.zero.value,
         .prim_type = 0.0,
     };
 }

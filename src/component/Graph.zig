@@ -164,16 +164,22 @@ fn appendStyle(self: *const Graph, writer: *CommandWriter, app: *App, s: Size) v
         } });
     }
 
-    if (rect.border_width > 0 and rect.border_color[3] > 0) {
-        const half = rect.border_width * 0.5;
+    const border_width = rect.border_width;
+    if (!border_width.isZero() and rect.border_color[3] > 0) {
+        const top = border_width.value[0];
+        const right = border_width.value[1];
+        const bottom = border_width.value[2];
+        const left = border_width.value[3];
+        const max_width = border_width.max();
         writer.append(.{ .stroke_rect = .{
-            .x = half,
-            .y = half,
-            .w = @max(0, s.w - rect.border_width),
-            .h = @max(0, s.h - rect.border_width),
+            .x = left * 0.5,
+            .y = top * 0.5,
+            .w = @max(0, s.w - (left + right) * 0.5),
+            .h = @max(0, s.h - (top + bottom) * 0.5),
             .color = rect.border_color,
-            .corner_radius = rect.corner_radius.shrink(half),
-            .thickness = rect.border_width,
+            .corner_radius = rect.corner_radius.shrink(max_width * 0.5),
+            .thickness = max_width,
+            .edge_widths = border_width,
         } });
     }
 }

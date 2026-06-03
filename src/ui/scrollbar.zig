@@ -8,6 +8,7 @@ const Element = layout.Element;
 const State = @import("State.zig");
 const Theme = @import("Theme.zig");
 const UI = @import("UI.zig");
+const BorderWidth = @import("BorderWidth.zig");
 
 const THUMB_ID_SALT: Element.Id = 0x5C205C205C205C20;
 const WHEEL_LOCK_IDLE_MS: i64 = 120;
@@ -284,7 +285,7 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
                 .color = track_color,
                 .border_color = .{ 0, 0, 0, 0 },
                 .corner_radius = cr,
-                .border_width = 0,
+                .border_width = BorderWidth.zero.value,
                 .prim_type = 0.0,
             };
             try draw_list.pushInstances(&[_]gpu.Instance{track_inst}, null, clip_arr);
@@ -302,7 +303,7 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
                 .color = thumb_color,
                 .border_color = .{ 0, 0, 0, 0 },
                 .corner_radius = cr,
-                .border_width = 0,
+                .border_width = BorderWidth.zero.value,
                 .prim_type = 0.0,
             };
             try draw_list.pushInstances(&[_]gpu.Instance{thumb_inst}, null, clip_arr);
@@ -321,7 +322,7 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
                 .color = track_color,
                 .border_color = .{ 0, 0, 0, 0 },
                 .corner_radius = .{ 0, 0, 0, 0 },
-                .border_width = 0,
+                .border_width = BorderWidth.zero.value,
                 .prim_type = 0.0,
             };
             try draw_list.pushInstances(&[_]gpu.Instance{corner_inst}, null, clip_arr);

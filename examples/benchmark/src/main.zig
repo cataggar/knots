@@ -91,7 +91,7 @@ fn renderHeader(app: *knots.App) !void {
             .@"align" = .center,
             .justify = .space_between,
             .gap = 16,
-            .style = .{ .color = .bg, .border_width = 1, .border_color = .toned, .corner_radius = .sm },
+            .style = .{ .color = .bg, .border_width = .all(1), .border_color = .toned, .corner_radius = .sm },
         },
         .{Text{ .key = .src(@src()), .content = title }},
     });
@@ -127,7 +127,7 @@ fn renderSidebar(app: *knots.App) !void {
             .dir = .column,
             .gap = 4,
             .overflow = .scroll_y,
-            .style = .{ .color = .bg, .border_width = 1, .border_color = .toned, .corner_radius = .sm },
+            .style = .{ .color = .bg, .border_width = .all(1), .border_color = .toned, .corner_radius = .sm },
         },
         .{renderSidebarItems},
     });
@@ -164,7 +164,7 @@ fn renderGrid(app: *knots.App) !void {
             .dir = .column,
             .gap = 2,
             .overflow = .scroll_y,
-            .style = .{ .color = .bg, .border_width = 1, .border_color = .toned, .corner_radius = .sm },
+            .style = .{ .color = .bg, .border_width = .all(1), .border_color = .toned, .corner_radius = .sm },
         },
         .{renderGridRows},
     });
@@ -236,7 +236,7 @@ fn renderCanvasStrip(app: *knots.App) !void {
             .key = .src(@src()),
             .width = .grow(),
             .height = .fixed(160),
-            .style = .{ .color = .bg, .border_width = 1, .border_color = .toned, .corner_radius = .sm },
+            .style = .{ .color = .bg, .border_width = .all(1), .border_color = .toned, .corner_radius = .sm },
             .overflow = .scroll_x,
         },
         .{Canvas{

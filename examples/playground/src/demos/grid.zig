@@ -33,7 +33,7 @@ fn body(app: *knots.App) !void {
             .{Text{ .content = "Cluster overview", .key = .src(@src()), .color = .on_primary }},
 
             Rect{
-                .style = .{ .color = .elevated, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+                .style = .{ .color = .elevated, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
                 .padding = .init(10, 12, 10, 12),
                 .dir = .column,
                 .gap = 4,
@@ -75,7 +75,7 @@ fn body(app: *knots.App) !void {
             },
 
             Rect{
-                .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+                .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
                 .padding = .init(8, 12, 8, 12),
                 .dir = .column,
                 .justify = .center,

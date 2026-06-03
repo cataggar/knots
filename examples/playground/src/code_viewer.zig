@@ -184,7 +184,7 @@ pub fn render(
             .style = .{
                 .color = .muted,
                 .corner_radius = .sm,
-                .border_width = 1,
+                .border_width = .all(1),
                 .border_color = .toned,
             },
             .hover_style = .{ .border_color = .primary },
@@ -206,7 +206,7 @@ pub fn render(
         .style = .{
             .color = .elevated,
             .corner_radius = .lg,
-            .border_width = 1,
+            .border_width = .all(1),
             .border_color = .toned,
         },
     };
@@ -233,7 +233,6 @@ pub fn render(
         .key = knots.ui.Key.str(source_path).indexed(0),
         .style = .{
             .corner_radius = .md,
-            .border_width = 0,
             .border_color = .toned,
         },
     };

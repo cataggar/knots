@@ -31,12 +31,7 @@ pub const Input = union(enum) {
     xl,
     fixed: f32,
     radius: Radius,
-    corner_values: [4]f32,
-    corner_inputs: [4]Corner,
-
-    pub inline fn corners(tl: Corner, tr: Corner, br: Corner, bl: Corner) Input {
-        return .{ .corner_inputs = .{ tl, tr, br, bl } };
-    }
+    corners: [4]Corner,
 
     pub inline fn resolve(self: Input, theme: *const Theme) Radius {
         return switch (self) {
@@ -48,8 +43,7 @@ pub const Input = union(enum) {
             .xl => theme.radius.scale(2.0),
             .fixed => |v| Radius.all(v),
             .radius => |r| r,
-            .corner_values => |v| .{ .value = v },
-            .corner_inputs => |v| Radius.corners(
+            .corners => |v| Radius.corners(
                 v[0].resolve(theme, 0),
                 v[1].resolve(theme, 1),
                 v[2].resolve(theme, 2),

@@ -163,7 +163,7 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
     }, .{ .rect = .{
         .color = app.ui.theme.elevated.value,
         .corner_radius = app.ui.theme.radius.scale(1.5),
-        .border_width = 1,
+        .border_width = .all(1),
         .border_color = app.ui.theme.toned.value,
     } });
 
@@ -401,7 +401,7 @@ fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
     }, .{ .rect = .{
         .color = app.ui.theme.muted.value,
         .corner_radius = app.ui.theme.radius.scale(0.5),
-        .border_width = 1,
+        .border_width = .all(1),
         .border_color = app.ui.theme.toned.value,
     } });
     _ = try app.ui.open(panel_key.indexed(22), .{
@@ -543,7 +543,7 @@ const MetricCard = struct {
                 .width = .grow(),
                 .padding = .init(5, 8, 5, 8),
                 .dir = .column,
-                .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+                .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
             },
             .{
                 Text{ .key = self.name_key, .content = self.name, .size = .xs, .color = .dimmed, .selectable = false },

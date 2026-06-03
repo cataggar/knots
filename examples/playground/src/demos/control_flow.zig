@@ -78,7 +78,7 @@ fn list(app: *knots.App) !void {
             .width = .grow(),
             .padding = .init(8, 8, 8, 8),
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
             .dir = .column,
             .gap = 4,
         },

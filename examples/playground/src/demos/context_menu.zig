@@ -84,7 +84,7 @@ fn card(
                 .style = .{
                     .color = .muted,
                     .corner_radius = .md,
-                    .border_width = 1,
+                    .border_width = .all(1),
                     .border_color = .toned,
                 },
             },

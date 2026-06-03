@@ -80,7 +80,7 @@ fn Slot(comptime idx: u32) type {
                         .style = .{
                             .color = .{ .color = entry.theme.elevated },
                             .corner_radius = .md,
-                            .border_width = if (is_active) 2 else 1,
+                            .border_width = if (is_active) .all(2) else .all(1),
                             .border_color = if (is_active)
                                 .{ .color = entry.theme.primary }
                             else

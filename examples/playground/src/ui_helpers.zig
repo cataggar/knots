@@ -16,7 +16,7 @@ pub fn panel(
         .style = .{
             .color = .elevated,
             .corner_radius = .lg,
-            .border_width = 1,
+            .border_width = .all(1),
             .border_color = .toned,
         },
     };

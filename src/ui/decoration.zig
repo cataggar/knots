@@ -1,4 +1,5 @@
 const Radius = @import("Radius.zig");
+const BorderWidth = @import("BorderWidth.zig");
 
 pub const Decoration = union(enum) {
     none: void,
@@ -11,7 +12,7 @@ pub const Decoration = union(enum) {
     pub const Rect = struct {
         color: [4]f32 = .{ 0, 0, 0, 0 },
         corner_radius: Radius = .zero,
-        border_width: f32 = 0,
+        border_width: BorderWidth = .zero,
         border_color: [4]f32 = .{ 0, 0, 0, 0 },
     };
 
@@ -58,7 +59,7 @@ pub const Decoration = union(enum) {
 
         pub const FillRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius = .zero };
         pub const FillRectGradient = struct { x: f32, y: f32, w: f32, h: f32, colors: [4][4]f32, corner_radius: Radius = .zero };
-        pub const StrokeRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius = .zero, thickness: f32 = 1 };
+        pub const StrokeRect = struct { x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius = .zero, thickness: f32 = 1, edge_widths: ?BorderWidth = null };
         pub const FillCircle = struct { cx: f32, cy: f32, radius: f32, color: [4]f32 };
         pub const StrokeCircle = struct { cx: f32, cy: f32, radius: f32, color: [4]f32, thickness: f32 = 1 };
         pub const Line = struct { from: [2]f32, to: [2]f32, color: [4]f32, thickness: f32 = 1 };

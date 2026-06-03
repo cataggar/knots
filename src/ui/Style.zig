@@ -2,10 +2,11 @@ const Decoration = @import("decoration.zig").Decoration;
 const Theme = @import("Theme.zig");
 const Color = @import("Color.zig");
 const Radius = @import("Radius.zig");
+const BorderWidth = @import("BorderWidth.zig");
 
 color: Color.Input = .{ .color = Color.transparent },
 corner_radius: Radius.Input = .none,
-border_width: f32 = 0,
+border_width: BorderWidth = .zero,
 border_color: Color.Input = .{ .color = Color.transparent },
 
 const Style = @This();
@@ -14,7 +15,7 @@ const Style = @This();
 pub const Override = struct {
     color: ?Color.Input = null,
     corner_radius: ?Radius.Input = null,
-    border_width: ?f32 = null,
+    border_width: ?BorderWidth = null,
     border_color: ?Color.Input = null,
 };
 
@@ -30,7 +31,7 @@ pub fn merge(base: Style, over: Override) Style {
 
 /// Returns true if this style would produce a visible decoration.
 pub fn hasDecoration(self: Style) bool {
-    return !self.color.isTransparent() or self.border_width != 0;
+    return !self.color.isTransparent() or !self.border_width.isZero();
 }
 
 /// Convert to layout Decoration.Rect

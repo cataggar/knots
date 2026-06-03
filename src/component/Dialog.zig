@@ -25,7 +25,7 @@ height: Element.sizing.Axis = .fit(),
 padding: Element.Padding = .init(16, 16, 16, 16),
 gap: f32 = 0,
 dir: Element.Direction = .column,
-panel_style: Style = .{ .color = .elevated, .corner_radius = .md, .border_color = .toned, .border_width = 1 },
+panel_style: Style = .{ .color = .elevated, .corner_radius = .md, .border_color = .toned, .border_width = .all(1) },
 backdrop_color: Color.Input = .{ .color = .{ .value = .{ 0, 0, 0, 0.45 } } },
 
 const Dialog = @This();
@@ -61,7 +61,7 @@ pub fn open(self: *const Dialog, app: *App) !Element.Id {
     }, .{ .rect = .{
         .color = self.backdrop_color.resolve(&ui.theme),
         .corner_radius = .zero,
-        .border_width = 0,
+        .border_width = .zero,
         .border_color = .{ 0, 0, 0, 0 },
     } });
     ui.close();

@@ -25,7 +25,7 @@ fn startCell(app: *knots.App) !void {
             .dir = .column,
             .gap = 4,
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{
             Rect{ .width = .fixed(24), .height = .fixed(24), .style = .{ .color = .@"error", .corner_radius = .sm }, .key = .src(@src()) },
@@ -45,7 +45,7 @@ fn centerCell(app: *knots.App) !void {
             .dir = .column,
             .gap = 4,
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{
             Rect{ .width = .fixed(24), .height = .fixed(24), .style = .{ .color = .success, .corner_radius = .sm }, .key = .src(@src()) },
@@ -65,7 +65,7 @@ fn endCell(app: *knots.App) !void {
             .dir = .column,
             .gap = 4,
             .key = .src(@src()),
-            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = 1, .border_color = .toned },
+            .style = .{ .color = .muted, .corner_radius = .sm, .border_width = .all(1), .border_color = .toned },
         },
         .{
             Rect{ .width = .fixed(24), .height = .fixed(24), .style = .{ .color = .primary, .corner_radius = .sm }, .key = .src(@src()) },
