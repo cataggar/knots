@@ -29,7 +29,13 @@ const DescriptorAllocation = struct {
     pool: vk.DescriptorPool,
 };
 
+const VulkanLoader = struct {
+    get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
+    lib: if (builtin.os.tag == .windows) void else std.DynLib,
+};
+
 allocator: std.mem.Allocator,
+loader: VulkanLoader,
 vkb: vk.BaseWrapper,
 vki: vk.InstanceWrapper,
 vkd: vk.DeviceWrapper,
@@ -53,7 +59,17 @@ descriptor_pools: std.ArrayList(DescriptorPoolEntry),
 gpu_cfg: gpu.Context.Config,
 _current_image_index: u32 = 0,
 
-fn loadVulkan() !vk.PfnGetInstanceProcAddr {
+fn openVulkan(path: []const u8) !VulkanLoader {
+    var lib = std.DynLib.open(path) catch return error.VulkanUnavailable;
+    errdefer lib.close();
+    return .{
+        .get_instance_proc_addr = lib.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse
+            return error.VulkanUnavailable,
+        .lib = lib,
+    };
+}
+
+fn loadVulkan() !VulkanLoader {
     switch (builtin.os.tag) {
         inline .windows => {
             const HMODULE = *anyopaque;
@@ -65,19 +81,35 @@ fn loadVulkan() !vk.PfnGetInstanceProcAddr {
             };
             const handle = extern_LoadLibraryA.LoadLibraryA("vulkan-1.dll") orelse return error.VulkanUnavailable;
             const ptr = extern_GetProcAddress.GetProcAddress(handle, "vkGetInstanceProcAddr") orelse return error.VulkanUnavailable;
-            return @ptrCast(ptr);
+            return .{ .get_instance_proc_addr = @ptrCast(ptr), .lib = {} };
         },
-        inline else => {
-            const lib_name = if (builtin.os.tag.isDarwin()) "libvulkan.1.dylib" else "libvulkan.so.1";
-            var lib = std.DynLib.open(lib_name) catch return error.VulkanUnavailable;
-            return lib.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse error.VulkanUnavailable;
+        inline .macos => {
+            var exe_path_buf: [std.posix.PATH_MAX + 1]u8 = undefined;
+            var exe_path_buf_len: u32 = exe_path_buf.len;
+            if (std.c._NSGetExecutablePath(&exe_path_buf, &exe_path_buf_len) == 0) {
+                if (std.fs.path.dirname(std.mem.sliceTo(&exe_path_buf, 0))) |exe_dir| {
+                    var bundled_loader_buf: [std.fs.max_path_bytes]u8 = undefined;
+                    if (std.fmt.bufPrint(
+                        &bundled_loader_buf,
+                        "{s}/../Frameworks/libvulkan.1.dylib",
+                        .{exe_dir},
+                    )) |bundled_loader| {
+                        if (openVulkan(bundled_loader)) |loader| return loader else |_| {}
+                    } else |_| {}
+                }
+            }
+
+            return openVulkan("libvulkan.1.dylib");
         },
+
+        inline else => return openVulkan("libvulkan.so.1"),
     }
 }
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle, cfg: gpu.Context.Config) !gpu.Context {
-    const vkGetInstanceProcAddr = try loadVulkan();
-    const vkb = vk.BaseWrapper.load(vkGetInstanceProcAddr);
+    var loader = try loadVulkan();
+    errdefer if (builtin.os.tag != .windows) loader.lib.close();
+    const vkb = vk.BaseWrapper.load(loader.get_instance_proc_addr);
 
     const instance_extensions = getInstanceExtensions(window_handle);
     const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
@@ -176,6 +208,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
     const self = try allocator.create(Context);
     self.* = .{
         .allocator = allocator,
+        .loader = loader,
         .vkb = vkb,
         .vki = vki,
         .vkd = vkd,
@@ -277,6 +310,7 @@ fn deinit(ptr: *anyopaque) void {
     self.vkd.destroyDevice(self.device, null);
     self.vki.destroySurfaceKHR(self.instance, self.surface, null);
     self.vki.destroyInstance(self.instance, null);
+    if (builtin.os.tag != .windows) self.loader.lib.close();
     self.allocator.destroy(self);
 }
 

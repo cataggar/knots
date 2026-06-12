@@ -68,6 +68,18 @@ fn frameCb(app: *knots.App) !void {
 | Windows          | WebGPU and Vulkan            |
 | Web (emscripten) | WebGPU                       |
 
+### Distributing Vulkan applications on macOS
+
+Knots checks for a bundled Vulkan loader before falling back to the system loader. A standalone application bundle using the Vulkan backend must include the loader, MoltenVK, and its ICD manifest:
+
+```text
+MyApp.app/Contents/Frameworks/libvulkan.1.dylib
+MyApp.app/Contents/Frameworks/libMoltenVK.dylib
+MyApp.app/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json
+```
+
+The manifest's `library_path` must resolve to the bundled `libMoltenVK.dylib`.
+
 ## Examples
 
 See [examples](examples), you can also try the web version of the playground [here](https://shahwali.codeberg.page/knots/).
