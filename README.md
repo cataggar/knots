@@ -20,7 +20,7 @@ zig fetch --save git+https://codeberg.org/shahwali/knots.git
 // build.zig
 const GPUBackend = @import("knots").GPUBackend;
 
-const knots = b.dependency("knots", .{ .target = target, .optimize = optimize, .gpu_backends = &[_]GPUBackend{ .vulkan, .wgpu } });
+const knots = b.dependency("knots", .{ .target = target, .optimize = optimize, .gpu_backend = GPUBackend.vulkan });
 
 
 exe.root_module.addImport(knots.module("knots"));
@@ -96,3 +96,4 @@ Below goals are listed in order of importance.
 ## Known limitations
 
 - Linux windowing is Wayland-only.
+- Text rendering is UTF-8/codepoint based. HarfBuzz shaping, bidi layout, ligatures, font fallback, and IME composition are not implemented yet.
