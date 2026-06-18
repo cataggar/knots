@@ -12,18 +12,10 @@ const Texture = @import("Texture.zig");
 const Sampler = @import("Sampler.zig");
 
 const Context = @This();
+const required_api_version = vk.API_VERSION_1_3;
 
 const DescriptorPoolEntry = struct {
     pool: vk.DescriptorPool,
-};
-
-const NativeDevice = struct {
-    instance: vk.Instance,
-    physical_device: vk.PhysicalDevice,
-    device: vk.Device,
-    graphics_queue: vk.Queue,
-    graphics_queue_family: u32,
-    get_instance_proc_addr: *const fn (vk.Instance, [*:0]const u8) callconv(.c) vk.PfnVoidFunction,
 };
 
 const DescriptorAllocation = struct {
@@ -38,14 +30,12 @@ const VulkanLoader = struct {
 
 allocator: std.mem.Allocator,
 loader: VulkanLoader,
-vkb: vk.BaseWrapper,
 vki: vk.InstanceWrapper,
 vkd: vk.DeviceWrapper,
 instance: vk.Instance,
 physical_device: vk.PhysicalDevice,
 device: vk.Device,
 graphics_queue: vk.Queue,
-graphics_queue_family: u32,
 surface: vk.SurfaceKHR,
 swapchain: vk.SwapchainKHR,
 swapchain_images: []vk.Image,
@@ -53,13 +43,10 @@ swapchain_views: []vk.ImageView,
 swapchain_format: vk.Format,
 swapchain_is_srgb: bool,
 swapchain_extent: vk.Extent2D,
-render_pass: vk.RenderPass,
-framebuffers: []vk.Framebuffer,
 transient_command_pool: vk.CommandPool,
 command_pools: []vk.CommandPool,
 descriptor_pools: std.ArrayList(DescriptorPoolEntry),
 cfg: gpu.Context.Config,
-_current_image_index: u32 = 0,
 
 fn openVulkan(path: []const u8) !VulkanLoader {
     var lib = std.DynLib.open(path) catch return error.VulkanUnavailable;
@@ -121,7 +108,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
             .application_version = 0,
             .p_engine_name = "knots",
             .engine_version = 0,
-            .api_version = vk.API_VERSION_1_2.toU32(),
+            .api_version = required_api_version.toU32(),
         },
         .enabled_extension_count = @intCast(instance_extensions.len),
         .pp_enabled_extension_names = &instance_extensions,
@@ -144,6 +131,11 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
     var vk12_features = vk.PhysicalDeviceVulkan12Features{
         .shader_int_8 = .true,
     };
+    var vk13_features = vk.PhysicalDeviceVulkan13Features{
+        .synchronization_2 = .true,
+        .dynamic_rendering = .true,
+    };
+    vk12_features.p_next = &vk13_features;
     const enabled_features = vk.PhysicalDeviceFeatures{
         .shader_int_16 = .true,
     };
@@ -174,14 +166,6 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         allocator.free(views);
     }
 
-    const render_pass = try createRenderPass(vkd, device, sc.format);
-
-    const framebuffers = try createFramebuffers(allocator, vkd, device, views, render_pass, sc.extent);
-    errdefer {
-        for (framebuffers) |fb| vkd.destroyFramebuffer(device, fb, null);
-        allocator.free(framebuffers);
-    }
-
     const command_pools = try allocator.alloc(vk.CommandPool, images.len);
     errdefer allocator.free(command_pools);
     var pools_created: usize = 0;
@@ -210,14 +194,12 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
     return .{
         .allocator = allocator,
         .loader = loader,
-        .vkb = vkb,
         .vki = vki,
         .vkd = vkd,
         .instance = instance,
         .physical_device = phys.device,
         .device = device,
         .graphics_queue = graphics_queue,
-        .graphics_queue_family = phys.queue_family,
         .surface = surface,
         .swapchain = sc.swapchain,
         .swapchain_images = images,
@@ -225,8 +207,6 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .swapchain_format = sc.format,
         .swapchain_is_srgb = sc.is_srgb,
         .swapchain_extent = sc.extent,
-        .render_pass = render_pass,
-        .framebuffers = framebuffers,
         .command_pools = command_pools,
         .transient_command_pool = transient_command_pool,
         .descriptor_pools = descriptor_pools,
@@ -285,9 +265,6 @@ pub fn deinit(self: *Context) void {
         self.vkd.destroyCommandPool(self.device, pool, null);
     }
     self.allocator.free(self.command_pools);
-    for (self.framebuffers) |fb| self.vkd.destroyFramebuffer(self.device, fb, null);
-    self.allocator.free(self.framebuffers);
-    self.vkd.destroyRenderPass(self.device, self.render_pass, null);
     for (self.swapchain_views) |v| self.vkd.destroyImageView(self.device, v, null);
     self.allocator.free(self.swapchain_views);
     self.allocator.free(self.swapchain_images);
@@ -376,14 +353,6 @@ pub fn recreateSwapchain(self: *Context, width: u32, height: u32) !void {
         self.allocator.free(new_views);
     }
 
-    const new_framebuffers = try createFramebuffers(self.allocator, self.vkd, self.device, new_views, self.render_pass, sc.extent);
-    errdefer {
-        for (new_framebuffers) |fb| self.vkd.destroyFramebuffer(self.device, fb, null);
-        self.allocator.free(new_framebuffers);
-    }
-
-    for (self.framebuffers) |fb| self.vkd.destroyFramebuffer(self.device, fb, null);
-    self.allocator.free(self.framebuffers);
     for (self.swapchain_views) |v| self.vkd.destroyImageView(self.device, v, null);
     self.allocator.free(self.swapchain_views);
     self.allocator.free(self.swapchain_images);
@@ -395,8 +364,6 @@ pub fn recreateSwapchain(self: *Context, width: u32, height: u32) !void {
     self.swapchain_format = sc.format;
     self.swapchain_is_srgb = sc.is_srgb;
     self.swapchain_extent = sc.extent;
-    self.framebuffers = new_framebuffers;
-    self._current_image_index = 0;
 }
 
 pub fn findMemoryType(self: *const Context, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {
@@ -434,9 +401,12 @@ pub fn endSingleTimeCommands(self: *const Context, cmd: vk.CommandBuffer) !Singl
     try self.vkd.endCommandBuffer(cmd);
     const fence = try self.vkd.createFence(self.device, &.{ .flags = .{} }, null);
     errdefer self.vkd.destroyFence(self.device, fence, null);
-    try self.vkd.queueSubmit(self.graphics_queue, &.{.{
-        .command_buffer_count = 1,
-        .p_command_buffers = @ptrCast(&cmd),
+    try self.vkd.queueSubmit2(self.graphics_queue, &.{.{
+        .command_buffer_info_count = 1,
+        .p_command_buffer_infos = &[_]vk.CommandBufferSubmitInfo{.{
+            .command_buffer = cmd,
+            .device_mask = 1,
+        }},
     }}, fence);
     return .{ .command_buffer = cmd, .fence = fence };
 }
@@ -538,6 +508,21 @@ fn pickPhysicalDevice(vki: vk.InstanceWrapper, instance: vk.Instance, surface: v
     if (device_count > 16) device_count = 16;
     _ = try vki.enumeratePhysicalDevices(instance, &device_count, &devices_buf);
     for (devices_buf[0..device_count]) |dev| {
+        if (vki.getPhysicalDeviceProperties(dev).api_version < required_api_version.toU32()) continue;
+
+        var vk12_features = vk.PhysicalDeviceVulkan12Features{};
+        var vk13_features = vk.PhysicalDeviceVulkan13Features{};
+        vk12_features.p_next = &vk13_features;
+        var features = vk.PhysicalDeviceFeatures2{ .p_next = &vk12_features, .features = .{} };
+        vki.getPhysicalDeviceFeatures2(dev, &features);
+        if (features.features.shader_int_16 != .true or
+            vk12_features.shader_int_8 != .true or
+            vk13_features.synchronization_2 != .true or
+            vk13_features.dynamic_rendering != .true)
+        {
+            continue;
+        }
+
         if (try findGraphicsQueueFamily(vki, dev, surface)) |qf| return .{ .device = dev, .queue_family = qf };
     }
     return error.NoSuitableDevice;
@@ -662,56 +647,4 @@ fn createImageViews(allocator: std.mem.Allocator, vkd: vk.DeviceWrapper, device:
         created += 1;
     }
     return views;
-}
-
-fn createRenderPass(vkd: vk.DeviceWrapper, device: vk.Device, format: vk.Format) !vk.RenderPass {
-    return vkd.createRenderPass(device, &.{
-        .attachment_count = 1,
-        .p_attachments = &[_]vk.AttachmentDescription{.{
-            .format = format,
-            .samples = .{ .@"1_bit" = true },
-            .load_op = .clear,
-            .store_op = .store,
-            .stencil_load_op = .dont_care,
-            .stencil_store_op = .dont_care,
-            .initial_layout = .undefined,
-            .final_layout = .present_src_khr,
-        }},
-        .subpass_count = 1,
-        .p_subpasses = &[_]vk.SubpassDescription{.{
-            .pipeline_bind_point = .graphics,
-            .color_attachment_count = 1,
-            .p_color_attachments = &[_]vk.AttachmentReference{.{ .attachment = 0, .layout = .color_attachment_optimal }},
-        }},
-        .dependency_count = 1,
-        .p_dependencies = &[_]vk.SubpassDependency{.{
-            .src_subpass = vk.SUBPASS_EXTERNAL,
-            .dst_subpass = 0,
-            .src_stage_mask = .{ .color_attachment_output_bit = true },
-            .dst_stage_mask = .{ .color_attachment_output_bit = true },
-            .src_access_mask = .{},
-            .dst_access_mask = .{ .color_attachment_write_bit = true },
-        }},
-    }, null);
-}
-
-fn createFramebuffers(allocator: std.mem.Allocator, vkd: vk.DeviceWrapper, device: vk.Device, views: []vk.ImageView, render_pass: vk.RenderPass, extent: vk.Extent2D) ![]vk.Framebuffer {
-    const framebuffers = try allocator.alloc(vk.Framebuffer, views.len);
-    var created: usize = 0;
-    errdefer {
-        for (framebuffers[0..created]) |fb| vkd.destroyFramebuffer(device, fb, null);
-        allocator.free(framebuffers);
-    }
-    for (views, 0..) |view, i| {
-        framebuffers[i] = try vkd.createFramebuffer(device, &.{
-            .render_pass = render_pass,
-            .attachment_count = 1,
-            .p_attachments = &[_]vk.ImageView{view},
-            .width = extent.width,
-            .height = extent.height,
-            .layers = 1,
-        }, null);
-        created += 1;
-    }
-    return framebuffers;
 }

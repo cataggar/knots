@@ -1,4 +1,3 @@
-const std = @import("std");
 const vk = @import("vk");
 const Context = @import("Context.zig");
 const Buffer = @import("Buffer.zig");
@@ -10,7 +9,7 @@ const RenderPass = @This();
 
 command_buffer: vk.CommandBuffer,
 vkd: vk.DeviceWrapper,
-extent: vk.Extent2D,
+image: vk.Image,
 current_pipeline_layout: vk.PipelineLayout,
 
 pub const LoadOp = enum { clear, load };
@@ -28,20 +27,43 @@ pub const Desc = struct {
     color_attachment: ColorAttachment = .{},
 };
 
-pub fn create(_: std.mem.Allocator, command_buffer: vk.CommandBuffer, ctx: *Context, desc: Desc) !RenderPass {
+pub fn create(command_buffer: vk.CommandBuffer, ctx: *Context, image_index: u32, desc: Desc) !RenderPass {
     const ca = desc.color_attachment;
     if (ca.target != null) return error.UnsupportedRenderTarget;
     if (ca.load_op != .clear or ca.store_op != .store) return error.UnsupportedRenderPassOperation;
 
-    ctx.vkd.cmdBeginRenderPass(command_buffer, &.{
-        .render_pass = ctx.render_pass,
-        .framebuffer = ctx.framebuffers[ctx._current_image_index],
+    const image = ctx.swapchain_images[image_index];
+    ctx.vkd.cmdPipelineBarrier2(command_buffer, &.{
+        .image_memory_barrier_count = 1,
+        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
+            .dst_stage_mask = .{ .color_attachment_output_bit = true },
+            .dst_access_mask = .{ .color_attachment_write_bit = true },
+            .old_layout = .undefined,
+            .new_layout = .color_attachment_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = image,
+            .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
+        }},
+    });
+
+    ctx.vkd.cmdBeginRendering(command_buffer, &.{
         .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = ctx.swapchain_extent },
-        .clear_value_count = 1,
-        .p_clear_values = &[_]vk.ClearValue{.{ .color = .{ .float_32 = .{
-            ca.clear_color[0], ca.clear_color[1], ca.clear_color[2], ca.clear_color[3],
-        } } }},
-    }, .@"inline");
+        .layer_count = 1,
+        .view_mask = 0,
+        .color_attachment_count = 1,
+        .p_color_attachments = &[_]vk.RenderingAttachmentInfo{.{
+            .image_view = ctx.swapchain_views[image_index],
+            .image_layout = .color_attachment_optimal,
+            .resolve_mode = .{},
+            .resolve_image_layout = .undefined,
+            .load_op = .clear,
+            .store_op = .store,
+            .clear_value = .{ .color = .{ .float_32 = .{
+                ca.clear_color[0], ca.clear_color[1], ca.clear_color[2], ca.clear_color[3],
+            } } },
+        }},
+    });
     ctx.vkd.cmdSetViewport(command_buffer, 0, &.{.{
         .x = 0,
         .y = 0,
@@ -58,13 +80,26 @@ pub fn create(_: std.mem.Allocator, command_buffer: vk.CommandBuffer, ctx: *Cont
     return .{
         .command_buffer = command_buffer,
         .vkd = ctx.vkd,
-        .extent = ctx.swapchain_extent,
+        .image = image,
         .current_pipeline_layout = .null_handle,
     };
 }
 
 pub fn end(self: *RenderPass) void {
-    self.vkd.cmdEndRenderPass(self.command_buffer);
+    self.vkd.cmdEndRendering(self.command_buffer);
+    self.vkd.cmdPipelineBarrier2(self.command_buffer, &.{
+        .image_memory_barrier_count = 1,
+        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
+            .src_stage_mask = .{ .color_attachment_output_bit = true },
+            .src_access_mask = .{ .color_attachment_write_bit = true },
+            .old_layout = .color_attachment_optimal,
+            .new_layout = .present_src_khr,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = self.image,
+            .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
+        }},
+    });
 }
 
 pub fn bindPipeline(self: *RenderPass, pipeline: *const Pipeline) void {

@@ -150,25 +150,21 @@ pub fn write(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, widt
     ctx.vkd.unmapMemory(ctx.device, self.staging_memory);
 
     const cmd = try ctx.beginSingleTimeCommands();
-    const src_stage = if (self.layout == .undefined)
-        vk.PipelineStageFlags{ .top_of_pipe_bit = true }
-    else
-        vk.PipelineStageFlags{ .fragment_shader_bit = true };
-    const src_access = if (self.layout == .undefined)
-        vk.AccessFlags{}
-    else
-        vk.AccessFlags{ .shader_read_bit = true };
-
-    ctx.vkd.cmdPipelineBarrier(cmd, src_stage, .{ .transfer_bit = true }, .{}, null, null, &.{.{
-        .src_access_mask = src_access,
-        .dst_access_mask = .{ .transfer_write_bit = true },
-        .old_layout = self.layout,
-        .new_layout = .transfer_dst_optimal,
-        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .image = self.image,
-        .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
-    }});
+    ctx.vkd.cmdPipelineBarrier2(cmd, &.{
+        .image_memory_barrier_count = 1,
+        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
+            .src_stage_mask = if (self.layout == .undefined) .{} else .{ .fragment_shader_bit = true },
+            .src_access_mask = if (self.layout == .undefined) .{} else .{ .shader_sampled_read_bit = true },
+            .dst_stage_mask = .{ .all_transfer_bit = true },
+            .dst_access_mask = .{ .transfer_write_bit = true },
+            .old_layout = self.layout,
+            .new_layout = .transfer_dst_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = self.image,
+            .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
+        }},
+    });
 
     const row_length: u32 = if (bytes_per_row) |bpr| bpr / bytesPerPixel(self.format) else 0;
     ctx.vkd.cmdCopyBufferToImage(cmd, self.staging_buffer, self.image, .transfer_dst_optimal, &.{.{
@@ -180,16 +176,21 @@ pub fn write(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, widt
         .image_extent = .{ .width = width, .height = height, .depth = 1 },
     }});
 
-    ctx.vkd.cmdPipelineBarrier(cmd, .{ .transfer_bit = true }, .{ .fragment_shader_bit = true }, .{}, null, null, &.{.{
-        .src_access_mask = .{ .transfer_write_bit = true },
-        .dst_access_mask = .{ .shader_read_bit = true },
-        .old_layout = .transfer_dst_optimal,
-        .new_layout = .shader_read_only_optimal,
-        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .image = self.image,
-        .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
-    }});
+    ctx.vkd.cmdPipelineBarrier2(cmd, &.{
+        .image_memory_barrier_count = 1,
+        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
+            .src_stage_mask = .{ .all_transfer_bit = true },
+            .src_access_mask = .{ .transfer_write_bit = true },
+            .dst_stage_mask = .{ .fragment_shader_bit = true },
+            .dst_access_mask = .{ .shader_sampled_read_bit = true },
+            .old_layout = .transfer_dst_optimal,
+            .new_layout = .shader_read_only_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = self.image,
+            .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
+        }},
+    });
 
     self.upload_submission = try ctx.endSingleTimeCommands(cmd);
     self.ready = true;
@@ -208,7 +209,7 @@ fn bytesPerPixel(format: Format) u32 {
     };
 }
 
-fn toVkFormat(format: Format) vk.Format {
+pub fn toVkFormat(format: Format) vk.Format {
     return switch (format) {
         .rgba8 => .r8g8b8a8_unorm,
         .rgba8_srgb => .r8g8b8a8_srgb,

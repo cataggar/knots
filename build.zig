@@ -296,7 +296,7 @@ fn defaultGpuBackend(os: std.Target.Os.Tag) GPUBackend {
 }
 
 fn embedSpirV(b: *std.Build, mod: *std.Build.Module, name: []const u8, path: std.Build.LazyPath) void {
-    const cmd = b.addSystemCommand(&.{ "glslc", "--target-env=vulkan1.2", "-o" });
+    const cmd = b.addSystemCommand(&.{ "glslc", "--target-env=vulkan1.3", "-o" });
     const spv = cmd.addOutputFileArg(b.fmt("{s}.spv", .{name}));
     cmd.addFileArg(path);
     mod.addAnonymousImport(name, .{ .root_source_file = spv });

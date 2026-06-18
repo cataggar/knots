@@ -1,6 +1,7 @@
 const std = @import("std");
 const vk = @import("vk");
 const Context = @import("Context.zig");
+const Texture = @import("Texture.zig");
 const CommonPipeline = @import("gpu").Pipeline;
 
 const Pipeline = @This();
@@ -138,8 +139,18 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
     @memcpy(fs_entry_buf[0..spirv.fs_entry.len], spirv.fs_entry);
     fs_entry_buf[spirv.fs_entry.len] = 0;
 
+    const color_format = if (desc.color_target.format) |format| Texture.toVkFormat(format) else ctx.swapchain_format;
+    const rendering_info = vk.PipelineRenderingCreateInfo{
+        .view_mask = 0,
+        .color_attachment_count = 1,
+        .p_color_attachment_formats = &[_]vk.Format{color_format},
+        .depth_attachment_format = .undefined,
+        .stencil_attachment_format = .undefined,
+    };
+
     var vk_pipeline: [1]vk.Pipeline = undefined;
     _ = try vkd.createGraphicsPipelines(device, .null_handle, &.{.{
+        .p_next = &rendering_info,
         .stage_count = 2,
         .p_stages = &[_]vk.PipelineShaderStageCreateInfo{
             .{ .stage = .{ .vertex_bit = true }, .module = vert_module, .p_name = @ptrCast(&vs_entry_buf) },
@@ -185,7 +196,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
             .p_dynamic_states = &[_]vk.DynamicState{ .viewport, .scissor },
         },
         .layout = pipeline_layout,
-        .render_pass = ctx.render_pass,
+        .render_pass = .null_handle,
         .subpass = 0,
         .base_pipeline_index = -1,
     }}, null, vk_pipeline[0..1]);

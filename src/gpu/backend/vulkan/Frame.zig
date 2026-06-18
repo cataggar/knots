@@ -135,12 +135,11 @@ fn beginRenderPass(self: *Frame, desc: RenderPass.Desc) !RenderPass {
     try ctx.vkd.resetFences(ctx.device, &.{f.in_flight});
 
     self.image_index = image_index;
-    ctx._current_image_index = image_index;
 
     try ctx.vkd.resetCommandPool(ctx.device, ctx.command_pools[self.current], .{});
     try ctx.vkd.beginCommandBuffer(f.command_buffer, &.{ .flags = .{ .one_time_submit_bit = true } });
 
-    return RenderPass.create(self.allocator, f.command_buffer, ctx, desc);
+    return RenderPass.create(f.command_buffer, ctx, image_index, desc);
 }
 
 fn submit(self: *Frame) !void {
@@ -149,15 +148,26 @@ fn submit(self: *Frame) !void {
 
     try ctx.vkd.endCommandBuffer(f.command_buffer);
 
-    const wait_stage = vk.PipelineStageFlags{ .color_attachment_output_bit = true };
-    try ctx.vkd.queueSubmit(ctx.graphics_queue, &.{.{
-        .wait_semaphore_count = 1,
-        .p_wait_semaphores = &[_]vk.Semaphore{f.image_available},
-        .p_wait_dst_stage_mask = @ptrCast(&wait_stage),
-        .command_buffer_count = 1,
-        .p_command_buffers = &[_]vk.CommandBuffer{f.command_buffer},
-        .signal_semaphore_count = 1,
-        .p_signal_semaphores = &[_]vk.Semaphore{f.render_finished},
+    try ctx.vkd.queueSubmit2(ctx.graphics_queue, &.{.{
+        .wait_semaphore_info_count = 1,
+        .p_wait_semaphore_infos = &[_]vk.SemaphoreSubmitInfo{.{
+            .semaphore = f.image_available,
+            .value = 0,
+            .stage_mask = .{ .color_attachment_output_bit = true },
+            .device_index = 0,
+        }},
+        .command_buffer_info_count = 1,
+        .p_command_buffer_infos = &[_]vk.CommandBufferSubmitInfo{.{
+            .command_buffer = f.command_buffer,
+            .device_mask = 1,
+        }},
+        .signal_semaphore_info_count = 1,
+        .p_signal_semaphore_infos = &[_]vk.SemaphoreSubmitInfo{.{
+            .semaphore = f.render_finished,
+            .value = 0,
+            .stage_mask = .{ .all_commands_bit = true },
+            .device_index = 0,
+        }},
     }}, f.in_flight);
 
     const present_result = ctx.vkd.queuePresentKHR(ctx.graphics_queue, &.{
