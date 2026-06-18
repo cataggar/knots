@@ -23,6 +23,8 @@ char_buf: std.ArrayList(u21) = .empty,
 key_events: std.ArrayList(KeyEvent) = .empty,
 key_buf: std.ArrayList(Key) = .empty,
 input_error: ?std.mem.Allocator.Error = null,
+mods: Mods = .{},
+focused: bool = true,
 resized: bool = false,
 pending_drop_count: u8 = 0,
 canvas_selector: ?[:0]const u8,
@@ -79,10 +81,10 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !Window {
 }
 
 pub inline fn deinit(self: *Window) void {
+    self.backend.deinit();
     self.char_buf.deinit(self.allocator);
     self.key_events.deinit(self.allocator);
     self.key_buf.deinit(self.allocator);
-    self.backend.deinit();
 }
 
 pub inline fn startCapture(self: *Window) void {
@@ -162,16 +164,9 @@ pub fn collectInput(self: *Window) !Input {
         return err;
     }
 
-    var shift_held = false;
-    var ctrl_held = false;
-    var super_held = false;
-
     try self.key_buf.ensureTotalCapacity(self.allocator, self.key_events.items.len);
     self.key_buf.clearRetainingCapacity();
     for (self.key_events.items) |ev| {
-        if (ev.mods.shift) shift_held = true;
-        if (ev.mods.ctrl) ctrl_held = true;
-        if (ev.mods.super) super_held = true;
         if (ev.action != .press and ev.action != .repeat) continue;
 
         const key = std.enums.fromInt(Key, ev.key) orelse continue;
@@ -189,9 +184,12 @@ pub fn collectInput(self: *Window) !Input {
     self.mouse.pressed_pos = .{ null, null };
     self.mouse.released_pos = .{ null, null };
 
-    self.char_buf.clearRetainingCapacity();
+    // `chars` is consumed later in this frame and aliases this allocation.
+    // Reset the write length without poisoning the returned slice.
+    self.char_buf.items.len = 0;
     self.key_events.clearRetainingCapacity();
     return .{
+        .focused = self.focused,
         .pos = mouse.pos,
         .mouse_left_down_now = mouse.isDown(.left),
         .mouse_left_pressed = mouse.wasPressed(.left),
@@ -206,9 +204,10 @@ pub fn collectInput(self: *Window) !Input {
         .scroll = scroll,
         .chars = chars,
         .keys = self.key_buf.items,
-        .shift_held = shift_held,
-        .ctrl_held = ctrl_held,
-        .super_held = super_held,
+        .shift_held = self.mods.shift,
+        .ctrl_held = self.mods.ctrl,
+        .alt_held = self.mods.alt,
+        .super_held = self.mods.super,
     };
 }
 
@@ -243,11 +242,40 @@ pub fn pushChar(self: *Window, codepoint: u21) void {
 }
 
 pub fn pushKey(self: *Window, key: i32, action: KeyAction, mods: Mods) void {
-    self.key_events.append(self.allocator, .{ .key = key, .action = action, .mods = mods }) catch |err| {
+    self.mods = mods;
+    self.key_events.append(self.allocator, .{ .key = key, .action = action }) catch |err| {
         self.input_error = err;
         self.markInputChanged();
         return;
     };
+    self.markInputChanged();
+}
+
+pub fn setMods(self: *Window, mods: Mods) void {
+    if (self.mods == mods) return;
+    self.mods = mods;
+    self.markInputChanged();
+}
+
+pub fn setFocused(self: *Window, focused: bool) void {
+    if (self.focused == focused) return;
+    self.focused = focused;
+    if (!focused) {
+        self.char_buf.clearRetainingCapacity();
+        self.key_events.clearRetainingCapacity();
+        self.mods = .{};
+        self.cancelPointerInput();
+    }
+    self.markInputChanged();
+}
+
+pub fn cancelPointerInput(self: *Window) void {
+    if (self.mouse.down == 0 and self.mouse.pressed == 0 and self.mouse.released == 0) return;
+    self.mouse.down = 0;
+    self.mouse.pressed = 0;
+    self.mouse.released = 0;
+    self.mouse.pressed_pos = .{ null, null };
+    self.mouse.released_pos = .{ null, null };
     self.markInputChanged();
 }
 

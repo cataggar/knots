@@ -35,6 +35,8 @@ pub const drag_methods = .{
 
 pub const delegate_methods = .{
     .{ "windowShouldClose:", windowShouldClose },
+    .{ "windowDidBecomeKey:", windowDidBecomeKey },
+    .{ "windowDidResignKey:", windowDidResignKey },
     .{ "windowWillStartLiveResize:", windowWillStartLiveResize },
     .{ "windowDidResize:", windowDidResize },
     .{ "windowDidEndLiveResize:", windowDidEndLiveResize },
@@ -188,6 +190,18 @@ fn windowShouldClose(self: c.id, _: c.SEL, _: c.id) callconv(.c) c.BOOL {
     return ak.boolParam(false);
 }
 
+fn windowDidBecomeKey(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setFocused(true);
+    const NSEvent = objc.getClass("NSEvent").?;
+    owner.setMods(modsFromFlags(NSEvent.msgSend(c_ulong, "modifierFlags", .{})));
+}
+
+fn windowDidResignKey(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setFocused(false);
+}
+
 fn windowWillStartLiveResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
     if (owner.backend.live_resize_timer) |old| {
@@ -243,6 +257,7 @@ fn modsFromFlags(flags: c_ulong) window.Mods {
     return .{
         .shift = (flags & ak.NSEventModifierFlagShift) != 0,
         .ctrl = (flags & ak.NSEventModifierFlagControl) != 0,
+        .alt = (flags & ak.NSEventModifierFlagOption) != 0,
         .super = (flags & ak.NSEventModifierFlagCommand) != 0,
     };
 }

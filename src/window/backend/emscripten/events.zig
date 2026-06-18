@@ -8,7 +8,7 @@ fn ownerOf(user_data: ?*anyopaque) ?*window.Window {
 }
 
 fn modsOf(ev: *const root.EmscriptenKeyboardEvent) window.Mods {
-    return .{ .shift = ev.shiftKey, .ctrl = ev.ctrlKey, .super = ev.metaKey };
+    return .{ .shift = ev.shiftKey, .ctrl = ev.ctrlKey, .alt = ev.altKey, .super = ev.metaKey };
 }
 
 fn decodePrintableChar(buf: []const u8) ?u21 {
@@ -26,13 +26,13 @@ pub fn onKeyDown(_: c_int, ev: *const root.EmscriptenKeyboardEvent, user_data: ?
     const mods = modsOf(ev);
     const action: window.KeyAction = if (ev.repeat) .repeat else .press;
     if (keymap.translateCode(&ev.code)) |key| {
-        if ((mods.ctrl or mods.super) and key == .v) {
+        if (((mods.ctrl and !mods.alt) or mods.super) and key == .v) {
             owner.backend.preparePaste();
             return false;
         }
         owner.pushKey(@intFromEnum(key), action, mods);
     }
-    if (!mods.ctrl and !mods.super) {
+    if ((!mods.ctrl or mods.alt) and !mods.super) {
         if (decodePrintableChar(&ev.key)) |cp| owner.pushChar(cp);
     }
     return true;
@@ -94,10 +94,13 @@ pub fn onResize(_: c_int, _: *const root.EmscriptenUiEvent, user_data: ?*anyopaq
 
 pub fn onBlur(_: c_int, _: *const root.EmscriptenFocusEvent, user_data: ?*anyopaque) callconv(.c) bool {
     const owner = ownerOf(user_data) orelse return false;
-    owner.key_events.clearRetainingCapacity();
-    owner.char_buf.clearRetainingCapacity();
-    owner.setMouseLeftDown(false);
-    owner.setMouseRightDown(false);
+    owner.setFocused(false);
+    return true;
+}
+
+pub fn onFocus(_: c_int, _: *const root.EmscriptenFocusEvent, user_data: ?*anyopaque) callconv(.c) bool {
+    const owner = ownerOf(user_data) orelse return false;
+    owner.setFocused(true);
     return true;
 }
 

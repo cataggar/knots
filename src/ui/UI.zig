@@ -558,6 +558,12 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
     self.state.selection_text = &.{};
     self.input.collect(input, now_ms);
 
+    if (self.input.focus_lost or self.input.pointer_cancelled) {
+        self.state.active = Element.INVALID_ID;
+        self.state.press_origin = Element.INVALID_ID;
+        self.state.press_drag = false;
+    }
+
     if (self.layout_ctx.has_scroll) try scrollbar.route(self);
 
     if (self.input_scopes.hasActive()) {

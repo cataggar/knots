@@ -147,6 +147,7 @@ const State = struct {
         return .{
             .shift = xkb.xkb_state_mod_name_is_active(state, "Shift", xkb.STATE_MODS_EFFECTIVE) > 0,
             .ctrl = xkb.xkb_state_mod_name_is_active(state, "Control", xkb.STATE_MODS_EFFECTIVE) > 0,
+            .alt = xkb.xkb_state_mod_name_is_active(state, "Mod1", xkb.STATE_MODS_EFFECTIVE) > 0,
             .super = xkb.xkb_state_mod_name_is_active(state, "Mod4", xkb.STATE_MODS_EFFECTIVE) > 0,
         };
     }
@@ -156,7 +157,7 @@ const State = struct {
         const cp = xkb.xkb_state_key_get_utf32(state, evdev_key + 8);
         if (cp < 0x20 or cp == 0x7F or cp > std.math.maxInt(u21)) return null;
         const mods = self.currentMods();
-        if (mods.ctrl or mods.super) return null;
+        if ((mods.ctrl and !mods.alt) or mods.super) return null;
         return @intCast(cp);
     }
 
@@ -656,6 +657,7 @@ fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, state: *State) void {
             } else if (!cap.capabilities.pointer and state.pointer != null) {
                 releasePointer(state.pointer.?);
                 state.pointer = null;
+                if (state.owner) |owner| owner.cancelPointerInput();
             }
 
             if (cap.capabilities.keyboard and state.keyboard == null) {
@@ -666,6 +668,7 @@ fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, state: *State) void {
                 releaseKeyboard(state.keyboard.?);
                 state.keyboard = null;
                 state.clearRepeat();
+                if (state.owner) |owner| owner.setFocused(false);
             }
         },
         .name => {},
@@ -731,8 +734,13 @@ fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *State) vo
         .keymap => |keymap_event| state.handleKeymap(keymap_event.format, keymap_event.fd, keymap_event.size) catch |err| {
             std.log.warn("failed to load Wayland XKB keymap: {s}", .{@errorName(err)});
         },
-        .enter => {},
-        .leave => state.clearRepeat(),
+        .enter => {
+            if (state.owner) |owner| owner.setFocused(true);
+        },
+        .leave => {
+            state.clearRepeat();
+            if (state.owner) |owner| owner.setFocused(false);
+        },
         .key => |key| {
             const owner = state.owner orelse return;
             const translated = keymap.translateEvdev(key.key);
@@ -764,6 +772,7 @@ fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *State) vo
                     mods.group,
                 );
             }
+            if (state.owner) |owner| owner.setMods(state.currentMods());
         },
         .repeat_info => |repeat| {
             state.repeat_rate = @max(repeat.rate, 0);

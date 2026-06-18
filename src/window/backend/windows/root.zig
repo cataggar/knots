@@ -95,6 +95,7 @@ pub const Backend = struct {
     const Self = @This();
 
     pub fn deinit(self: *const Self) void {
+        _ = win32.SetWindowLongPtrW(self.hwnd, win32.GWLP_USERDATA, 0);
         _ = win32.DestroyWindow(self.hwnd);
     }
 
@@ -495,6 +496,22 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
             return 0;
         },
         win32.WM_CONTEXTMENU => return 0,
+        win32.WM_SETFOCUS => {
+            if (ownerOf(hwnd)) |o| {
+                o.setFocused(true);
+                o.setMods(events.modsFromKeyState());
+            }
+            return 0;
+        },
+        win32.WM_KILLFOCUS => {
+            if (ownerOf(hwnd)) |o| o.setFocused(false);
+            if (win32.GetCapture() == hwnd) _ = win32.ReleaseCapture();
+            return 0;
+        },
+        win32.WM_CAPTURECHANGED => {
+            if (ownerOf(hwnd)) |o| if (o.anyMouseButtonDown()) o.cancelPointerInput();
+            return 0;
+        },
         win32.WM_MOUSEWHEEL => {
             const hi: u16 = @truncate((wparam >> 16) & 0xFFFF);
             const delta: i16 = @bitCast(hi);

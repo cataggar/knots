@@ -154,6 +154,7 @@ pub const ScrollInput = struct {
 };
 
 pub const Input = struct {
+    focused: bool = true,
     pos: [2]f64,
     mouse_left_down_now: bool,
     mouse_left_pressed: bool = false,
@@ -170,6 +171,7 @@ pub const Input = struct {
     keys: []const Key,
     shift_held: bool,
     ctrl_held: bool,
+    alt_held: bool = false,
     super_held: bool,
 };
 
@@ -178,14 +180,14 @@ pub const KeyAction = enum(u8) { release, press, repeat };
 pub const Mods = packed struct(u8) {
     shift: bool = false,
     ctrl: bool = false,
+    alt: bool = false,
     super: bool = false,
-    _pad: u5 = 0,
+    _pad: u4 = 0,
 };
 
 pub const KeyEvent = struct {
     key: i32,
     action: KeyAction,
-    mods: Mods,
 };
 
 pub const Size = struct { width: u32, height: u32 };
