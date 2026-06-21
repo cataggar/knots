@@ -471,8 +471,8 @@ fn trackSize(hwnd: win32.HWND, size: window.Size, scale: f32) win32.POINT {
     const non_client_width = (outer.right - outer.left) - (client.right - client.left);
     const non_client_height = (outer.bottom - outer.top) - (client.bottom - client.top);
     return .{
-        .x = @intFromFloat(@as(f32, @floatFromInt(size.width)) * scale) + non_client_width,
-        .y = @intFromFloat(@as(f32, @floatFromInt(size.height)) * scale) + non_client_height,
+        .x = @as(i32, @intFromFloat(@as(f32, @floatFromInt(size.width)) * scale)) + non_client_width,
+        .y = @as(i32, @intFromFloat(@as(f32, @floatFromInt(size.height)) * scale)) + non_client_height,
     };
 }
 
