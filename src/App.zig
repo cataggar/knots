@@ -38,6 +38,7 @@ timer: Timer,
 cfg: Config,
 pending_renderer_cfg: ?render.Renderer.Config = null,
 pending_reconfigure: bool = false,
+renderer_reconfigure_error: ?render.Renderer.ReconfigureError = null,
 frame_cb: ?Callback = null,
 frame_active: bool = false,
 frame_pending: bool = false,
@@ -128,7 +129,7 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
         if (ev.physical.width == 0 or ev.physical.height == 0) return;
         try self.renderer.resize(ev.physical.width, ev.physical.height);
     }
-    try self.handleRendererReconfigure();
+    self.handleRendererReconfigure();
 
     try self.ui.resolveWindow(try self.window.collectInput(), self.timer.ms(), self.window.getContentScale());
     self.ui.reset();
@@ -229,12 +230,20 @@ pub fn consumeReconfigure(self: *App) bool {
     return v;
 }
 
-fn handleRendererReconfigure(self: *App) !void {
+pub fn rendererReconfigureError(self: *const App) ?render.Renderer.ReconfigureError {
+    return self.renderer_reconfigure_error;
+}
+
+fn handleRendererReconfigure(self: *App) void {
     const new_cfg = self.pending_renderer_cfg orelse return;
-
-    try self.renderer.reconfigure(new_cfg);
-
     self.pending_renderer_cfg = null;
+
+    self.renderer.reconfigure(new_cfg) catch |err| {
+        self.renderer_reconfigure_error = err;
+        return;
+    };
+
+    self.renderer_reconfigure_error = null;
     self.ui.font.glyph_builder.markAllDirty();
     self.pending_reconfigure = true;
 }

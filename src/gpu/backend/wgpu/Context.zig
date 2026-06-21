@@ -30,6 +30,7 @@ present_mode: wgpu.types.PresentMode,
 surface_width: u32,
 surface_height: u32,
 cfg: gpu.Context.Config,
+present_modes: gpu.Context.PresentModes,
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle, cfg: gpu.Context.Config) !Context {
     const wgpu_handle: wgpu.RawWindowHandle = switch (window_handle) {
@@ -68,7 +69,8 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
     const surface_is_srgb = isSrgbFormat(surface_format);
     const surface_copy_src = builtin.os.tag != .emscripten and capabilities.raw.usages & wgpu.c.WGPUTextureUsage_CopySrc != 0;
 
-    const chosen_present_mode = try choosePresentMode(capabilities, cfg.present_mode);
+    const present_modes = presentModesFromCapabilities(capabilities);
+    const chosen_present_mode = choosePresentMode(present_modes, cfg.present_mode) orelse return error.UnsupportedPresentMode;
 
     surface.configure(.{
         .width = cfg.window_width,
@@ -93,6 +95,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .surface_width = cfg.window_width,
         .surface_height = cfg.window_height,
         .cfg = cfg,
+        .present_modes = present_modes,
     };
 }
 
@@ -141,9 +144,15 @@ pub fn resize(self: *Context, width: u32, height: u32) !void {
 
 pub fn reconfigure(self: *Context, cfg: gpu.Context.Config) !void {
     const capabilities = try self.surface.getCapabilities(self.adapter.adapter);
-    self.present_mode = try choosePresentMode(capabilities, cfg.present_mode);
+    const present_modes = presentModesFromCapabilities(capabilities);
+    self.present_mode = choosePresentMode(present_modes, cfg.present_mode) orelse return error.UnsupportedPresentMode;
     self.reconfigureSurface(cfg.window_width, cfg.window_height);
     self.cfg = cfg;
+    self.present_modes = present_modes;
+}
+
+pub fn supportedPresentModes(self: *const Context) gpu.Context.PresentModes {
+    return self.present_modes;
 }
 
 pub fn reconfigureSurface(self: *Context, width: u32, height: u32) void {
@@ -207,21 +216,24 @@ fn isSrgbFormat(format: wgpu.Texture.Format) bool {
     };
 }
 
-fn choosePresentMode(capabilities: wgpu.Surface.Capabilities, pm: gpu.Context.PresentMode) !wgpu.types.PresentMode {
-    if (capabilities.present_modes.len < 1) {
-        return error.NoSurfacePresentModeFound;
-    }
-
-    const needle: wgpu.types.PresentMode = switch (pm) {
+fn choosePresentMode(modes: gpu.Context.PresentModes, requested: gpu.Context.PresentMode) ?wgpu.types.PresentMode {
+    if (!modes.contains(requested)) return null;
+    return switch (requested) {
         .fifo => .fifo,
         .fifo_relaxed => .fifo_relaxed,
         .immediate => .immediate,
         .mailbox => .mailbox,
     };
+}
 
-    for (capabilities.present_modes) |mode|
-        if (mode == needle)
-            return mode;
-
-    return error.FifoPresentModeNotSupportedBySurface;
+fn presentModesFromCapabilities(capabilities: wgpu.Surface.Capabilities) gpu.Context.PresentModes {
+    var modes = gpu.Context.PresentModes.empty;
+    for (capabilities.present_modes) |mode| switch (mode) {
+        .fifo => modes.insert(.fifo),
+        .fifo_relaxed => modes.insert(.fifo_relaxed),
+        .immediate => modes.insert(.immediate),
+        .mailbox => modes.insert(.mailbox),
+        else => {},
+    };
+    return modes;
 }

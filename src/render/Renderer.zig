@@ -4,7 +4,6 @@ const gpu_impl = @import("gpu_impl");
 const text = @import("text");
 const Window = @import("window").Window;
 const math = @import("math");
-const builtin = @import("builtin");
 
 const DrawList = @import("DrawList.zig");
 const Clip = @import("Clip.zig");
@@ -30,29 +29,10 @@ const FrameError = gpu.Context.SurfaceError || gpu.Context.BackendError;
 pub const Config = struct {
     present_mode: gpu.Context.PresentMode = .fifo,
     clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
-
-    pub const ValidationError = error{
-        UnsupportedPresentMode,
-    };
-
-    pub fn validate(cfg: Config) ValidationError!void {
-        switch (builtin.os.tag) {
-            .macos => switch (cfg.present_mode) {
-                // Metal/MoltenVK only supports fifo and immediate.
-                .fifo_relaxed, .mailbox => return error.UnsupportedPresentMode,
-                .fifo, .immediate => {},
-            },
-            .emscripten => switch (cfg.present_mode) {
-                .fifo => {},
-                else => return error.UnsupportedPresentMode,
-            },
-            else => {},
-        }
-    }
 };
 
 pub const ResizeError = FrameError;
-pub const ReconfigureError = Config.ValidationError || FrameError;
+pub const ReconfigureError = error{UnsupportedPresentMode} || FrameError;
 
 const TextureBinding = struct {
     texture: gpu_impl.Texture,
@@ -142,8 +122,6 @@ const ReadbackState = union(enum) {
 };
 
 pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer {
-    try cfg.validate();
-
     const fb = window.getFramebufferSize();
     const ctx_cfg = gpu.Context.Config{
         .window_width = fb.width,
@@ -515,16 +493,22 @@ pub fn resize(self: *Renderer, width: u32, height: u32) ResizeError!void {
 /// after the replacement has been created successfully.
 pub fn reconfigure(self: *Renderer, new_cfg: Config) ReconfigureError!void {
     if (std.meta.eql(new_cfg, self.cfg)) return;
-    try new_cfg.validate();
 
     if (new_cfg.present_mode != self.cfg.present_mode) {
         self.frame.waitForCompletion() catch |err| return mapFrameError(err);
         self.frame.prepareResize();
         var ctx_cfg = self.ctx.cfg;
         ctx_cfg.present_mode = new_cfg.present_mode;
-        self.ctx.reconfigure(ctx_cfg) catch |err| return mapFrameError(err);
+        self.ctx.reconfigure(ctx_cfg) catch |err| switch (err) {
+            error.UnsupportedPresentMode => return error.UnsupportedPresentMode,
+            else => return mapFrameError(err),
+        };
     }
     self.cfg = new_cfg;
+}
+
+pub fn supportedPresentModes(self: *const Renderer) gpu.Context.PresentModes {
+    return self.ctx.supportedPresentModes();
 }
 
 pub fn beginFrame(self: *Renderer) *DrawList {

@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const SurfaceError = error{
     SurfaceUnavailable,
     SurfaceLost,
@@ -39,6 +41,8 @@ pub const PresentMode = enum {
     immediate,
     mailbox,
 };
+
+pub const PresentModes = std.EnumSet(PresentMode);
 
 pub const Config = struct {
     window_width: u32,

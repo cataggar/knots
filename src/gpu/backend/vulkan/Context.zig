@@ -48,6 +48,7 @@ transient_command_pool: vk.CommandPool,
 command_pools: []vk.CommandPool,
 descriptor_pools: std.ArrayList(DescriptorPoolEntry),
 cfg: gpu.Context.Config,
+present_modes: gpu.Context.PresentModes,
 
 fn openVulkan(path: []const u8) !VulkanLoader {
     var lib = std.DynLib.open(path) catch return error.VulkanUnavailable;
@@ -213,6 +214,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .transient_command_pool = transient_command_pool,
         .descriptor_pools = descriptor_pools,
         .cfg = cfg,
+        .present_modes = sc.present_modes,
     };
 }
 
@@ -319,6 +321,10 @@ pub fn reconfigure(self: *Context, cfg: gpu.Context.Config) !void {
     };
 }
 
+pub fn supportedPresentModes(self: *const Context) gpu.Context.PresentModes {
+    return self.present_modes;
+}
+
 pub fn surfaceFormat(self: *const Context) gpu.Texture.Format {
     return vkFormatToGpu(self.swapchain_format);
 }
@@ -367,6 +373,7 @@ pub fn recreateSwapchain(self: *Context, width: u32, height: u32) !void {
     self.swapchain_is_srgb = sc.is_srgb;
     self.swapchain_copy_src = sc.copy_src;
     self.swapchain_extent = sc.extent;
+    self.present_modes = sc.present_modes;
 }
 
 pub fn findMemoryType(self: *const Context, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {
@@ -545,7 +552,14 @@ fn findGraphicsQueueFamily(vki: vk.InstanceWrapper, device: vk.PhysicalDevice, s
     return null;
 }
 
-const SwapchainInfo = struct { swapchain: vk.SwapchainKHR, format: vk.Format, extent: vk.Extent2D, is_srgb: bool, copy_src: bool };
+const SwapchainInfo = struct {
+    swapchain: vk.SwapchainKHR,
+    format: vk.Format,
+    extent: vk.Extent2D,
+    is_srgb: bool,
+    copy_src: bool,
+    present_modes: gpu.Context.PresentModes,
+};
 
 fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_device: vk.PhysicalDevice, device: vk.Device, surface: vk.SurfaceKHR, width: u32, height: u32, old_swapchain: vk.SwapchainKHR, cfg: gpu.Context.Config) !SwapchainInfo {
     const caps = try vki.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
@@ -586,7 +600,8 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
         .height = std.math.clamp(height, caps.min_image_extent.height, caps.max_image_extent.height),
     };
     if (extent.width == 0 or extent.height == 0) return error.SurfaceUnavailable;
-    const present_mode = try choosePresentMode(vki, physical_device, surface, cfg.present_mode);
+    const present_modes = try queryPresentModes(vki, physical_device, surface);
+    const present_mode = choosePresentMode(present_modes, cfg.present_mode) orelse return error.UnsupportedPresentMode;
     var image_count = caps.min_image_count + 1;
     if (caps.max_image_count > 0 and image_count > caps.max_image_count) image_count = caps.max_image_count;
     const swapchain = try vkd.createSwapchainKHR(device, &.{
@@ -604,26 +619,34 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
         .clipped = .true,
         .old_swapchain = old_swapchain,
     }, null);
-    return .{ .swapchain = swapchain, .format = cf.format, .extent = extent, .is_srgb = is_srgb, .copy_src = copy_src };
+    return .{ .swapchain = swapchain, .format = cf.format, .extent = extent, .is_srgb = is_srgb, .copy_src = copy_src, .present_modes = present_modes };
 }
 
-fn choosePresentMode(vki: vk.InstanceWrapper, physical_device: vk.PhysicalDevice, surface: vk.SurfaceKHR, requested: gpu.Context.PresentMode) !vk.PresentModeKHR {
-    const desired: vk.PresentModeKHR = switch (requested) {
+fn choosePresentMode(modes: gpu.Context.PresentModes, requested: gpu.Context.PresentMode) ?vk.PresentModeKHR {
+    if (!modes.contains(requested)) return null;
+    return switch (requested) {
         .fifo => .fifo_khr,
         .fifo_relaxed => .fifo_relaxed_khr,
         .immediate => .immediate_khr,
         .mailbox => .mailbox_khr,
     };
+}
 
+fn queryPresentModes(vki: vk.InstanceWrapper, physical_device: vk.PhysicalDevice, surface: vk.SurfaceKHR) !gpu.Context.PresentModes {
+    var modes = gpu.Context.PresentModes.empty;
     var count: u32 = 0;
     _ = try vki.getPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, null);
     var modes_buf: [16]vk.PresentModeKHR = undefined;
     if (count > modes_buf.len) count = @intCast(modes_buf.len);
     _ = try vki.getPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, &modes_buf);
-    for (modes_buf[0..@as(usize, @intCast(count))]) |mode| {
-        if (mode == desired) return desired;
-    }
-    return error.UnsupportedPresentMode;
+    for (modes_buf[0..@as(usize, @intCast(count))]) |mode| switch (mode) {
+        .fifo_khr => modes.insert(.fifo),
+        .fifo_relaxed_khr => modes.insert(.fifo_relaxed),
+        .immediate_khr => modes.insert(.immediate),
+        .mailbox_khr => modes.insert(.mailbox),
+        else => {},
+    };
+    return modes;
 }
 
 fn getSwapchainImages(allocator: std.mem.Allocator, vkd: vk.DeviceWrapper, device: vk.Device, swapchain: vk.SwapchainKHR) ![]vk.Image {
