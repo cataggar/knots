@@ -585,6 +585,7 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
         .width = std.math.clamp(width, caps.min_image_extent.width, caps.max_image_extent.width),
         .height = std.math.clamp(height, caps.min_image_extent.height, caps.max_image_extent.height),
     };
+    if (extent.width == 0 or extent.height == 0) return error.SurfaceUnavailable;
     const present_mode = try choosePresentMode(vki, physical_device, surface, cfg.present_mode);
     var image_count = caps.min_image_count + 1;
     if (caps.max_image_count > 0 and image_count > caps.max_image_count) image_count = caps.max_image_count;

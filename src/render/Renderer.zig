@@ -20,6 +20,13 @@ const CURVE_TEX_WIDTH: u32 = text.GlyphBuilder.TEXTURE_WIDTH;
 const BAND_TEX_WIDTH: u32 = text.GlyphBuilder.TEXTURE_WIDTH;
 const INITIAL_TEX_HEIGHT: u32 = 256;
 
+pub const EndFrameError =
+    gpu.Context.SurfaceError ||
+    gpu.SurfaceReadback.Error ||
+    gpu.Context.BackendError;
+
+const FrameError = gpu.Context.SurfaceError || gpu.Context.BackendError;
+
 pub const Config = struct {
     present_mode: gpu.Context.PresentMode = .fifo,
     clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
@@ -43,6 +50,9 @@ pub const Config = struct {
         }
     }
 };
+
+pub const ResizeError = FrameError;
+pub const ReconfigureError = Config.ValidationError || FrameError;
 
 const TextureBinding = struct {
     texture: gpu_impl.Texture,
@@ -494,25 +504,25 @@ fn requiredTextureBytes(width: u32, height: u32, bpp: usize, bytes_per_row: ?u32
         return error.InvalidTextureWrite;
 }
 
-pub fn resize(self: *Renderer, width: u32, height: u32) !void {
+pub fn resize(self: *Renderer, width: u32, height: u32) ResizeError!void {
     if (width == self.ctx.cfg.window_width and height == self.ctx.cfg.window_height) return;
     self.frame.prepareResize();
-    try self.ctx.resize(width, height);
+    self.ctx.resize(width, height) catch |err| return mapFrameError(err);
 }
 
 /// Re-creates GPU state with the new config. The old renderer remains usable if
 /// replacement initialization fails. Registered texture ids are invalidated only
 /// after the replacement has been created successfully.
-pub fn reconfigure(self: *Renderer, new_cfg: Config) !void {
+pub fn reconfigure(self: *Renderer, new_cfg: Config) ReconfigureError!void {
     if (std.meta.eql(new_cfg, self.cfg)) return;
     try new_cfg.validate();
 
     if (new_cfg.present_mode != self.cfg.present_mode) {
-        try self.frame.waitForCompletion();
+        self.frame.waitForCompletion() catch |err| return mapFrameError(err);
         self.frame.prepareResize();
         var ctx_cfg = self.ctx.cfg;
         ctx_cfg.present_mode = new_cfg.present_mode;
-        try self.ctx.reconfigure(ctx_cfg);
+        self.ctx.reconfigure(ctx_cfg) catch |err| return mapFrameError(err);
     }
     self.cfg = new_cfg;
 }
@@ -539,10 +549,59 @@ pub fn takeReadback(self: *Renderer) ?gpu.SurfaceReadback {
     };
 }
 
-pub fn endFrame(self: *Renderer, glyph_builder: *text.GlyphBuilder, content_scale: f32) !void {
-    try self.draw(&self.draw_list, glyph_builder, content_scale);
-    try self.sweepPixelTextureCache();
+pub fn endFrame(self: *Renderer, glyph_builder: *text.GlyphBuilder, content_scale: f32) EndFrameError!void {
+    self.draw(&self.draw_list, glyph_builder, content_scale) catch |err| return mapEndFrameError(err);
+    self.sweepPixelTextureCache() catch |err| return mapEndFrameError(err);
     self.pixel_texture_frame +%= 1;
+}
+
+fn mapEndFrameError(err: anyerror) EndFrameError {
+    return switch (err) {
+        error.SurfaceReadbackUnsupported => error.SurfaceReadbackUnsupported,
+        error.SurfaceReadbackUnavailable => error.SurfaceReadbackUnavailable,
+        error.SurfaceReadbackTooLarge => error.SurfaceReadbackTooLarge,
+        error.SurfaceReadbackMapFailed,
+        error.SurfaceReadbackFailed,
+        => error.SurfaceReadbackFailed,
+
+        else => mapFrameError(err),
+    };
+}
+
+fn mapFrameError(err: anyerror) FrameError {
+    return switch (err) {
+        error.SurfaceUnavailable,
+        error.OutOfDateKHR,
+        error.CurrentTextureOutdated,
+        error.CurrentTextureTimeout,
+        error.Timeout,
+        error.NotReady,
+        => error.SurfaceUnavailable,
+
+        error.SurfaceLostKHR,
+        error.CurrentTextureLost,
+        error.FullScreenExclusiveModeLostEXT,
+        error.SwapchainFormatChanged,
+        => error.SurfaceLost,
+
+        else => mapBackendError(err),
+    };
+}
+
+fn mapBackendError(err: anyerror) gpu.Context.BackendError {
+    return switch (err) {
+        error.OutOfMemory,
+        error.OutOfHostMemory,
+        error.OutOfDeviceMemory,
+        error.CurrentTextureOutOfMemory,
+        => error.OutOfMemory,
+
+        error.DeviceLost,
+        error.CurrentTextureDeviceLost,
+        => error.DeviceLost,
+
+        else => error.BackendFailure,
+    };
 }
 
 fn sweepPixelTextureCache(self: *Renderer) !void {

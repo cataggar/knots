@@ -195,7 +195,10 @@ fn present(self: *Frame) !void {
         switch (err) {
             error.OutOfDateKHR => out_of_date: {
                 try ctx.vkd.deviceWaitIdle(ctx.device);
-                try ctx.recreateSwapchain(ctx.swapchain_extent.width, ctx.swapchain_extent.height);
+                ctx.recreateSwapchain(ctx.swapchain_extent.width, ctx.swapchain_extent.height) catch |err2| switch (err2) {
+                    error.SurfaceUnavailable => break :out_of_date null,
+                    else => return err2,
+                };
                 break :out_of_date null;
             },
             else => return err,

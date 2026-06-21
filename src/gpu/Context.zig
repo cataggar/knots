@@ -1,3 +1,14 @@
+pub const SurfaceError = error{
+    SurfaceUnavailable,
+    SurfaceLost,
+};
+
+pub const BackendError = error{
+    OutOfMemory,
+    DeviceLost,
+    BackendFailure,
+};
+
 pub const WindowHandle = union(enum) {
     macos: union(enum) {
         ns_view: *anyopaque,

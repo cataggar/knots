@@ -144,7 +144,10 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
     const draw_list = self.renderer.beginFrame();
     try self.ui.tessellate(self.frame_arena.allocator(), draw_list);
     const hover_changed = self.ui.resolveHit();
-    try self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale);
+    self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale) catch |err| switch (err) {
+        error.SurfaceUnavailable => return,
+        else => return err,
+    };
 
     if (hover_changed or self.ui.anim_active) try self.signal(.redraw);
     _ = self.drainSignals();

@@ -3,6 +3,13 @@ const Texture = @import("Texture.zig");
 
 const SurfaceReadback = @This();
 
+pub const Error = error{
+    SurfaceReadbackUnsupported,
+    SurfaceReadbackUnavailable,
+    SurfaceReadbackTooLarge,
+    SurfaceReadbackFailed,
+};
+
 allocator: std.mem.Allocator,
 width: u32,
 height: u32,
