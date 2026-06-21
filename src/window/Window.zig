@@ -81,7 +81,7 @@ pub inline fn waitEvents(self: *const Window, io: std.Io) void {
     self.backend.waitEvents(io);
 }
 
-pub inline fn postEmptyEvent(self: *const Window) void {
+pub inline fn postEmptyEvent(self: *Window) void {
     self.backend.postEmptyEvent();
 }
 

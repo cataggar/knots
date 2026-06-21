@@ -66,6 +66,7 @@ const WheelCallback = *const fn (event_type: c_int, ev: *const EmscriptenWheelEv
 const FocusCallback = *const fn (event_type: c_int, ev: *const EmscriptenFocusEvent, user_data: ?*anyopaque) callconv(.c) bool;
 const PasteCallback = *const fn (owner: ?*anyopaque, text: [*]const u8, len: u32) callconv(.c) void;
 const DisplayModeCallback = *const fn (owner: ?*anyopaque, fullscreen: c_int) callconv(.c) void;
+const AnimationFrameCallback = *const fn (timestamp: f64, user_data: ?*anyopaque) callconv(.c) bool;
 
 extern fn emscripten_set_keydown_callback_on_thread(target: [*:0]const u8, user_data: ?*anyopaque, use_capture: bool, cb: ?KeyCallback, thread: c_int) c_int;
 extern fn emscripten_set_keyup_callback_on_thread(target: [*:0]const u8, user_data: ?*anyopaque, use_capture: bool, cb: ?KeyCallback, thread: c_int) c_int;
@@ -78,7 +79,8 @@ extern fn emscripten_set_blur_callback_on_thread(target: [*:0]const u8, user_dat
 
 extern fn emscripten_request_fullscreen(target: [*:0]const u8, defer_until_in_event_handler: bool) c_int;
 extern fn emscripten_exit_fullscreen() c_int;
-extern fn emscripten_cancel_main_loop() void;
+extern fn emscripten_request_animation_frame(cb: AnimationFrameCallback, user_data: ?*anyopaque) c_long;
+extern fn emscripten_cancel_animation_frame(request_animation_frame_id: c_long) void;
 extern fn knots_emscripten_bridge_link() void;
 extern fn knots_emscripten_start_capture(owner: ?*anyopaque, selector: [*:0]const u8, paste_callback: PasteCallback, display_mode_callback: DisplayModeCallback) void;
 extern fn knots_emscripten_stop_capture(owner: ?*anyopaque) void;
@@ -103,12 +105,17 @@ pub const Backend = struct {
     cursor_visible: bool = true,
     cursor_shape: window.CursorShape = .default,
     owner_addr: usize = 0,
+    pending_animation_frame: ?c_long = null,
     clipboard_text: std.ArrayList(u8) = .empty,
     clipboard_valid: bool = false,
 
     const Self = @This();
 
     pub fn deinit(self: *Self) void {
+        if (self.pending_animation_frame) |id| {
+            emscripten_cancel_animation_frame(id);
+            self.pending_animation_frame = null;
+        }
         if (self.owner_addr != 0) knots_emscripten_stop_capture(@ptrFromInt(self.owner_addr));
         self.clipboard_text.deinit(self.allocator);
     }
@@ -139,14 +146,22 @@ pub const Backend = struct {
 
     pub fn pollEvents(_: *const Self, _: std.Io) void {}
     pub fn waitEvents(_: *const Self, _: std.Io) void {}
-    pub fn postEmptyEvent(_: *const Self) void {}
+    pub fn postEmptyEvent(self: *Self) void {
+        if (self.pending_animation_frame != null or self.owner_addr == 0) return;
+        const owner: *window.Window = @ptrFromInt(self.owner_addr);
+        if (!owner.isOpen()) return;
+        self.pending_animation_frame = emscripten_request_animation_frame(animationFrameCallback, owner);
+    }
 
     pub fn isOpen(_: *const Self) bool {
         return true;
     }
 
-    pub fn close(_: *const Self) void {
-        emscripten_cancel_main_loop();
+    pub fn close(self: *Self) void {
+        if (self.pending_animation_frame) |id| {
+            emscripten_cancel_animation_frame(id);
+            self.pending_animation_frame = null;
+        }
     }
 
     pub fn getSize(self: *const Self) window.Size {
@@ -257,6 +272,13 @@ pub const Backend = struct {
         return knots_emscripten_copy(text.ptr, text.len) != 0;
     }
 };
+
+fn animationFrameCallback(_: f64, ctx: ?*anyopaque) callconv(.c) bool {
+    const owner: *window.Window = @ptrCast(@alignCast(ctx orelse return false));
+    owner.backend.pending_animation_frame = null;
+    if (owner.isOpen()) owner.stepFrame();
+    return false;
+}
 
 fn pasteCallback(ctx: ?*anyopaque, ptr: [*]const u8, len: u32) callconv(.c) void {
     const owner: *window.Window = @ptrCast(@alignCast(ctx orelse return));

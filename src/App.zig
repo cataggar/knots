@@ -101,7 +101,7 @@ pub fn start(self: *App, frameCb: Callback) !void {
     self.window.pollEvents(self.io);
 
     switch (builtin.os.tag) {
-        inline .emscripten => std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(self), 0, 0),
+        inline .emscripten => self.window.requestFrame(),
         inline else => {
             defer self.window.clearFrameHandler();
             while (self.window.isOpen()) {
@@ -150,13 +150,6 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
     _ = self.drainSignals();
 }
 
-fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
-    const self: *App = @ptrCast(@alignCast(ud orelse return));
-    self.stepFrame() catch |err| {
-        std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr);
-    };
-}
-
 fn stepFrame(self: *App) !void {
     const frame_cb = self.frame_cb orelse return error.AppNotStarted;
     if (self.frame_active) {
@@ -203,6 +196,10 @@ fn stepFrameHook(ctx: *anyopaque) void {
     if (self.frame_event_error != null) return;
     self.stepFrame() catch |err| {
         self.frame_event_error = err;
+        switch (builtin.os.tag) {
+            inline .emscripten => std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr),
+            inline else => {},
+        }
     };
 }
 
