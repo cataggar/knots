@@ -297,6 +297,32 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_ui_tests.step);
     test_step.dependOn(&run_text_tests.step);
     test_step.dependOn(&run_math_tests.step);
+
+    if (target.result.os.tag != .emscripten) {
+        const snapshot_exe = b.addExecutable(.{
+            .name = "knots-snapshots",
+            .root_module = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("tests/snapshots/main.zig"),
+                .imports = &.{
+                    .{ .name = "knots", .module = mod },
+                    .{ .name = "gpu", .module = gpu_mod },
+                },
+            }),
+        });
+
+        const run_snapshots = b.addRunArtifact(snapshot_exe);
+        run_snapshots.addArg(@tagName(gpu_backend));
+        const snapshots_step = b.step("snapshots", "Compare GPU rendering snapshots");
+        snapshots_step.dependOn(&run_snapshots.step);
+
+        const update_snapshots = b.addRunArtifact(snapshot_exe);
+        update_snapshots.addArg(@tagName(gpu_backend));
+        update_snapshots.addArg("--update");
+        const update_snapshots_step = b.step("update-snapshots", "Regenerate GPU rendering snapshots");
+        update_snapshots_step.dependOn(&update_snapshots.step);
+    }
 }
 
 fn defaultGpuBackend(os: std.Target.Os.Tag) GPUBackend {

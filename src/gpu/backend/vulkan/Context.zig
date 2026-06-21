@@ -42,6 +42,7 @@ swapchain_images: []vk.Image,
 swapchain_views: []vk.ImageView,
 swapchain_format: vk.Format,
 swapchain_is_srgb: bool,
+swapchain_copy_src: bool,
 swapchain_extent: vk.Extent2D,
 transient_command_pool: vk.CommandPool,
 command_pools: []vk.CommandPool,
@@ -206,6 +207,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .swapchain_views = views,
         .swapchain_format = sc.format,
         .swapchain_is_srgb = sc.is_srgb,
+        .swapchain_copy_src = sc.copy_src,
         .swapchain_extent = sc.extent,
         .command_pools = command_pools,
         .transient_command_pool = transient_command_pool,
@@ -363,6 +365,7 @@ pub fn recreateSwapchain(self: *Context, width: u32, height: u32) !void {
     self.swapchain_views = new_views;
     self.swapchain_format = sc.format;
     self.swapchain_is_srgb = sc.is_srgb;
+    self.swapchain_copy_src = sc.copy_src;
     self.swapchain_extent = sc.extent;
 }
 
@@ -542,10 +545,11 @@ fn findGraphicsQueueFamily(vki: vk.InstanceWrapper, device: vk.PhysicalDevice, s
     return null;
 }
 
-const SwapchainInfo = struct { swapchain: vk.SwapchainKHR, format: vk.Format, extent: vk.Extent2D, is_srgb: bool };
+const SwapchainInfo = struct { swapchain: vk.SwapchainKHR, format: vk.Format, extent: vk.Extent2D, is_srgb: bool, copy_src: bool };
 
 fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_device: vk.PhysicalDevice, device: vk.Device, surface: vk.SurfaceKHR, width: u32, height: u32, old_swapchain: vk.SwapchainKHR, cfg: gpu.Context.Config) !SwapchainInfo {
     const caps = try vki.getPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
+    const copy_src = caps.supported_usage_flags.transfer_src_bit;
     var format_count: u32 = 0;
     _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, null);
     var formats_buf: [32]vk.SurfaceFormatKHR = undefined;
@@ -591,7 +595,7 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
         .image_color_space = cf.color_space,
         .image_extent = extent,
         .image_array_layers = 1,
-        .image_usage = .{ .color_attachment_bit = true },
+        .image_usage = .{ .color_attachment_bit = true, .transfer_src_bit = copy_src },
         .image_sharing_mode = .exclusive,
         .pre_transform = caps.current_transform,
         .composite_alpha = .{ .opaque_bit_khr = true },
@@ -599,7 +603,7 @@ fn createSwapchain(vki: vk.InstanceWrapper, vkd: vk.DeviceWrapper, physical_devi
         .clipped = .true,
         .old_swapchain = old_swapchain,
     }, null);
-    return .{ .swapchain = swapchain, .format = cf.format, .extent = extent, .is_srgb = is_srgb };
+    return .{ .swapchain = swapchain, .format = cf.format, .extent = extent, .is_srgb = is_srgb, .copy_src = copy_src };
 }
 
 fn choosePresentMode(vki: vk.InstanceWrapper, physical_device: vk.PhysicalDevice, surface: vk.SurfaceKHR, requested: gpu.Context.PresentMode) !vk.PresentModeKHR {

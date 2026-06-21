@@ -1,7 +1,9 @@
 const std = @import("std");
 const vk = @import("vk");
+const gpu = @import("gpu");
 const GpuContext = @import("Context.zig");
 const RenderPass = @import("RenderPass.zig");
+const Buffer = @import("Buffer.zig");
 
 const FrameData = struct {
     command_buffer: vk.CommandBuffer,
@@ -27,7 +29,11 @@ pub const ContextHandle = struct {
     }
 
     pub fn submit(self: *ContextHandle) !void {
-        return self.frame.submit();
+        try self.frame.submit();
+    }
+
+    pub fn submitReadback(self: *ContextHandle, allocator: std.mem.Allocator) !gpu.SurfaceReadback {
+        return self.frame.submitReadback(allocator);
     }
 };
 
@@ -143,6 +149,11 @@ fn beginRenderPass(self: *Frame, desc: RenderPass.Desc) !RenderPass {
 }
 
 fn submit(self: *Frame) !void {
+    try self.submitCommands();
+    try self.present();
+}
+
+fn submitCommands(self: *Frame) !void {
     const ctx = self.ctx;
     const f = &self.frames[self.current];
 
@@ -169,8 +180,12 @@ fn submit(self: *Frame) !void {
             .device_index = 0,
         }},
     }}, f.in_flight);
+}
 
-    const present_result = ctx.vkd.queuePresentKHR(ctx.graphics_queue, &.{
+fn present(self: *Frame) !void {
+    const ctx = self.ctx;
+    const f = &self.frames[self.current];
+    const present_result: ?vk.Result = ctx.vkd.queuePresentKHR(ctx.graphics_queue, &.{
         .wait_semaphore_count = 1,
         .p_wait_semaphores = &[_]vk.Semaphore{f.render_finished},
         .swapchain_count = 1,
@@ -178,21 +193,121 @@ fn submit(self: *Frame) !void {
         .p_image_indices = &[_]u32{self.image_index},
     }) catch |err|
         switch (err) {
-            error.OutOfDateKHR => {
+            error.OutOfDateKHR => out_of_date: {
                 try ctx.vkd.deviceWaitIdle(ctx.device);
                 try ctx.recreateSwapchain(ctx.swapchain_extent.width, ctx.swapchain_extent.height);
-                self.current = (self.current + 1) % @as(u32, @intCast(self.frames.len));
-                return;
+                break :out_of_date null;
             },
             else => return err,
         };
 
-    if (present_result == .suboptimal_khr) {
-        try ctx.vkd.deviceWaitIdle(ctx.device);
-        try ctx.recreateSwapchain(ctx.swapchain_extent.width, ctx.swapchain_extent.height);
+    if (present_result) |result| {
+        if (result == .suboptimal_khr) {
+            try ctx.vkd.deviceWaitIdle(ctx.device);
+            try ctx.recreateSwapchain(ctx.swapchain_extent.width, ctx.swapchain_extent.height);
+        }
     }
 
     self.current = (self.current + 1) % @as(u32, @intCast(self.frames.len));
+}
+
+fn submitReadback(self: *Frame, allocator: std.mem.Allocator) !gpu.SurfaceReadback {
+    const ctx = self.ctx;
+    if (!ctx.swapchain_copy_src) return error.SurfaceReadbackUnsupported;
+
+    const width = ctx.swapchain_extent.width;
+    const height = ctx.swapchain_extent.height;
+    const format = ctx.surfaceFormat();
+    const row_bytes = try readbackRowBytes(width, format);
+    const readback_size = try readbackByteSize(width, height, format);
+    var readback = try Buffer.create(ctx.allocator, ctx, readback_size, .{ .copy_dst = true });
+    defer readback.deinit();
+
+    const submitted_frame = self.current;
+    const command_buffer = self.frames[submitted_frame].command_buffer;
+    ctx.vkd.cmdPipelineBarrier2(command_buffer, &.{
+        .image_memory_barrier_count = 1,
+        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
+            .src_stage_mask = .{ .color_attachment_output_bit = true },
+            .src_access_mask = .{ .color_attachment_write_bit = true },
+            .dst_stage_mask = .{ .all_transfer_bit = true },
+            .dst_access_mask = .{ .transfer_read_bit = true },
+            .old_layout = .present_src_khr,
+            .new_layout = .transfer_src_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = ctx.swapchain_images[self.image_index],
+            .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        }},
+    });
+    ctx.vkd.cmdCopyImageToBuffer(
+        command_buffer,
+        ctx.swapchain_images[self.image_index],
+        .transfer_src_optimal,
+        readback.buffer,
+        &.{.{
+            .buffer_offset = 0,
+            .buffer_row_length = 0,
+            .buffer_image_height = 0,
+            .image_subresource = .{
+                .aspect_mask = .{ .color_bit = true },
+                .mip_level = 0,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+            .image_offset = .{ .x = 0, .y = 0, .z = 0 },
+            .image_extent = .{ .width = width, .height = height, .depth = 1 },
+        }},
+    );
+    ctx.vkd.cmdPipelineBarrier2(command_buffer, &.{
+        .image_memory_barrier_count = 1,
+        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
+            .src_stage_mask = .{ .all_transfer_bit = true },
+            .src_access_mask = .{ .transfer_read_bit = true },
+            .dst_stage_mask = .{},
+            .dst_access_mask = .{},
+            .old_layout = .transfer_src_optimal,
+            .new_layout = .present_src_khr,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = ctx.swapchain_images[self.image_index],
+            .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        }},
+    });
+
+    try self.submitCommands();
+    const in_flight = self.frames[submitted_frame].in_flight;
+    _ = try ctx.vkd.waitForFences(ctx.device, &.{in_flight}, .true, std.math.maxInt(u64));
+    try self.present();
+
+    return .{
+        .allocator = allocator,
+        .width = width,
+        .height = height,
+        .format = format,
+        .bytes_per_row = row_bytes,
+        .bytes = try allocator.dupe(u8, readback.mapped[0..readback_size]),
+    };
+}
+
+fn readbackByteSize(width: u32, height: u32, format: gpu.Texture.Format) !usize {
+    return std.math.mul(usize, try readbackRowBytes(width, format), @as(usize, height)) catch error.SurfaceReadbackTooLarge;
+}
+
+fn readbackRowBytes(width: u32, format: gpu.Texture.Format) !usize {
+    return std.math.mul(usize, @as(usize, width), gpu.SurfaceReadback.bytesPerPixel(format)) catch error.SurfaceReadbackTooLarge;
 }
 
 pub fn waitForCompletion(self: *Frame) !void {

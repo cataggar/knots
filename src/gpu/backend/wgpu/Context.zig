@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const wgpu = @import("wgpu");
 const gpu = @import("gpu");
 
@@ -24,6 +25,7 @@ queue: wgpu.Queue,
 surface: wgpu.Surface,
 surface_format: wgpu.Texture.Format,
 surface_is_srgb: bool,
+surface_copy_src: bool,
 present_mode: wgpu.types.PresentMode,
 surface_width: u32,
 surface_height: u32,
@@ -64,6 +66,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
 
     const surface_format = try chooseSurfaceFormat(capabilities);
     const surface_is_srgb = isSrgbFormat(surface_format);
+    const surface_copy_src = builtin.os.tag != .emscripten and capabilities.raw.usages & wgpu.c.WGPUTextureUsage_CopySrc != 0;
 
     const chosen_present_mode = try choosePresentMode(capabilities, cfg.present_mode);
 
@@ -73,6 +76,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .format = surface_format,
         .device = dev,
         .present_mode = chosen_present_mode,
+        .usage = .{ .copy_src = surface_copy_src, .render_attachment = true },
     });
 
     return .{
@@ -84,6 +88,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
         .surface = surface,
         .surface_format = surface_format,
         .surface_is_srgb = surface_is_srgb,
+        .surface_copy_src = surface_copy_src,
         .present_mode = chosen_present_mode,
         .surface_width = cfg.window_width,
         .surface_height = cfg.window_height,
@@ -148,6 +153,7 @@ pub fn reconfigureSurface(self: *Context, width: u32, height: u32) void {
         .format = self.surface_format,
         .device = self.device,
         .present_mode = self.present_mode,
+        .usage = .{ .copy_src = self.surface_copy_src, .render_attachment = true },
     });
     self.surface_width = width;
     self.surface_height = height;

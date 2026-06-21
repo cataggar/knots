@@ -36,6 +36,7 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "tests",
     },
     .fingerprint = 0x32ed2118ddf54283,
 }

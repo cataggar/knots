@@ -121,8 +121,15 @@ pixel_texture_cache: PixelTextureCache,
 pixel_texture_scratch: std.ArrayList(PixelTextureKey),
 pixel_texture_frame: u32,
 draw_list: DrawList,
+readback: ReadbackState,
 
 const Renderer = @This();
+
+const ReadbackState = union(enum) {
+    idle,
+    requested: std.mem.Allocator,
+    ready: gpu.SurfaceReadback,
+};
 
 pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer {
     try cfg.validate();
@@ -276,10 +283,15 @@ pub fn init(allocator: std.mem.Allocator, window: Window, cfg: Config) !Renderer
         .pixel_texture_cache = .empty,
         .pixel_texture_scratch = .empty,
         .pixel_texture_frame = 0,
+        .readback = .idle,
     };
 }
 
 pub fn deinit(self: *Renderer) void {
+    switch (self.readback) {
+        .ready => |*readback| readback.deinit(),
+        else => {},
+    }
     self.draw_list.deinit();
     self.frame.deinit();
 
@@ -510,6 +522,23 @@ pub fn beginFrame(self: *Renderer) *DrawList {
     return &self.draw_list;
 }
 
+pub fn requestReadback(self: *Renderer, allocator: std.mem.Allocator) !void {
+    switch (self.readback) {
+        .idle => self.readback = .{ .requested = allocator },
+        else => return error.ReadbackPending,
+    }
+}
+
+pub fn takeReadback(self: *Renderer) ?gpu.SurfaceReadback {
+    return switch (self.readback) {
+        .ready => |readback| blk: {
+            self.readback = .idle;
+            break :blk readback;
+        },
+        else => null,
+    };
+}
+
 pub fn endFrame(self: *Renderer, glyph_builder: *text.GlyphBuilder, content_scale: f32) !void {
     try self.draw(&self.draw_list, glyph_builder, content_scale);
     try self.sweepPixelTextureCache();
@@ -553,7 +582,7 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
     if (!has_work) {
         var pass = try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
         pass.end();
-        try frame_ctx.submit();
+        try self.submitFrame(&frame_ctx);
         return;
     }
 
@@ -597,7 +626,16 @@ fn draw(self: *Renderer, dl: *const DrawList, glyph_builder: *text.GlyphBuilder,
     pass.end();
 
     if (use_linear_target) try self.compositeLinearTarget(&frame_ctx, upload, content_scale);
-    try frame_ctx.submit();
+    try self.submitFrame(&frame_ctx);
+}
+
+fn submitFrame(self: *Renderer, frame: *gpu_impl.Frame.Context) !void {
+    const allocator = switch (self.readback) {
+        .requested => |allocator| allocator,
+        else => return frame.submit(),
+    };
+    self.readback = .idle;
+    self.readback = .{ .ready = try frame.submitReadback(allocator) };
 }
 
 fn updateViewport(self: *Renderer, uploads: *FrameUploads, content_scale: f32) void {
