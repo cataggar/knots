@@ -129,7 +129,27 @@ pub const Config = struct {
     width: u32,
     title: []const u8,
     resizable: bool = true,
+    min_size: ?Size = null,
+    max_size: ?Size = null,
     canvas_selector: ?[:0]const u8 = null,
+};
+
+pub const MouseButton = enum(u3) {
+    left,
+    right,
+    middle,
+    back,
+    forward,
+};
+
+pub const mouse_button_count = @typeInfo(MouseButton).@"enum".fields.len;
+
+pub const MouseButtonState = struct {
+    down: bool = false,
+    pressed: bool = false,
+    released: bool = false,
+    pressed_pos: ?[2]f64 = null,
+    released_pos: ?[2]f64 = null,
 };
 
 pub const ScrollInput = struct {
@@ -156,23 +176,39 @@ pub const ScrollInput = struct {
 pub const Input = struct {
     focused: bool = true,
     pos: [2]f64,
-    mouse_left_down_now: bool,
-    mouse_left_pressed: bool = false,
-    mouse_left_released: bool = false,
-    mouse_left_pressed_pos: ?[2]f64 = null,
-    mouse_left_released_pos: ?[2]f64 = null,
-    mouse_right_down_now: bool,
-    mouse_right_pressed: bool = false,
-    mouse_right_released: bool = false,
-    mouse_right_pressed_pos: ?[2]f64 = null,
-    mouse_right_released_pos: ?[2]f64 = null,
-    scroll: ScrollInput,
-    chars: []const u21,
-    keys: []const Key,
-    shift_held: bool,
-    ctrl_held: bool,
+    mouse: [mouse_button_count]MouseButtonState = @splat(.{}),
+    scroll: ScrollInput = .{},
+    chars: []const u21 = &.{},
+    key_events: []const KeyEvent = &.{},
+    key_down: *const [key_count]bool = &no_keys_down,
+    shift_held: bool = false,
+    ctrl_held: bool = false,
     alt_held: bool = false,
-    super_held: bool,
+    super_held: bool = false,
+
+    pub inline fn mouseButton(self: *const Input, button: MouseButton) *const MouseButtonState {
+        return &self.mouse[@intFromEnum(button)];
+    }
+
+    pub fn keyPressed(self: Input, key: Key) bool {
+        for (self.key_events) |event| if (event.key == key and event.action == .press) return true;
+        return false;
+    }
+
+    pub fn keyRepeated(self: Input, key: Key) bool {
+        for (self.key_events) |event| if (event.key == key and event.action == .repeat) return true;
+        return false;
+    }
+
+    pub fn keyReleased(self: Input, key: Key) bool {
+        for (self.key_events) |event| if (event.key == key and event.action == .release) return true;
+        return false;
+    }
+
+    pub fn keyDown(self: Input, key: Key) bool {
+        const value = @intFromEnum(key);
+        return value >= 0 and value < key_count and self.key_down[@intCast(value)];
+    }
 };
 
 pub const KeyAction = enum(u8) { release, press, repeat };
@@ -186,9 +222,13 @@ pub const Mods = packed struct(u8) {
 };
 
 pub const KeyEvent = struct {
-    key: i32,
+    key: Key,
     action: KeyAction,
+    mods: Mods,
 };
+
+pub const key_count = @intFromEnum(Key.menu) + 1;
+pub const no_keys_down: [key_count]bool = @splat(false);
 
 pub const Size = struct { width: u32, height: u32 };
 
@@ -208,12 +248,20 @@ pub const live_resize_tick_hz: u32 = 60;
 pub const live_resize_tick_seconds: f64 = 1.0 / @as(f64, @floatFromInt(live_resize_tick_hz));
 pub const live_resize_tick_ms: u32 = 1000 / live_resize_tick_hz;
 
-pub const DisplayMode = union(enum) {
-    windowed: void,
-    fullscreen: struct {
-        width: i32,
-        height: i32,
-        refresh_rate: i32,
-    },
-    fullscreen_windowed: void,
+pub const DisplayMode = enum {
+    windowed,
+    fullscreen,
+};
+
+pub const CursorShape = enum {
+    default,
+    text,
+    pointer,
+    crosshair,
+    move,
+    resize_horizontal,
+    resize_vertical,
+    resize_diagonal_nw_se,
+    resize_diagonal_ne_sw,
+    not_allowed,
 };

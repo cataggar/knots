@@ -15,6 +15,9 @@ const xkb = @import("xkb.zig");
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+const BTN_MIDDLE: u32 = 0x112;
+const BTN_SIDE: u32 = 0x113;
+const BTN_EXTRA: u32 = 0x114;
 const TEXT_URI_LIST: [*:0]const u8 = "text/uri-list";
 const TEXT_UTF8: [*:0]const u8 = "text/plain;charset=utf-8";
 const TEXT_PLAIN: [*:0]const u8 = "text/plain";
@@ -59,7 +62,11 @@ const State = struct {
     preferred_scale: i32 = 1,
     configured: bool = false,
     should_close: bool = false,
+    display_mode: window.DisplayMode = .windowed,
+    desired_display_mode: window.DisplayMode = .windowed,
+    display_mode_transition: bool = false,
     cursor_visible: bool = true,
+    cursor_shape: window.CursorShape = .default,
     pointer_enter_serial: u32 = 0,
     cursor_pos: [2]f64 = .{ 0, 0 },
     pending_axis: [2]f64 = .{ 0, 0 },
@@ -270,6 +277,17 @@ const State = struct {
         _ = self.display.flush();
     }
 
+    fn reconcileDisplayMode(self: *State) void {
+        if (self.display_mode_transition or self.display_mode == self.desired_display_mode) return;
+        switch (self.desired_display_mode) {
+            .windowed => self.toplevel.unsetFullscreen(),
+            .fullscreen => self.toplevel.setFullscreen(null),
+        }
+        self.surface.commit();
+        _ = self.display.flush();
+        self.display_mode_transition = true;
+    }
+
     fn handleKeymap(state: *State, format: wl.Keyboard.KeymapFormat, fd: i32, size: u32) !void {
         defer closeFd(fd);
         if (format != .xkb_v1 or size == 0) return;
@@ -406,13 +424,43 @@ pub const Backend = struct {
         self.state.applyCursor();
     }
 
-    pub fn setDisplayMode(self: *Self, mode: window.DisplayMode) void {
-        switch (mode) {
-            .windowed => self.state.toplevel.unsetFullscreen(),
-            .fullscreen, .fullscreen_windowed => self.state.toplevel.setFullscreen(null),
+    pub fn setCursorShape(self: *Self, shape: window.CursorShape) void {
+        if (self.state.cursor_shape == shape) return;
+        self.state.cursor_shape = shape;
+        if (self.state.cursor_theme) |theme| {
+            const name: [*:0]const u8 = switch (shape) {
+                .default => "left_ptr",
+                .text => "text",
+                .pointer => "pointer",
+                .crosshair => "crosshair",
+                .move => "move",
+                .resize_horizontal => "ew-resize",
+                .resize_vertical => "ns-resize",
+                .resize_diagonal_nw_se => "nwse-resize",
+                .resize_diagonal_ne_sw => "nesw-resize",
+                .not_allowed => "not-allowed",
+            };
+            self.state.cursor = theme.getCursor(name) orelse theme.getCursor("left_ptr");
+            self.state.applyCursor();
         }
+    }
+
+    pub fn setTitle(self: *Self, title: []const u8) !void {
+        if (title.len >= self.state.title_buf.len) return error.TitleTooLong;
+        @memcpy(self.state.title_buf[0..title.len], title);
+        self.state.title_buf[title.len] = 0;
+        self.state.toplevel.setTitle(@ptrCast(&self.state.title_buf));
         self.state.surface.commit();
-        _ = self.state.display.flush();
+    }
+
+    pub fn setDisplayMode(self: *Self, mode: window.DisplayMode) bool {
+        self.state.desired_display_mode = mode;
+        self.state.reconcileDisplayMode();
+        return true;
+    }
+
+    pub fn getDisplayMode(self: *const Self) window.DisplayMode {
+        return self.state.display_mode;
     }
 
     pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
@@ -466,6 +514,7 @@ pub const Backend = struct {
 };
 
 pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backend {
+    if (cfg.title.len >= 512) return error.TitleTooLong;
     const display = try wl.Display.connect(null);
     errdefer display.disconnect();
 
@@ -476,7 +525,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backe
     errdefer allocator.destroy(state);
 
     var title_buf: [512:0]u8 = undefined;
-    const title_len = @min(cfg.title.len, title_buf.len - 1);
+    const title_len = cfg.title.len;
     @memcpy(title_buf[0..title_len], cfg.title[0..title_len]);
     title_buf[title_len] = 0;
 
@@ -517,6 +566,10 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backe
     if (!cfg.resizable) {
         state.toplevel.setMinSize(@intCast(cfg.width), @intCast(cfg.height));
         state.toplevel.setMaxSize(@intCast(cfg.width), @intCast(cfg.height));
+    }
+    if (cfg.resizable) {
+        if (cfg.min_size) |size| state.toplevel.setMinSize(@intCast(size.width), @intCast(size.height));
+        if (cfg.max_size) |size| state.toplevel.setMaxSize(@intCast(size.width), @intCast(size.height));
     }
 
     if (state.decoration_manager) |manager| {
@@ -626,6 +679,21 @@ fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, state: *Stat
         .configure => |configure| {
             if (configure.width > 0) state.configured_size.width = @intCast(configure.width);
             if (configure.height > 0) state.configured_size.height = @intCast(configure.height);
+            var mode: window.DisplayMode = .windowed;
+            for (configure.states.*.slice(u32)) |configured_state| {
+                if (configured_state == @intFromEnum(xdg.Toplevel.State.fullscreen)) {
+                    mode = .fullscreen;
+                    break;
+                }
+            }
+            const changed = state.display_mode != mode;
+            if (!state.display_mode_transition) state.desired_display_mode = mode;
+            state.display_mode = mode;
+            state.display_mode_transition = false;
+            if (changed) {
+                if (state.owner) |owner| owner.requestFrame();
+            }
+            state.reconcileDisplayMode();
         },
         .close => {
             state.should_close = true;
@@ -690,11 +758,15 @@ fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, state: *State) void 
             if (owner) |o| o.setCursorPos(state.cursor_pos);
         },
         .button => |button| {
-            if (button.button == BTN_LEFT) {
-                if (owner) |o| o.setMouseButton(.left, button.state == .pressed, state.cursor_pos);
-            } else if (button.button == BTN_RIGHT) {
-                if (owner) |o| o.setMouseButton(.right, button.state == .pressed, state.cursor_pos);
-            }
+            const translated: ?window.MouseButton = switch (button.button) {
+                BTN_LEFT => .left,
+                BTN_RIGHT => .right,
+                BTN_MIDDLE => .middle,
+                BTN_SIDE => .back,
+                BTN_EXTRA => .forward,
+                else => null,
+            };
+            if (translated) |mouse_button| if (owner) |o| o.setMouseButton(mouse_button, button.state == .pressed, state.cursor_pos);
         },
         .axis => |axis| {
             const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;

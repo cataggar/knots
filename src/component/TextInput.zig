@@ -44,6 +44,7 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
     }
 
     const is_hovered = ui.hovering(id);
+    if (is_hovered) ui.requestCursor(.text);
     const current_style = if (is_focused)
         self.focused_style
     else if (is_hovered)

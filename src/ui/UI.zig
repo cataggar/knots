@@ -88,6 +88,7 @@ scroll_line_size: Size.Input,
 anim_active: bool,
 theme: Theme,
 last_stats: Stats,
+cursor_shape: window.CursorShape,
 
 const UI = @This();
 
@@ -114,6 +115,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .anim_active = false,
         .theme = cfg.theme,
         .last_stats = .{},
+        .cursor_shape = .default,
     };
 }
 
@@ -297,6 +299,11 @@ pub fn reset(self: *UI) void {
     self.clip_nodes.clearRetainingCapacity();
     self.input_scopes.resetFrame();
     self.anim_active = false;
+    self.cursor_shape = .default;
+}
+
+pub fn requestCursor(self: *UI, shape: window.CursorShape) void {
+    self.cursor_shape = shape;
 }
 
 /// Drive a time-based animation toward `target` for the given (element_id, channel)
@@ -506,7 +513,7 @@ pub fn pressing(self: *UI, id: Element.Id) bool {
 
 pub fn leftClicked(self: *UI, id: Element.Id) bool {
     if (!self.inputScopeAllowsId(id)) return false;
-    return self.input.mouse_left_pressed and self.state.press_origin == id;
+    return self.input.mouseButton(.left).pressed and self.state.press_origin == id;
 }
 
 pub fn focused(self: *UI, id: Element.Id) bool {
@@ -531,7 +538,7 @@ pub fn isFocusedWithin(self: *UI, ancestor_id: Element.Id) bool {
 
 pub fn leftClickedWithin(self: *UI, ancestor_id: Element.Id) bool {
     if (!self.inputScopeAllowsId(ancestor_id)) return false;
-    if (!self.input.mouse_left_released) return false;
+    if (!self.input.mouseButton(.left).released) return false;
     if (self.state.press_drag) return false;
     if (!self.isDescendantOrSelf(self.state.press_origin, ancestor_id)) return false;
     return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
@@ -580,8 +587,8 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
 
     self.state.hovered = self.currentMouseHit();
 
-    if (self.input.mouse_left_pressed) {
-        const press_pos = self.input.mouse_left_pressed_pos orelse self.input.mouse_pos;
+    if (self.input.mouseButton(.left).pressed) {
+        const press_pos = self.input.mouseButton(.left).pressed_pos orelse self.input.mouse_pos;
         const press_hit = self.mouseHit(press_pos);
         self.state.active = press_hit;
         self.state.focused = press_hit;
@@ -591,12 +598,12 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
 
         self.state.forEach(.text_select, press_hit, clearOtherTextSelect);
     }
-    if (self.input.mouse_left_down and !self.state.press_drag) {
+    if (self.input.mouseButton(.left).down and !self.state.press_drag) {
         const dx = self.input.mouse_pos[0] - self.state.press_pos[0];
         const dy = self.input.mouse_pos[1] - self.state.press_pos[1];
         if (dx * dx + dy * dy > press_drag_threshold_sq) self.state.press_drag = true;
     }
-    if (self.input.mouse_left_released and !self.input.mouse_left_down) self.state.active = Element.INVALID_ID;
+    if (self.input.mouseButton(.left).released and !self.input.mouseButton(.left).down) self.state.active = Element.INVALID_ID;
 }
 
 fn syncAccessibility(self: *UI) void {
@@ -653,9 +660,10 @@ fn advanceFocus(self: *UI, backward: bool) void {
 /// Advance the per widget state TTL clock. Call once per frame after the
 /// users frame callback has had a chance to touch its state, otherwise
 /// entries lose a frame of TTL grace before the sweep sees them.
-pub fn endFrame(self: *UI) !void {
+pub fn endFrame(self: *UI, host: *window.Window) !void {
     try self.state.endFrame();
     self.input_scopes.resolveActive();
+    host.setCursorShape(self.cursor_shape);
 }
 
 const press_drag_threshold_sq: f64 = 9.0;
@@ -1026,11 +1034,8 @@ test "scroll routing uses previous frame elements" {
 
     try ui.resolveWindow(.{
         .pos = .{ 150, 100 },
-        .mouse_left_down_now = false,
-        .mouse_right_down_now = false,
         .scroll = .{ .pixel = .{ 0, 50 } },
         .chars = &.{},
-        .keys = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,

@@ -1,5 +1,5 @@
-const std = @import("std");
 const window = @import("window");
+const mouse_button_count = window.mouse_button_count;
 
 mouse_pos: [2]f64 = .{ 0, 0 },
 mouse_moved: bool = false,
@@ -8,27 +8,18 @@ now_ms: i64 = 0,
 focused: bool = true,
 focus_lost: bool = false,
 pointer_cancelled: bool = false,
-mouse_left_down: bool = false,
-mouse_left_pressed: bool = false,
-mouse_left_released: bool = false,
-mouse_left_pressed_pos: ?[2]f64 = null,
-mouse_left_released_pos: ?[2]f64 = null,
-mouse_right_down: bool = false,
-mouse_right_pressed: bool = false,
-mouse_right_released: bool = false,
-mouse_right_pressed_pos: ?[2]f64 = null,
-mouse_right_released_pos: ?[2]f64 = null,
+mouse: [mouse_button_count]window.MouseButtonState = @splat(.{}),
 scroll: window.ScrollInput = .{},
 scroll_delta: [2]f32 = .{ 0, 0 },
 chars: []const u21 = &.{},
-keys: []const window.Key = &.{},
+key_events: []const window.KeyEvent = &.{},
+key_down: *const [window.key_count]bool = &window.no_keys_down,
 shift_held: bool = false,
 ctrl_held: bool = false,
 alt_held: bool = false,
 super_held: bool = false,
 
-_prev_mouse_left_down: bool = false,
-_prev_mouse_right_down: bool = false,
+_prev_mouse_down: [mouse_button_count]bool = @splat(false),
 _prev_mouse_pos: [2]f64 = .{ 0, 0 },
 _last_move_ms: i64 = 0,
 const Input = @This();
@@ -40,47 +31,20 @@ pub fn collect(self: *Input, raw: window.Input, now_ms: i64) void {
     self.mouse_moved = raw.pos[0] != self._prev_mouse_pos[0] or raw.pos[1] != self._prev_mouse_pos[1];
     self._prev_mouse_pos = raw.pos;
 
-    const left_cancelled = !raw.mouse_left_down_now and self._prev_mouse_left_down and !raw.mouse_left_released;
-    const right_cancelled = !raw.mouse_right_down_now and self._prev_mouse_right_down and !raw.mouse_right_released;
-    self.pointer_cancelled = left_cancelled or right_cancelled;
+    self.pointer_cancelled = false;
+    for (raw.mouse, 0..) |button, i| {
+        const cancelled = !button.down and self._prev_mouse_down[i] and !button.released;
+        const sampled_pressed = button.down and !self._prev_mouse_down[i];
+        const sampled_released = !cancelled and !button.down and self._prev_mouse_down[i];
+        self.pointer_cancelled = self.pointer_cancelled or cancelled;
+        self.mouse[i] = button;
+        self.mouse[i].pressed = button.pressed or sampled_pressed;
+        self.mouse[i].released = button.released or sampled_released;
+        if (sampled_pressed and !button.pressed) self.mouse[i].pressed_pos = raw.pos;
+        if (sampled_released and !button.released) self.mouse[i].released_pos = raw.pos;
+        self._prev_mouse_down[i] = button.down;
+    }
 
-    const sampled_left_pressed = raw.mouse_left_down_now and !self._prev_mouse_left_down;
-    const sampled_left_released = !left_cancelled and !raw.mouse_left_down_now and self._prev_mouse_left_down;
-    self.mouse_left_pressed = raw.mouse_left_pressed or sampled_left_pressed;
-    self.mouse_left_released = raw.mouse_left_released or sampled_left_released;
-    self.mouse_left_pressed_pos = if (raw.mouse_left_pressed)
-        raw.mouse_left_pressed_pos orelse raw.pos
-    else if (sampled_left_pressed)
-        raw.pos
-    else
-        null;
-    self.mouse_left_released_pos = if (raw.mouse_left_released)
-        raw.mouse_left_released_pos orelse raw.pos
-    else if (sampled_left_released)
-        raw.pos
-    else
-        null;
-    self.mouse_left_down = raw.mouse_left_down_now;
-    self._prev_mouse_left_down = raw.mouse_left_down_now;
-
-    const sampled_right_pressed = raw.mouse_right_down_now and !self._prev_mouse_right_down;
-    const sampled_right_released = !right_cancelled and !raw.mouse_right_down_now and self._prev_mouse_right_down;
-    self.mouse_right_pressed = raw.mouse_right_pressed or sampled_right_pressed;
-    self.mouse_right_released = raw.mouse_right_released or sampled_right_released;
-    self.mouse_right_pressed_pos = if (raw.mouse_right_pressed)
-        raw.mouse_right_pressed_pos orelse raw.pos
-    else if (sampled_right_pressed)
-        raw.pos
-    else
-        null;
-    self.mouse_right_released_pos = if (raw.mouse_right_released)
-        raw.mouse_right_released_pos orelse raw.pos
-    else if (sampled_right_released)
-        raw.pos
-    else
-        null;
-    self.mouse_right_down = raw.mouse_right_down_now;
-    self._prev_mouse_right_down = raw.mouse_right_down_now;
     if (self.mouse_moved) self._last_move_ms = now_ms;
     self.mouse_idle_ms = now_ms - self._last_move_ms;
     self.now_ms = now_ms;
@@ -92,15 +56,39 @@ pub fn collect(self: *Input, raw: window.Input, now_ms: i64) void {
     self.super_held = raw.super_held;
 
     self.chars = raw.chars;
-    self.keys = raw.keys;
+    self.key_events = raw.key_events;
+    self.key_down = raw.key_down;
 }
 
 pub fn consumeKeyboard(self: *Input) void {
     self.chars = &.{};
-    self.keys = &.{};
+    self.key_events = &.{};
 }
 
 pub fn containsKey(self: *const Input, key: window.Key) bool {
-    for (self.keys) |k| if (k == key) return true;
+    return self.keyPressed(key) or self.keyRepeated(key);
+}
+
+pub inline fn mouseButton(self: *const Input, button: window.MouseButton) *const window.MouseButtonState {
+    return &self.mouse[@intFromEnum(button)];
+}
+
+pub fn keyPressed(self: *const Input, key: window.Key) bool {
+    for (self.key_events) |event| if (event.key == key and event.action == .press) return true;
     return false;
+}
+
+pub fn keyRepeated(self: *const Input, key: window.Key) bool {
+    for (self.key_events) |event| if (event.key == key and event.action == .repeat) return true;
+    return false;
+}
+
+pub fn keyReleased(self: *const Input, key: window.Key) bool {
+    for (self.key_events) |event| if (event.key == key and event.action == .release) return true;
+    return false;
+}
+
+pub fn keyDown(self: *const Input, key: window.Key) bool {
+    const value = @intFromEnum(key);
+    return value >= 0 and value < window.key_count and self.key_down[@intCast(value)];
 }

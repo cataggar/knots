@@ -50,7 +50,10 @@ pub fn onMouseDown(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*
     const pos = mousePos(ev);
     switch (ev.button) {
         0 => owner.setMouseButton(.left, true, pos),
+        1 => owner.setMouseButton(.middle, true, pos),
         2 => owner.setMouseButton(.right, true, pos),
+        3 => owner.setMouseButton(.back, true, pos),
+        4 => owner.setMouseButton(.forward, true, pos),
         else => return false,
     }
     return true;
@@ -61,7 +64,10 @@ pub fn onMouseUp(_: c_int, ev: *const root.EmscriptenMouseEvent, user_data: ?*an
     const pos = mousePos(ev);
     switch (ev.button) {
         0 => owner.setMouseButton(.left, false, pos),
+        1 => owner.setMouseButton(.middle, false, pos),
         2 => owner.setMouseButton(.right, false, pos),
+        3 => owner.setMouseButton(.back, false, pos),
+        4 => owner.setMouseButton(.forward, false, pos),
         else => return false,
     }
     return true;

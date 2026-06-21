@@ -17,9 +17,10 @@ pub const Backend = struct {
     delegate: objc.Object,
     should_close: bool = false,
     cursor_visible: bool = true,
+    cursor_shape: window.CursorShape = .default,
     display_mode: window.DisplayMode = .windowed,
-    saved_frame: ak.NSRect = .{ .origin = .{ .x = 0, .y = 0 }, .size = .{ .width = 0, .height = 0 } },
-    saved_style_mask: c_ulong = 0,
+    desired_display_mode: window.DisplayMode = .windowed,
+    display_mode_transition: bool = false,
     live_resize_timer: ?objc.Object = null,
 
     // fixme: should be dynamic size
@@ -117,53 +118,54 @@ pub const Backend = struct {
         return .{ .macos = .{ .ns_window = @ptrCast(self.ns_window.value) } };
     }
 
-    pub fn setCursorVisible(self: *const Self, visible: bool) void {
-        const m: *Self = @constCast(self);
-        if (visible == m.cursor_visible) return;
+    pub fn setCursorVisible(self: *Self, visible: bool) void {
+        if (visible == self.cursor_visible) return;
         const NSCursor = objc.getClass("NSCursor").?;
         if (visible) {
             NSCursor.msgSend(void, "unhide", .{});
         } else {
             NSCursor.msgSend(void, "hide", .{});
         }
-        m.cursor_visible = visible;
+        self.cursor_visible = visible;
     }
 
-    pub fn setDisplayMode(self: *Self, mode: window.DisplayMode) void {
-        if (std.meta.activeTag(mode) == std.meta.activeTag(self.display_mode)) return;
+    pub fn setCursorShape(self: *Self, shape: window.CursorShape) void {
+        if (self.cursor_shape == shape) return;
+        self.cursor_shape = shape;
+        const NSCursor = objc.getClass("NSCursor").?;
+        const cursor = switch (shape) {
+            .default => NSCursor.msgSend(objc.Object, "arrowCursor", .{}),
+            .text => NSCursor.msgSend(objc.Object, "IBeamCursor", .{}),
+            .pointer => NSCursor.msgSend(objc.Object, "pointingHandCursor", .{}),
+            .crosshair => NSCursor.msgSend(objc.Object, "crosshairCursor", .{}),
+            .move => NSCursor.msgSend(objc.Object, "openHandCursor", .{}),
+            .resize_horizontal => NSCursor.msgSend(objc.Object, "resizeLeftRightCursor", .{}),
+            .resize_vertical => NSCursor.msgSend(objc.Object, "resizeUpDownCursor", .{}),
+            .resize_diagonal_nw_se => NSCursor.msgSend(objc.Object, "resizeNorthwestSoutheastCursor", .{}),
+            .resize_diagonal_ne_sw => NSCursor.msgSend(objc.Object, "resizeNortheastSouthwestCursor", .{}),
+            .not_allowed => NSCursor.msgSend(objc.Object, "operationNotAllowedCursor", .{}),
+        };
+        cursor.msgSend(void, "set", .{});
+    }
 
-        switch (self.display_mode) {
-            .windowed => {},
-            .fullscreen_windowed => {
-                const style: c_ulong = self.ns_window.msgSend(c_ulong, "styleMask", .{});
-                if ((style & ak.NSWindowStyleMaskFullScreen) != 0)
-                    self.ns_window.msgSend(void, "toggleFullScreen:", .{@as(c.id, null)});
-            },
-            .fullscreen => {
-                self.ns_window.msgSend(void, "setLevel:", .{ak.NSNormalWindowLevel});
-                self.ns_window.msgSend(void, "setStyleMask:", .{self.saved_style_mask});
-                self.ns_window.msgSend(void, "setFrame:display:", .{ self.saved_frame, ak.boolParam(false) });
-            },
-        }
+    pub fn setTitle(self: *Self, title: []const u8) !void {
+        self.ns_window.msgSend(void, "setTitle:", .{ak.nsstring(title)});
+    }
 
-        switch (mode) {
-            .windowed => {},
-            .fullscreen_windowed => {
-                self.ns_window.msgSend(void, "toggleFullScreen:", .{@as(c.id, null)});
-            },
-            .fullscreen => {
-                self.saved_frame = self.ns_window.msgSend(ak.NSRect, "frame", .{});
-                self.saved_style_mask = self.ns_window.msgSend(c_ulong, "styleMask", .{});
-                const screen = self.ns_window.msgSend(objc.Object, "screen", .{});
-                if (screen.value == null) return;
-                const screen_frame = screen.msgSend(ak.NSRect, "frame", .{});
-                self.ns_window.msgSend(void, "setStyleMask:", .{ak.NSWindowStyleMaskBorderless});
-                self.ns_window.msgSend(void, "setFrame:display:", .{ screen_frame, ak.boolParam(true) });
-                self.ns_window.msgSend(void, "setLevel:", .{ak.NSMainMenuWindowLevel + 1});
-            },
-        }
+    pub fn setDisplayMode(self: *Self, mode: window.DisplayMode) bool {
+        self.desired_display_mode = mode;
+        self.reconcileDisplayMode();
+        return true;
+    }
 
-        self.display_mode = mode;
+    pub fn reconcileDisplayMode(self: *Self) void {
+        if (self.display_mode_transition or self.display_mode == self.desired_display_mode) return;
+        self.display_mode_transition = true;
+        self.ns_window.msgSend(void, "toggleFullScreen:", .{@as(c.id, null)});
+    }
+
+    pub fn getDisplayMode(self: *const Self) window.DisplayMode {
+        return self.display_mode;
     }
 
     pub fn consumeResize(self: *Self, owner: *window.Window) ?window.ResizeEvent {
@@ -243,6 +245,14 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
         .{ frame, style, ak.NSBackingStoreBuffered, ak.boolParam(false) },
     );
     ns_window.msgSend(void, "setTitle:", .{ak.nsstring(cfg.title)});
+    if (cfg.min_size) |size| ns_window.msgSend(void, "setContentMinSize:", .{ak.NSSize{
+        .width = @floatFromInt(size.width),
+        .height = @floatFromInt(size.height),
+    }});
+    if (cfg.max_size) |size| ns_window.msgSend(void, "setContentMaxSize:", .{ak.NSSize{
+        .width = @floatFromInt(size.width),
+        .height = @floatFromInt(size.height),
+    }});
     ns_window.msgSend(void, "setReleasedWhenClosed:", .{ak.boolParam(false)});
     ns_window.msgSend(void, "setAcceptsMouseMovedEvents:", .{ak.boolParam(true)});
     ns_window.msgSend(void, "center", .{});

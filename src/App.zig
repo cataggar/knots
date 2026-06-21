@@ -137,7 +137,7 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
 
     try @call(.auto, frameCb, .{self});
 
-    try self.ui.endFrame();
+    try self.ui.endFrame(&self.window);
     if (self.drainSignals()) return;
 
     try self.ui.resolve();

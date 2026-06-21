@@ -115,7 +115,7 @@ pub fn SelectInput(comptime T: type) type {
                 }
             }
 
-            if (s.open and ui.input.mouse_left_pressed) {
+            if (s.open and ui.input.mouseButton(.left).pressed) {
                 const popup_id = self.key.indexed(3).hash();
                 if (ui.state.hovered != id and !ui.isHoveredWithin(popup_id)) s.open = false;
             }

@@ -42,6 +42,7 @@ pub fn open(self: *const TextArea, app: *App) !Element.Id {
     const ui = &app.ui;
     const id = self.key.hash();
     const is_focused = ui.focused(id);
+    if (ui.hovering(id)) ui.requestCursor(.text);
     _ = try ui.state.getOrCreate(.measured, ui.allocator, id);
 
     if (is_focused) {
@@ -55,7 +56,7 @@ pub fn open(self: *const TextArea, app: *App) !Element.Id {
     const line_h = try ui.lineHeight(self.size.resolve(), null);
     const min_h = line_h + self.padding.top() + self.padding.bottom();
 
-    if (ui.pressing(handle_id) and ui.input.mouse_left_down and rs.box.h() > 0) {
+    if (ui.pressing(handle_id) and ui.input.mouseButton(.left).down and rs.box.h() > 0) {
         const my: f32 = @floatCast(ui.input.mouse_pos[1]);
         rs.height = @max(min_h, my - rs.box.y());
     }
@@ -166,6 +167,7 @@ pub fn close(self: *const TextArea, app: *App) !void {
     if (rs.box.h() > 0) {
         const handle_id = self.key.indexed(HANDLE_INDEX).hash();
         const active = ui.hovering(handle_id) or ui.pressing(handle_id);
+        if (active) ui.requestCursor(.resize_vertical);
         var grip: Color.Input = .text;
         var grip_color = grip.resolve(&ui.theme);
         grip_color[3] = if (active) 0.6 else 0.35;

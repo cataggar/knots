@@ -19,6 +19,9 @@ pub const mouse_methods = .{
     .{ "rightMouseDown:", mouseRightDown },
     .{ "rightMouseUp:", mouseRightUp },
     .{ "rightMouseDragged:", rightMouseDragged },
+    .{ "otherMouseDown:", otherMouseDown },
+    .{ "otherMouseUp:", otherMouseUp },
+    .{ "otherMouseDragged:", otherMouseDragged },
     .{ "scrollWheel:", scrollWheel },
 };
 
@@ -37,6 +40,8 @@ pub const delegate_methods = .{
     .{ "windowShouldClose:", windowShouldClose },
     .{ "windowDidBecomeKey:", windowDidBecomeKey },
     .{ "windowDidResignKey:", windowDidResignKey },
+    .{ "windowDidEnterFullScreen:", windowDidEnterFullScreen },
+    .{ "windowDidExitFullScreen:", windowDidExitFullScreen },
     .{ "windowWillStartLiveResize:", windowWillStartLiveResize },
     .{ "windowDidResize:", windowDidResize },
     .{ "windowDidEndLiveResize:", windowDidEndLiveResize },
@@ -90,6 +95,37 @@ fn mouseRightUp(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
 }
 
 fn rightMouseDragged(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.setCursorPos(eventPos(self, event_id));
+}
+
+fn otherMouseDown(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    const event = objc.Object.fromId(event_id);
+    const number = event.msgSend(c_long, "buttonNumber", .{});
+    const button: window.MouseButton = switch (number) {
+        2 => .middle,
+        3 => .back,
+        4 => .forward,
+        else => return,
+    };
+    owner.setMouseButton(button, true, eventPos(self, event_id));
+}
+
+fn otherMouseUp(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    const event = objc.Object.fromId(event_id);
+    const number = event.msgSend(c_long, "buttonNumber", .{});
+    const button: window.MouseButton = switch (number) {
+        2 => .middle,
+        3 => .back,
+        4 => .forward,
+        else => return,
+    };
+    owner.setMouseButton(button, false, eventPos(self, event_id));
+}
+
+fn otherMouseDragged(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
     owner.setCursorPos(eventPos(self, event_id));
 }
@@ -200,6 +236,24 @@ fn windowDidBecomeKey(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
 fn windowDidResignKey(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
     owner.setFocused(false);
+}
+
+fn windowDidEnterFullScreen(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.backend.display_mode = .fullscreen;
+    if (!owner.backend.display_mode_transition) owner.backend.desired_display_mode = .fullscreen;
+    owner.backend.display_mode_transition = false;
+    owner.requestFrame();
+    owner.backend.reconcileDisplayMode();
+}
+
+fn windowDidExitFullScreen(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
+    const owner = ak.unwrapOwner(self) orelse return;
+    owner.backend.display_mode = .windowed;
+    if (!owner.backend.display_mode_transition) owner.backend.desired_display_mode = .windowed;
+    owner.backend.display_mode_transition = false;
+    owner.requestFrame();
+    owner.backend.reconcileDisplayMode();
 }
 
 fn windowWillStartLiveResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {

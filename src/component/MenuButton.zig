@@ -55,7 +55,7 @@ pub fn MenuButton(comptime Menu: type) type {
             const id = self.key.hash();
             const s = try ui.state.getOrCreate(.menu_button, ui.allocator, id);
 
-            if (s.open and ui.input.mouse_left_pressed and !isPointerInside(s, ui.input.mouse_pos)) {
+            if (s.open and ui.input.mouseButton(.left).pressed and !isPointerInside(s, ui.input.mouse_pos)) {
                 s.open = false;
                 try app.signal(.redraw);
             }

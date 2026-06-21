@@ -80,12 +80,24 @@ pub fn build(b: *std.Build) void {
                 },
             });
         },
-        .emscripten => b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/window/backend/emscripten/root.zig"),
-            .imports = &.{.{ .name = "gpu", .module = gpu_mod }},
-        }),
+        .emscripten => {
+            const emcc_path = b.findProgram(&.{"emcc"}, &.{}) catch
+                @panic("emcc not found. Put emcc on PATH when targeting Emscripten.");
+            const bridge = b.addSystemCommand(&.{ emcc_path, "-c" });
+            bridge.addFileArg(b.path("src/window/backend/emscripten/bridge.c"));
+            if (target.result.cpu.arch == .wasm64) bridge.addArg("-sMEMORY64");
+            bridge.addArg("-o");
+            const bridge_object = bridge.addOutputFileArg("knots_emscripten_bridge.o");
+
+            const m = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/window/backend/emscripten/root.zig"),
+                .imports = &.{.{ .name = "gpu", .module = gpu_mod }},
+            });
+            m.addObjectFile(bridge_object);
+            break :blk m;
+        },
         .linux => {
             const scanner = WaylandScanner.create(b, .{});
             scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");

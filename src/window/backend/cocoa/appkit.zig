@@ -59,12 +59,8 @@ pub fn eventTrackingRunLoopMode() objc.Object {
 }
 
 pub fn nsstring(s: []const u8) objc.Object {
-    var buf: [512]u8 = undefined;
-    const len = @min(s.len, buf.len - 1);
-    @memcpy(buf[0..len], s[0..len]);
-    buf[len] = 0;
     const NSString = objc.getClass("NSString").?;
-    return NSString.msgSend(objc.Object, "stringWithUTF8String:", .{@as([*:0]const u8, @ptrCast(&buf))});
+    return NSString.msgSend(objc.Object, "stringWithBytes:length:encoding:", .{ s.ptr, @as(c_ulong, @intCast(s.len)), NSUTF8StringEncoding });
 }
 
 pub fn wrapPointer(ptr: anytype) objc.Object {
