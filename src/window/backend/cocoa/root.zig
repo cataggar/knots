@@ -21,7 +21,8 @@ pub const Backend = struct {
     display_mode: window.DisplayMode = .windowed,
     desired_display_mode: window.DisplayMode = .windowed,
     display_mode_transition: bool = false,
-    live_resize_timer: ?objc.Object = null,
+    frame_source: ?ak.CFRunLoopSourceRef = null,
+    frame_requested: bool = false,
 
     // fixme: should be dynamic size
     drop_paths_buf: [64][1024]u8 = undefined,
@@ -30,6 +31,10 @@ pub const Backend = struct {
     const Self = @This();
 
     pub fn deinit(self: *const Self) void {
+        if (self.frame_source) |source| {
+            ak.CFRunLoopSourceInvalidate(source);
+            ak.CFRelease(source);
+        }
         self.ns_window.msgSend(void, "close", .{});
     }
 
@@ -38,6 +43,22 @@ pub const Backend = struct {
         self.ns_view.setInstanceVariable(ak.IVAR_OWNER, owner_value);
         self.delegate.setInstanceVariable(ak.IVAR_OWNER, owner_value);
         self.ns_window.msgSend(void, "makeFirstResponder:", .{self.ns_view});
+
+        var context: ak.CFRunLoopSourceContext = .{
+            .version = 0,
+            .info = owner,
+            .retain = null,
+            .release = null,
+            .copy_description = null,
+            .equal = null,
+            .hash = null,
+            .schedule = null,
+            .cancel = null,
+            .perform = frameSourcePerform,
+        };
+        const source = ak.CFRunLoopSourceCreate(null, 0, &context) orelse @panic("failed to create frame run-loop source");
+        ak.CFRunLoopAddSource(ak.CFRunLoopGetMain(), source, ak.kCFRunLoopCommonModes);
+        self.frame_source = source;
     }
 
     pub fn pollEvents(_: *const Self, _: std.Io) void {
@@ -77,6 +98,14 @@ pub const Backend = struct {
             },
         );
         NSApp.msgSend(void, "postEvent:atStart:", .{ event, ak.boolParam(true) });
+    }
+
+    pub fn requestFrame(self: *Self, owner: *window.Window) void {
+        if (self.frame_requested or !owner.isOpen()) return;
+        const source = self.frame_source orelse return;
+        self.frame_requested = true;
+        ak.CFRunLoopSourceSignal(source);
+        ak.CFRunLoopWakeUp(ak.CFRunLoopGetMain());
     }
 
     pub fn isOpen(self: *const Self) bool {
@@ -281,6 +310,12 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
         .ns_view = view,
         .delegate = delegate,
     };
+}
+
+fn frameSourcePerform(info: ?*anyopaque) callconv(.c) void {
+    const owner: *window.Window = @ptrCast(@alignCast(info orelse return));
+    owner.backend.frame_requested = false;
+    if (owner.isOpen()) owner.stepFrame();
 }
 
 fn drainEventQueue(NSApp: objc.Object) void {

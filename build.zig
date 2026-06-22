@@ -65,6 +65,7 @@ pub fn build(b: *std.Build) void {
                 },
             });
             m.linkFramework("Cocoa", .{});
+            m.linkFramework("CoreFoundation", .{});
             m.linkFramework("QuartzCore", .{});
             break :blk m;
         },

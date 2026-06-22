@@ -94,9 +94,8 @@ pub inline fn clearFrameHandler(self: *Window) void {
 }
 
 pub fn requestFrame(self: *Window) void {
-    if (self.frame_handler) |handler| {
-        handler.request(handler.ctx);
-    }
+    if (self.frame_handler == null) return;
+    self.backend.requestFrame(self);
 }
 
 pub fn stepFrame(self: *Window) void {

@@ -95,6 +95,7 @@ pub fn onResize(_: c_int, _: *const root.EmscriptenUiEvent, user_data: ?*anyopaq
     const owner = ownerOf(user_data) orelse return 0;
     owner.backend.refreshCanvas();
     owner.markResized();
+    owner.requestFrame();
     return 1;
 }
 

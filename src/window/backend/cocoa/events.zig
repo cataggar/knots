@@ -42,10 +42,8 @@ pub const delegate_methods = .{
     .{ "windowDidResignKey:", windowDidResignKey },
     .{ "windowDidEnterFullScreen:", windowDidEnterFullScreen },
     .{ "windowDidExitFullScreen:", windowDidExitFullScreen },
-    .{ "windowWillStartLiveResize:", windowWillStartLiveResize },
     .{ "windowDidResize:", windowDidResize },
     .{ "windowDidEndLiveResize:", windowDidEndLiveResize },
-    .{ "liveResizeTick:", liveResizeTick },
 };
 
 fn acceptsFirstResponder(_: c.id, _: c.SEL) callconv(.c) c.BOOL {
@@ -256,34 +254,6 @@ fn windowDidExitFullScreen(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     owner.backend.reconcileDisplayMode();
 }
 
-fn windowWillStartLiveResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
-    const owner = ak.unwrapOwner(self) orelse return;
-    if (owner.backend.live_resize_timer) |old| {
-        old.msgSend(void, "invalidate", .{});
-        old.msgSend(void, "release", .{});
-        owner.backend.live_resize_timer = null;
-    }
-
-    const NSTimer = objc.getClass("NSTimer").?;
-    const NSRunLoop = objc.getClass("NSRunLoop").?;
-    const selector = c.sel_registerName("liveResizeTick:").?;
-    const timer = NSTimer.msgSend(
-        objc.Object,
-        "timerWithTimeInterval:target:selector:userInfo:repeats:",
-        .{
-            window.live_resize_tick_seconds,
-            objc.Object.fromId(self),
-            selector,
-            @as(c.id, null),
-            ak.boolParam(true),
-        },
-    );
-    const run_loop = NSRunLoop.msgSend(objc.Object, "currentRunLoop", .{});
-    run_loop.msgSend(void, "addTimer:forMode:", .{ timer, ak.eventTrackingRunLoopMode() });
-    _ = timer.msgSend(objc.Object, "retain", .{});
-    owner.backend.live_resize_timer = timer;
-}
-
 fn windowDidResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
     owner.markResized();
@@ -292,19 +262,8 @@ fn windowDidResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
 
 fn windowDidEndLiveResize(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
     const owner = ak.unwrapOwner(self) orelse return;
-    if (owner.backend.live_resize_timer) |timer| {
-        timer.msgSend(void, "invalidate", .{});
-        timer.msgSend(void, "release", .{});
-        owner.backend.live_resize_timer = null;
-    }
     owner.markResized();
-    owner.stepFrame();
-}
-
-fn liveResizeTick(self: c.id, _: c.SEL, _: c.id) callconv(.c) void {
-    const owner = ak.unwrapOwner(self) orelse return;
-    if (!owner.resized) return;
-    owner.stepFrame();
+    owner.requestFrame();
 }
 
 fn modsFromFlags(flags: c_ulong) window.Mods {

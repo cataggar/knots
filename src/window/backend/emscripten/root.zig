@@ -146,9 +146,10 @@ pub const Backend = struct {
 
     pub fn pollEvents(_: *const Self, _: std.Io) void {}
     pub fn waitEvents(_: *const Self, _: std.Io) void {}
-    pub fn postEmptyEvent(self: *Self) void {
+    pub fn postEmptyEvent(_: *Self) void {}
+
+    pub fn requestFrame(self: *Self, owner: *window.Window) void {
         if (self.pending_animation_frame != null or self.owner_addr == 0) return;
-        const owner: *window.Window = @ptrFromInt(self.owner_addr);
         if (!owner.isOpen()) return;
         self.pending_animation_frame = emscripten_request_animation_frame(animationFrameCallback, owner);
     }

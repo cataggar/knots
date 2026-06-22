@@ -56,6 +56,7 @@ const State = struct {
     cursor: ?*wl.Cursor = null,
     owner: ?*window.Window = null,
     wake_pipe: [2]posix.fd_t = .{ -1, -1 },
+    frame_requested: bool = false,
     logical_size: window.Size,
     configured_size: window.Size,
     scale: i32 = 1,
@@ -343,6 +344,8 @@ pub const Backend = struct {
         drainWake(self.state);
         _ = self.state.display.dispatchPending();
         self.state.processRepeat(io);
+        drainWake(self.state);
+        dispatchFrame(self.state);
     }
 
     pub fn waitEvents(self: *const Self, io: std.Io) void {
@@ -376,11 +379,19 @@ pub const Backend = struct {
 
         _ = self.state.display.dispatchPending();
         self.state.processRepeat(io);
+        drainWake(self.state);
+        dispatchFrame(self.state);
     }
 
     pub fn postEmptyEvent(self: *const Self) void {
         const byte: [1]u8 = .{1};
         _ = linux.write(self.state.wake_pipe[1], &byte, 1);
+    }
+
+    pub fn requestFrame(self: *const Self, owner: *window.Window) void {
+        if (self.state.frame_requested or !owner.isOpen()) return;
+        self.state.frame_requested = true;
+        self.postEmptyEvent();
     }
 
     pub fn isOpen(self: *const Self) bool {
@@ -1085,6 +1096,13 @@ fn drainWake(state: *State) void {
         };
         if (n == 0 or n < buf.len) return;
     }
+}
+
+fn dispatchFrame(state: *State) void {
+    if (!state.frame_requested) return;
+    state.frame_requested = false;
+    const owner = state.owner orelse return;
+    if (owner.isOpen()) owner.stepFrame();
 }
 
 fn closeFd(fd: i32) void {

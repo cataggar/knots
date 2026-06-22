@@ -9,7 +9,6 @@ const keymap = @import("keymap.zig");
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral("KnotsWindow");
 const system_theme_registry_key = std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
 
-const live_resize_timer_id: usize = 1;
 const WHEEL_PAGESCROLL: u32 = std.math.maxInt(u32);
 const WheelAxis = enum { x, y };
 var class_registered: bool = false;
@@ -86,7 +85,6 @@ pub const Backend = struct {
     cursor_shape: window.CursorShape = .default,
     is_fullscreen: bool = false,
     should_close: bool = false,
-    live_resize_timer_active: bool = false,
     wheel_scroll_lines: u32 = 3,
     wheel_scroll_chars: u32 = 3,
     saved_placement: win32.WINDOWPLACEMENT = std.mem.zeroes(win32.WINDOWPLACEMENT),
@@ -127,6 +125,10 @@ pub const Backend = struct {
 
     pub fn postEmptyEvent(self: *const Self) void {
         _ = win32.PostMessageW(self.hwnd, win32.WM_NULL, 0, 0);
+    }
+
+    pub fn requestFrame(self: *const Self, _: *window.Window) void {
+        _ = win32.InvalidateRect(self.hwnd, null, 0);
     }
 
     pub fn isOpen(self: *const Self) bool {
@@ -499,39 +501,19 @@ fn wndProc(hwnd: win32.HWND, msg: u32, wparam: win32.WPARAM, lparam: win32.LPARA
             return 0;
         },
         win32.WM_DESTROY => return 0,
+        win32.WM_PAINT => {
+            var paint: win32.PAINTSTRUCT = undefined;
+            _ = win32.BeginPaint(hwnd, &paint);
+            defer _ = win32.EndPaint(hwnd, &paint);
+            if (ownerOf(hwnd)) |o| if (o.isOpen()) o.stepFrame();
+            return 0;
+        },
         win32.WM_SIZE => {
             if (ownerOf(hwnd)) |o| {
                 o.markResized();
                 o.requestFrame();
             }
             return 0;
-        },
-        win32.WM_ENTERSIZEMOVE => {
-            if (ownerOf(hwnd)) |o| {
-                o.backend.live_resize_timer_active = true;
-                _ = win32.SetTimer(hwnd, live_resize_timer_id, window.live_resize_tick_ms, null);
-            }
-            return 0;
-        },
-        win32.WM_EXITSIZEMOVE => {
-            if (ownerOf(hwnd)) |o| {
-                if (o.backend.live_resize_timer_active) {
-                    _ = win32.KillTimer(hwnd, live_resize_timer_id);
-                    o.backend.live_resize_timer_active = false;
-                }
-                o.markResized();
-                o.stepFrame();
-            }
-            return 0;
-        },
-        win32.WM_TIMER => {
-            if (wparam == live_resize_timer_id) {
-                if (ownerOf(hwnd)) |o| {
-                    if (o.backend.live_resize_timer_active and o.resized) o.stepFrame();
-                }
-                return 0;
-            }
-            return win32.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
         win32.WM_MOUSEMOVE => {
             if (ownerOf(hwnd)) |o| o.setCursorPos(mousePos(hwnd, lparam));

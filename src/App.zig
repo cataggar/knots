@@ -95,18 +95,18 @@ pub fn start(self: *App, frameCb: Callback) !void {
     self.frame_cb = frameCb;
     self.window.setFrameHandler(.{
         .ctx = self,
-        .request = requestFrameHook,
         .step = stepFrameHook,
     });
     self.timer.start(self.io);
+    self.window.requestFrame();
     self.window.pollEvents(self.io);
 
     switch (builtin.os.tag) {
-        inline .emscripten => self.window.requestFrame(),
+        inline .emscripten => {},
         inline else => {
             defer self.window.clearFrameHandler();
+            try self.takeFrameEventError();
             while (self.window.isOpen()) {
-                try self.stepFrame();
                 self.window.waitEvents(self.io);
                 try self.takeFrameEventError();
             }
@@ -190,16 +190,12 @@ fn drainSignals(self: *App) bool {
     return should_exit;
 }
 
-fn requestFrameHook(ctx: *anyopaque) void {
-    const self: *App = @ptrCast(@alignCast(ctx));
-    self.window.postEmptyEvent();
-}
-
 fn stepFrameHook(ctx: *anyopaque) void {
     const self: *App = @ptrCast(@alignCast(ctx));
     if (self.frame_event_error != null) return;
     self.stepFrame() catch |err| {
         self.frame_event_error = err;
+        self.window.postEmptyEvent();
         switch (builtin.os.tag) {
             inline .emscripten => std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr),
             inline else => {},
