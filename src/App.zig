@@ -260,8 +260,8 @@ pub fn e(self: *App, tree: anytype) !void {
         _ = try tree.open(self);
         try tree.close(self);
     } else switch (@typeInfo(T)) {
-        inline .@"fn" => try @call(.always_inline, tree, .{self}),
-        inline .@"struct" => |s| if (comptime isRenderable(T))
+        .@"fn" => try @call(.always_inline, tree, .{self}),
+        .@"struct" => |s| if (comptime isRenderable(T))
             try tree.render(self)
         else {
             comptime var i: usize = 0;
@@ -276,22 +276,22 @@ pub fn e(self: *App, tree: anytype) !void {
                 } else try self.e(val);
             }
         },
-        inline else => @compileError("unexpected type in component tree: " ++ @typeName(T)),
+        else => @compileError("unexpected type in component tree: " ++ @typeName(T)),
     }
 }
 
 fn isControlFlow(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        inline .@"struct" => @hasDecl(T, "eval"),
-        inline else => false,
+        .@"struct" => @hasDecl(T, "eval"),
+        else => false,
     };
 }
 
 fn isComponent(comptime T: type) bool {
     const S = switch (@typeInfo(T)) {
-        inline .@"struct" => T,
-        inline .pointer => |p| p.child,
-        inline else => return false,
+        .@"struct" => T,
+        .pointer => |p| p.child,
+        else => return false,
     };
     return @hasDecl(S, "open") and @hasDecl(S, "close");
 }
@@ -303,7 +303,7 @@ fn isRenderable(comptime T: type) bool {
 
 fn isChildren(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        inline .@"struct" => |s| s.is_tuple,
-        inline else => false,
+        .@"struct" => |s| s.is_tuple,
+        else => false,
     };
 }
