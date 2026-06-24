@@ -115,7 +115,10 @@ pub fn processInputEarly(buf: *std.ArrayList(u8), app: *App, s: *State.TextInput
                     s.cursor = @min(s.cursor, s.sel_anchor);
                     s.sel_anchor = s.cursor;
                 } else if (s.cursor > 0) {
-                    s.cursor = prevCharStart(buf.items, s.cursor);
+                    s.cursor = if (event.mods.alt)
+                        wordBoundary(buf.items, s.cursor, true)
+                    else
+                        prevCharStart(buf.items, s.cursor);
                     if (!extend) s.sel_anchor = s.cursor;
                 }
             },
@@ -125,7 +128,10 @@ pub fn processInputEarly(buf: *std.ArrayList(u8), app: *App, s: *State.TextInput
                     s.cursor = @max(s.cursor, s.sel_anchor);
                     s.sel_anchor = s.cursor;
                 } else if (s.cursor < len) {
-                    s.cursor = nextCharStart(buf.items, s.cursor);
+                    s.cursor = if (event.mods.alt)
+                        wordBoundary(buf.items, s.cursor, false)
+                    else
+                        nextCharStart(buf.items, s.cursor);
                     if (!extend) s.sel_anchor = s.cursor;
                 }
             },
@@ -307,11 +313,21 @@ fn clampByte(buf: []const u8, byte: u32) u32 {
 fn isWordStart(buf: []const u8, pos: u32) bool {
     if (pos >= @as(u32, @intCast(buf.len))) return false;
     const b = buf[@intCast(pos)];
-    return b == '_' or
-        (b >= '0' and b <= '9') or
-        (b >= 'A' and b <= 'Z') or
-        (b >= 'a' and b <= 'z') or
-        b >= 0x80;
+    return b == '_' or std.ascii.isAlphanumeric(b) or b >= 0x80;
+}
+
+fn wordBoundary(buf: []const u8, pos: u32, backward: bool) u32 {
+    const len: u32 = @intCast(buf.len);
+    var i = pos;
+    var in_word = false;
+    while ((backward and i > 0) or (!backward and i < len)) {
+        const char = if (backward) prevCharStart(buf, i) else i;
+        const word = isWordStart(buf, char);
+        if (in_word and !word) break;
+        in_word = in_word or word;
+        i = if (backward) char else nextCharStart(buf, i);
+    }
+    return i;
 }
 
 fn prevCharStart(buf: []const u8, pos: u32) u32 {

@@ -177,10 +177,6 @@ pub fn collectInput(self: *Window) !Input {
         button.released_pos = null;
     }
 
-    // `chars` is consumed later in this frame and aliases this allocation.
-    // Reset the write length without poisoning the returned slice.
-    self.char_buf.items.len = 0;
-    self.key_events.clearRetainingCapacity();
     return .{
         .focused = self.focused,
         .pos = mouse.pos,
@@ -194,6 +190,11 @@ pub fn collectInput(self: *Window) !Input {
         .alt_held = self.mods.alt,
         .super_held = self.mods.super,
     };
+}
+
+pub fn finishInputFrame(self: *Window) void {
+    self.char_buf.clearRetainingCapacity();
+    self.key_events.clearRetainingCapacity();
 }
 
 pub fn consumeResize(self: *Window) ?ResizeEvent {

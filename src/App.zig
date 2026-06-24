@@ -131,7 +131,9 @@ fn renderFrame(self: *App, frameCb: Callback) !void {
     }
     self.handleRendererReconfigure();
 
-    try self.ui.resolveWindow(try self.window.collectInput(), self.timer.ms(), self.window.getContentScale());
+    const input = try self.window.collectInput();
+    defer self.window.finishInputFrame();
+    try self.ui.resolveWindow(input, self.timer.ms(), self.window.getContentScale());
     self.ui.reset();
 
     try self.completion_queue.consume(self, self.io);

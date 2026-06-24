@@ -147,11 +147,17 @@ fn keyDown(self: c.id, _: c.SEL, event_id: c.id) callconv(.c) void {
     const kc = event.msgSend(u16, "keyCode", .{});
     const flags = event.msgSend(c_ulong, "modifierFlags", .{});
     const key = keymap.translateKeyCode(kc);
-    owner.pushKey(@intFromEnum(key), .press, modsFromFlags(flags));
+    const mods = modsFromFlags(flags);
+    owner.pushKey(@intFromEnum(key), .press, mods);
 
     const skip_chars = (flags & ak.NSEventModifierFlagCommand) != 0 or
         (flags & ak.NSEventModifierFlagControl) != 0;
     if (skip_chars) return;
+
+    const view = objc.Object.fromId(self);
+    const input_context = view.msgSend(objc.Object, "inputContext", .{});
+    if (input_context.value != null and input_context.msgSend(bool, "handleEvent:", .{event})) return;
+
     const characters = event.msgSend(objc.Object, "characters", .{});
     if (characters.value == null) return;
     const utf8: [*:0]const u8 = characters.msgSend([*:0]const u8, "UTF8String", .{});
