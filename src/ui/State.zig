@@ -2,6 +2,7 @@ const std = @import("std");
 const Element = @import("layout").Element;
 const math = @import("math");
 const animation = @import("animation.zig");
+const Layer = @import("Layer.zig");
 
 pub const TextInput = struct {
     cursor: u32 = 0,
@@ -87,6 +88,23 @@ pub const Resize = struct {
     height: f32 = 0,
 };
 
+pub const FloatingWindow = struct {
+    position: math.Vec2 = .{ 0, 0 },
+    size: math.Vec2 = .{ 0, 0 },
+    drag_offset: math.Vec2 = .{ 0, 0 },
+    resize_offset: math.Vec2 = .{ 0, 0 },
+    restore_position: math.Vec2 = .{ 0, 0 },
+    restore_size: math.Vec2 = .{ 0, 0 },
+    render_position: math.Vec2 = .{ 0, 0 },
+    render_size: math.Vec2 = .{ 0, 0 },
+    stack_order: u32 = 0,
+    visible_frame: u32 = 0,
+    initialized: bool = false,
+    dragging: bool = false,
+    resizing: bool = false,
+    maximized: bool = false,
+};
+
 pub const Anim = struct {
     current: f32 = 0,
     start_value: f32 = 0,
@@ -125,6 +143,7 @@ pub const Ttls = struct {
     tooltip: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     measured: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     resize: u32 = DEFAULT_WIDGET_TTL_FRAMES,
+    floating_window: u32 = DEFAULT_WIDGET_TTL_FRAMES,
     anim: u32 = DEFAULT_ANIM_TTL_FRAMES,
 };
 
@@ -199,6 +218,7 @@ pub const Storage = struct {
         tooltip: Pool(Tooltip) = .{},
         measured: Pool(Measured) = .{},
         resize: Pool(Resize) = .{},
+        floating_window: Pool(FloatingWindow) = .{},
         anim: Pool(Anim) = .{},
     };
 
@@ -294,6 +314,83 @@ pub fn forEach(
     comptime f: fn (@TypeOf(ctx), Element.Id, *PoolValueType(@FieldType(Storage.StoragePools, @tagName(name)))) void,
 ) void {
     self.storage.forEach(name, ctx, f);
+}
+
+const FLOATING_WINDOW_Z_CAPACITY: usize = Layer.floating_window_capacity;
+const FLOATING_WINDOW_Z_BASE: Layer = .floatingWindow(1);
+
+pub fn touchFloatingWindow(self: *State, id: Element.Id) !*FloatingWindow {
+    const state = try self.getOrCreate(.floating_window, self.allocator, id);
+    if (state.stack_order == 0 or (state.initialized and !isFloatingWindowVisible(self.frame, state.visible_frame)))
+        try self.raiseFloatingWindow(id);
+    state.visible_frame = self.frame;
+    return state;
+}
+
+pub fn hideFloatingWindow(self: *State, id: Element.Id) void {
+    const state = self.get(.floating_window, id) orelse return;
+    state.visible_frame = self.frame -% 2;
+    state.dragging = false;
+    state.resizing = false;
+}
+
+pub fn raiseFloatingWindow(self: *State, id: Element.Id) !void {
+    const state = try self.getOrCreate(.floating_window, self.allocator, id);
+
+    self.evict_scratch.clearRetainingCapacity();
+    var it = self.storage.pools.floating_window.map.iterator();
+    while (it.next()) |entry| {
+        if (entry.key_ptr.* == id) continue;
+        if (isFloatingWindowVisible(self.frame, entry.value_ptr.value.visible_frame))
+            try self.evict_scratch.append(self.allocator, entry.key_ptr.*);
+    }
+
+    if (self.evict_scratch.items.len + 1 > FLOATING_WINDOW_Z_CAPACITY) return error.TooManyFloatingWindows;
+
+    const SortContext = struct {
+        state: *State,
+
+        fn lessThan(ctx: @This(), a: Element.Id, b: Element.Id) bool {
+            return ctx.state.get(.floating_window, a).?.stack_order < ctx.state.get(.floating_window, b).?.stack_order;
+        }
+    };
+    std.mem.sort(Element.Id, self.evict_scratch.items, SortContext{ .state = self }, SortContext.lessThan);
+    for (self.evict_scratch.items, 1..) |window_id, order|
+        self.get(.floating_window, window_id).?.stack_order = @intCast(order);
+
+    state.stack_order = @intCast(self.evict_scratch.items.len + 1);
+}
+
+pub fn floatingWindowZ(self: *State, id: Element.Id) !Layer {
+    const state = self.get(.floating_window, id) orelse return FLOATING_WINDOW_Z_BASE;
+    if (state.stack_order == 0) return FLOATING_WINDOW_Z_BASE;
+    if (@as(usize, state.stack_order) > FLOATING_WINDOW_Z_CAPACITY) return error.TooManyFloatingWindows;
+    return Layer.floatingWindow(@as(usize, state.stack_order));
+}
+
+pub fn isFrontFloatingWindow(self: *State, id: Element.Id) bool {
+    const front_id = self.frontFloatingWindow() orelse return false;
+    return front_id == id;
+}
+
+pub fn frontFloatingWindow(self: *State) ?Element.Id {
+    var front_id: ?Element.Id = null;
+    var front_order: u32 = 0;
+    var it = self.storage.pools.floating_window.map.iterator();
+    while (it.next()) |entry| {
+        const candidate = &entry.value_ptr.value;
+        if (!isFloatingWindowVisible(self.frame, candidate.visible_frame)) continue;
+        if (candidate.stack_order == 0) continue;
+        if (front_id == null or candidate.stack_order > front_order) {
+            front_id = entry.key_ptr.*;
+            front_order = candidate.stack_order;
+        }
+    }
+    return front_id;
+}
+
+fn isFloatingWindowVisible(frame: u32, visible_frame: u32) bool {
+    return frame -% visible_frame <= 1;
 }
 
 /// Call at the end of each frame. Evicts entries whose `last_seen` stamp is

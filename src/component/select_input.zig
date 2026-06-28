@@ -2,6 +2,7 @@ const std = @import("std");
 
 const ui_mod = @import("ui");
 
+const Layer = ui_mod.Layer;
 const State = ui_mod.State;
 const Style = ui_mod.Style;
 const Color = ui_mod.Color;
@@ -48,7 +49,7 @@ pub fn SelectInput(comptime T: type) type {
         focused_style: Style = .{ .color = .elevated, .border_color = .primary, .border_width = .all(1) },
         option_style: Style = .{ .color = .elevated, .border_color = .toned, .border_width = .all(1) },
         option_hover_color: Color.Input = .muted,
-        dropdown_z_index: u8 = 1,
+        dropdown_z_index: Layer = .dropdown,
         onSelect: ?*const fn (*App, T, u32) anyerror!void = null,
 
         const Self = @This();
@@ -242,7 +243,7 @@ pub fn SelectInput(comptime T: type) type {
                     .width = .fixed(anchor.w()),
                     .height = .{ .kind = .fit, .max = max_h },
                     .overflow = .scroll_y,
-                    .z_index = self.dropdown_z_index,
+                    .z_index = self.dropdown_z_index.index(),
                     .padding = .init(2, 0, 2, 0),
                 }, .{ .rect = self.option_style.toRect(&ui.theme) });
 

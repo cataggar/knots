@@ -23,6 +23,7 @@ const Size = @import("Size.zig");
 const Theme = @import("Theme.zig");
 const Radius = @import("Radius.zig");
 const BorderWidth = @import("BorderWidth.zig");
+const Layer = @import("Layer.zig");
 const scrollbar = @import("scrollbar.zig");
 const canvas_tessellator = @import("canvas_tessellator.zig");
 
@@ -43,9 +44,15 @@ pub const HitRecord = struct {
     id: Element.Id,
     bounds: math.Rect,
     clip: Clip.State,
-    layer: u8,
+    layer: Layer,
     input_scope: Element.Id,
     insertion_order: u32,
+};
+
+pub const HitTarget = enum {
+    exact,
+    within,
+    root,
 };
 
 pub const Config = struct {
@@ -74,6 +81,8 @@ font: text.Font,
 state: State,
 input: Input,
 hit_records: std.ArrayList(HitRecord),
+press_ancestors: std.ArrayList(Element.Id),
+hover_ancestors: std.ArrayList(Element.Id),
 focus_order: std.ArrayList(Element.Id),
 accessibility_nodes: std.ArrayList(Accessibility.Node),
 hit_counter: u32,
@@ -101,6 +110,8 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .input = .{},
         .font = try .init(allocator, cfg.fonts),
         .hit_records = .empty,
+        .press_ancestors = .empty,
+        .hover_ancestors = .empty,
         .focus_order = .empty,
         .accessibility_nodes = .empty,
         .hit_counter = 0,
@@ -125,6 +136,8 @@ pub fn deinit(self: *UI) void {
     self.font.deinit();
     self.state.deinit();
     self.hit_records.deinit(self.allocator);
+    self.press_ancestors.deinit(self.allocator);
+    self.hover_ancestors.deinit(self.allocator);
     self.focus_order.deinit(self.allocator);
     self.freeAccessibilityNodes();
     self.accessibility_nodes.deinit(self.allocator);
@@ -161,12 +174,17 @@ pub fn close(self: *UI) void {
     self.layout_ctx.close();
 }
 
+pub fn currentLayer(self: *UI) Layer {
+    if (self.layout_ctx.stack.items.len == 0) return .base;
+    const parent_slot = self.layout_ctx.stack.items[self.layout_ctx.stack.items.len - 1];
+    const parent = self.layout_ctx.pool.get(parent_slot);
+    return .fromIndex(parent.z_index);
+}
+
 pub fn openRoot(self: *UI, key: Key, x: f32, y: f32, config: Element.Config, decoration: Decoration) !Element.Id {
     var cfg = config;
     if (self.layout_ctx.stack.items.len > 0) {
-        const parent_slot = self.layout_ctx.stack.items[self.layout_ctx.stack.items.len - 1];
-        const parent = self.layout_ctx.pool.get(parent_slot);
-        cfg.z_index = @max(cfg.z_index, parent.z_index);
+        cfg.z_index = self.currentLayer().overlayWithin(Layer.fromIndex(cfg.z_index)).index();
     }
 
     const id = key.hash();
@@ -218,7 +236,7 @@ pub fn openAt(self: *UI, key: Key, x: f32, y: f32, w: f32, h: f32, config: Eleme
 pub fn beginInputScope(self: *UI, id: Element.Id, config: InputScopeConfig) !void {
     const slot = self.layout_ctx.slotForId(id) orelse unreachable;
     const el = self.layout_ctx.pool.get(slot);
-    try self.input_scopes.begin(self.allocator, id, config, el.z_index);
+    try self.input_scopes.begin(self.allocator, id, config, Layer.fromIndex(el.z_index));
     el.input_scope = id;
 }
 
@@ -511,9 +529,18 @@ pub fn pressing(self: *UI, id: Element.Id) bool {
     return self.state.active == id;
 }
 
-pub fn leftClicked(self: *UI, id: Element.Id) bool {
+pub fn leftPressed(self: *UI, id: Element.Id, target: HitTarget) bool {
     if (!self.inputScopeAllowsId(id)) return false;
-    return self.input.mouseButton(.left).pressed and self.state.press_origin == id;
+    if (!self.input.mouseButton(.left).pressed) return false;
+    return matchesHitTarget(self.state.press_origin, self.press_ancestors.items, id, target);
+}
+
+pub fn leftClicked(self: *UI, id: Element.Id, target: HitTarget) bool {
+    if (!self.inputScopeAllowsId(id)) return false;
+    if (!self.input.mouseButton(.left).released) return false;
+    if (self.state.press_drag) return false;
+    if (!matchesHitTarget(self.state.press_origin, self.press_ancestors.items, id, target)) return false;
+    return matchesHitTarget(self.state.hovered, self.hover_ancestors.items, id, target);
 }
 
 pub fn focused(self: *UI, id: Element.Id) bool {
@@ -536,14 +563,6 @@ pub fn isFocusedWithin(self: *UI, ancestor_id: Element.Id) bool {
     return self.isDescendantOrSelf(self.state.focused, ancestor_id);
 }
 
-pub fn leftClickedWithin(self: *UI, ancestor_id: Element.Id) bool {
-    if (!self.inputScopeAllowsId(ancestor_id)) return false;
-    if (!self.input.mouseButton(.left).released) return false;
-    if (self.state.press_drag) return false;
-    if (!self.isDescendantOrSelf(self.state.press_origin, ancestor_id)) return false;
-    return self.isDescendantOrSelf(self.state.hovered, ancestor_id);
-}
-
 fn currentMouseHit(self: *UI) Element.Id {
     return self.mouseHit(self.input.mouse_pos);
 }
@@ -560,6 +579,24 @@ fn isDescendantOrSelf(self: *UI, descendant_id: Element.Id, ancestor_id: Element
     return self.layout_ctx.isDescendantOf(descendant_slot, ancestor_slot);
 }
 
+fn matchesHitTarget(hit: Element.Id, ancestors: []const Element.Id, id: Element.Id, target: HitTarget) bool {
+    return switch (target) {
+        .exact => hit == id,
+        .within => std.mem.indexOfScalar(Element.Id, ancestors, id) != null,
+        .root => ancestors.len > 0 and ancestors[ancestors.len - 1] == id,
+    };
+}
+
+fn captureHitAncestors(allocator: Allocator, layout_ctx: *layout.Context, id: Element.Id, out: *std.ArrayList(Element.Id)) !void {
+    out.clearRetainingCapacity();
+    var slot = layout_ctx.slotForId(id) orelse return;
+    while (slot != Element.INVALID_SLOT) {
+        const el = layout_ctx.pool.get(slot);
+        try out.append(allocator, el.id);
+        slot = el.parent;
+    }
+}
+
 pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale: f32) !void {
     self.content_scale = content_scale;
     self.state.selection_text = &.{};
@@ -568,6 +605,7 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
     if (self.input.focus_lost or self.input.pointer_cancelled) {
         self.state.active = Element.INVALID_ID;
         self.state.press_origin = Element.INVALID_ID;
+        self.press_ancestors.clearRetainingCapacity();
         self.state.press_drag = false;
     }
 
@@ -577,7 +615,10 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
         if (!self.inputScopeAllowsId(self.state.hovered)) self.state.hovered = Element.INVALID_ID;
         if (!self.inputScopeAllowsId(self.state.focused)) self.state.focused = Element.INVALID_ID;
         if (!self.inputScopeAllowsId(self.state.active)) self.state.active = Element.INVALID_ID;
-        if (!self.inputScopeAllowsId(self.state.press_origin)) self.state.press_origin = Element.INVALID_ID;
+        if (!self.inputScopeAllowsId(self.state.press_origin)) {
+            self.state.press_origin = Element.INVALID_ID;
+            self.press_ancestors.clearRetainingCapacity();
+        }
     }
 
     if (self.input.containsKey(.tab)) {
@@ -586,10 +627,12 @@ pub fn resolveWindow(self: *UI, input: window.Input, now_ms: i64, content_scale:
     }
 
     self.state.hovered = self.currentMouseHit();
+    try captureHitAncestors(self.allocator, &self.layout_ctx, self.state.hovered, &self.hover_ancestors);
 
     if (self.input.mouseButton(.left).pressed) {
         const press_pos = self.input.mouseButton(.left).pressed_pos orelse self.input.mouse_pos;
         const press_hit = self.mouseHit(press_pos);
+        try captureHitAncestors(self.allocator, &self.layout_ctx, press_hit, &self.press_ancestors);
         self.state.active = press_hit;
         self.state.focused = press_hit;
         self.state.press_origin = press_hit;
@@ -626,6 +669,7 @@ fn advanceFocus(self: *UI, backward: bool) void {
         self.state.active = Element.INVALID_ID;
         return;
     }
+    const front_floating = if (self.input_scopes.hasActive()) null else self.state.frontFloatingWindow();
 
     var current_index: ?usize = null;
     for (order, 0..) |id, i| {
@@ -649,12 +693,18 @@ fn advanceFocus(self: *UI, backward: bool) void {
         else
             (start + offset) % order.len;
         const id = order[idx];
-        if (self.inputScopeAllowsId(id)) {
-            self.state.focused = id;
-            self.state.active = Element.INVALID_ID;
-            return;
+        if (!self.inputScopeAllowsId(id)) continue;
+        if (front_floating) |root_id| {
+            if (!self.isDescendantOrSelf(id, root_id)) continue;
         }
+
+        self.state.focused = id;
+        self.state.active = Element.INVALID_ID;
+        return;
     }
+
+    self.state.focused = Element.INVALID_ID;
+    self.state.active = Element.INVALID_ID;
 }
 
 /// Advance the per widget state TTL clock. Call once per frame after the
@@ -675,11 +725,11 @@ fn clearOtherTextSelect(hovered: Element.Id, id: Element.Id, s: *State.TextSelec
     s.dragging = false;
 }
 
-pub fn appendHit(self: *UI, id: Element.Id, bounds: math.Rect, clip: Clip.State, layer: u8) !void {
+pub fn appendHit(self: *UI, id: Element.Id, bounds: math.Rect, clip: Clip.State, layer: Layer) !void {
     try self.appendHitWithScope(id, bounds, clip, layer, self.inputScopeForId(id) orelse Element.INVALID_ID);
 }
 
-pub fn appendHitWithScope(self: *UI, id: Element.Id, bounds: math.Rect, clip: Clip.State, layer: u8, input_scope: Element.Id) !void {
+pub fn appendHitWithScope(self: *UI, id: Element.Id, bounds: math.Rect, clip: Clip.State, layer: Layer, input_scope: Element.Id) !void {
     try self.hit_records.append(self.allocator, .{
         .id = id,
         .bounds = bounds,
@@ -701,7 +751,7 @@ pub fn resolveHit(self: *UI) bool {
 
 fn hitTarget(self: *UI, p: math.Vec2) Element.Id {
     var best_id: Element.Id = Element.INVALID_ID;
-    var best_layer: u8 = 0;
+    var best_layer: Layer = Layer.base;
     var best_order: u32 = 0;
 
     for (self.hit_records.items) |rec| {
@@ -710,8 +760,8 @@ fn hitTarget(self: *UI, p: math.Vec2) Element.Id {
         if (!self.input_scopes.allows(rec.input_scope)) continue;
 
         if (best_id == Element.INVALID_ID or
-            rec.layer > best_layer or
-            (rec.layer == best_layer and rec.insertion_order > best_order))
+            rec.layer.above(best_layer) or
+            (rec.layer.eql(best_layer) and rec.insertion_order > best_order))
         {
             best_id = rec.id;
             best_layer = rec.layer;
@@ -764,8 +814,9 @@ pub fn tessellate(self: *UI, allocator: Allocator, draw_list: *DrawList) !void {
 
     var it = self.layout_ctx.z_used.iterator(.{});
     while (it.next()) |z| {
-        draw_list.setLayer(@intCast(z));
-        try self.tessellateLayer(allocator, draw_list, self.layout_ctx.zSlots(@intCast(z)), @intCast(z));
+        const layer = Layer.fromIndex(z);
+        draw_list.setLayer(layer.index());
+        try self.tessellateLayer(allocator, draw_list, self.layout_ctx.zSlots(layer.index()), layer);
     }
 }
 
@@ -833,7 +884,7 @@ fn childClip(self: *UI, slot: Element.Slot, parent_clip: Clip.State) !Clip.State
     return out;
 }
 
-fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots: []const Element.Slot, layer: u8) !void {
+fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots: []const Element.Slot, layer: Layer) !void {
     const content_scale = self.content_scale;
     const elements = self.layout_ctx.pool.elements.items;
 
@@ -1137,7 +1188,7 @@ test "resolveHit reports hover changes" {
     var ui = try UI.init(allocator, .{});
     defer ui.deinit();
 
-    try ui.appendHit(42, .init(0, 0, 100, 100), .{}, 0);
+    try ui.appendHit(42, .init(0, 0, 100, 100), .{}, Layer.base);
 
     ui.input.mouse_pos = .{ 10, 10 };
     try std.testing.expect(ui.resolveHit());

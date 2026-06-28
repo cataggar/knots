@@ -86,50 +86,50 @@ pub fn VirtualList(comptime T: type) type {
         const Self = @This();
 
         pub fn eval(self: *const Self, app: *App) !void {
-            const stack = app.ui.layout_ctx.stack.items;
+            const stack = app.viewport.ui.layout_ctx.stack.items;
 
             // Must be opened inside a parent.
             std.debug.assert(stack.len > 0);
 
             const parent_slot = stack[stack.len - 1];
-            const parent_el = app.ui.layout_ctx.pool.get(parent_slot);
+            const parent_el = app.viewport.ui.layout_ctx.pool.get(parent_slot);
             const parent_id = parent_el.id;
-            _ = try app.ui.state.getOrCreate(.measured, app.ui.allocator, parent_id);
+            _ = try app.viewport.ui.state.getOrCreate(.measured, app.viewport.ui.allocator, parent_id);
 
-            const measured_h: f32 = if (app.ui.state.get(.measured, parent_id)) |s| s.height else 0;
+            const measured_h: f32 = if (app.viewport.ui.state.get(.measured, parent_id)) |s| s.height else 0;
             const configured_h: f32 = if (parent_el.height.kind == .fixed) parent_el.height.value else 0;
             const parent_h: f32 = if (measured_h > 0) measured_h else configured_h;
-            const scroll_y = app.ui.state.getScroll(parent_id)[1];
+            const scroll_y = app.viewport.ui.state.getScroll(parent_id)[1];
 
             switch (virtualRange(self.items.len, self.row_height, parent_h, scroll_y, self.overscan)) {
                 .empty => return,
                 .placeholder => |r| {
                     if (r.total_h > 0) {
-                        _ = try app.ui.open(self.key.indexed(0), .{
+                        _ = try app.viewport.ui.open(self.key.indexed(0), .{
                             .width = .grow(),
                             .height = .fixed(r.total_h),
                         }, .none);
-                        app.ui.close();
-                        try app.signal(.redraw);
+                        app.viewport.ui.close();
+                        app.requestFrame();
                     }
                 },
                 .visible => |r| {
                     if (r.lead_h > 0) {
-                        _ = try app.ui.open(self.key.indexed(0), .{
+                        _ = try app.viewport.ui.open(self.key.indexed(0), .{
                             .width = .grow(),
                             .height = .fixed(r.lead_h),
                         }, .none);
-                        app.ui.close();
+                        app.viewport.ui.close();
                     }
                     for (self.items[r.first..r.last], r.first..) |item, i| {
                         try self.each(app, item, i);
                     }
                     if (r.trail_h > 0) {
-                        _ = try app.ui.open(self.key.indexed(1), .{
+                        _ = try app.viewport.ui.open(self.key.indexed(1), .{
                             .width = .grow(),
                             .height = .fixed(r.trail_h),
                         }, .none);
-                        app.ui.close();
+                        app.viewport.ui.close();
                     }
                 },
             }

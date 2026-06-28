@@ -16,6 +16,7 @@ const Graph = knots.component.Graph;
 const Rect = knots.component.Rect;
 const SelectInput = knots.component.SelectInput;
 const Text = knots.component.Text;
+const Layer = knots.ui.Layer;
 
 const panel_w: f32 = 680.0;
 const panel_landscape_h: f32 = 260.0;
@@ -24,9 +25,9 @@ const margin: f32 = 16.0;
 const trigger_size: f32 = 40.0;
 const trigger_visible_h: f32 = trigger_size / 2.0;
 const panel_gap: f32 = 6.0;
-const panel_z: u8 = 240;
-const trigger_z: u8 = 245;
-const popup_z: u8 = 250;
+const panel_z: Layer = Layer.fromIndex(240);
+const trigger_z: Layer = Layer.fromIndex(245);
+const popup_z: Layer = Layer.fromIndex(250);
 
 const Tab = enum {
     metrics,
@@ -88,32 +89,32 @@ const present_mode_key: knots.ui.Key = .str("debug_devtools_present_mode");
 const spark_key: knots.ui.Key = .str("debug_devtools_spark");
 
 fn selectedIdx(app: *knots.App, key: knots.ui.Key, fallback: u32) u32 {
-    const s = app.ui.state.get(.select_input, key.hash()) orelse return fallback;
+    const s = app.viewport.ui.state.get(.select_input, key.hash()) orelse return fallback;
     return s.selected orelse fallback;
 }
 
 pub fn render(self: *const DevTools, app: *knots.App) anyerror!void {
-    self.state.perf.update(app.timer.delta);
+    self.state.perf.update(app.viewport.timer.delta);
     self.state.runtime.update(app.frame_arena.queryCapacity());
 
-    const size = app.window.getSize();
+    const size = app.viewport.window.getSize();
     const w: f32 = @floatFromInt(size.width);
     const h: f32 = @floatFromInt(size.height);
     const trigger_x = @max(0, (w - trigger_size) / 2.0);
     const trigger_y = @max(0, h - trigger_visible_h);
 
     try self.renderTrigger(app, trigger_x, trigger_y);
-    if (app.ui.leftClickedWithin(trigger_button_key.hash())) self.state.panel_open = !self.state.panel_open;
+    if (app.viewport.ui.leftClicked(trigger_button_key.hash(), .within)) self.state.panel_open = !self.state.panel_open;
 
     if (self.state.panel_open) try self.renderPanel(app, w, trigger_y);
-    if (app.ui.leftClickedWithin(close_key.hash())) self.state.panel_open = false;
+    if (app.viewport.ui.leftClicked(close_key.hash(), .within)) self.state.panel_open = false;
 }
 
 fn renderTrigger(_: *const DevTools, app: *knots.App, x: f32, y: f32) !void {
-    _ = try app.ui.openRoot(trigger_key, x, y, .{
+    _ = try app.viewport.ui.openRoot(trigger_key, x, y, .{
         .width = .fixed(trigger_size),
         .height = .fixed(trigger_size),
-        .z_index = trigger_z,
+        .z_index = trigger_z.index(),
     }, .none);
 
     try app.e(Button{
@@ -128,7 +129,7 @@ fn renderTrigger(_: *const DevTools, app: *knots.App, x: f32, y: f32) !void {
         .padding = .init(0, 0, 18, 0),
     });
 
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y: f32) !void {
@@ -140,19 +141,19 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
     const height = @min(desired_h, max_h);
     const y = @max(margin, trigger_y - height - panel_gap);
 
-    _ = try app.ui.openRoot(panel_key, x, y, .{
+    _ = try app.viewport.ui.openRoot(panel_key, x, y, .{
         .width = .fixed(width),
         .height = if (is_landscape) .fixed(height) else .{ .kind = .fit, .max = height },
         .padding = .init(14, 14, 14, 14),
         .direction = .column,
         .gap = 12,
         .overflow = .scroll_y,
-        .z_index = panel_z,
+        .z_index = panel_z.index(),
     }, .{ .rect = .{
-        .color = app.ui.theme.elevated.value,
-        .corner_radius = app.ui.theme.radius.scale(1.5),
+        .color = app.viewport.ui.theme.elevated.value,
+        .corner_radius = app.viewport.ui.theme.radius.scale(1.5),
         .border_width = .all(1),
-        .border_color = app.ui.theme.toned.value,
+        .border_color = app.viewport.ui.theme.toned.value,
     } });
 
     try app.e(.{
@@ -181,9 +182,9 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
     });
 
     try self.renderTabs(app);
-    if (app.ui.leftClickedWithin(metrics_tab_key.hash())) self.state.active_tab = .metrics;
-    if (app.ui.leftClickedWithin(runtime_tab_key.hash())) self.state.active_tab = .runtime;
-    if (app.ui.leftClickedWithin(renderer_tab_key.hash())) self.state.active_tab = .renderer;
+    if (app.viewport.ui.leftClicked(metrics_tab_key.hash(), .within)) self.state.active_tab = .metrics;
+    if (app.viewport.ui.leftClicked(runtime_tab_key.hash(), .within)) self.state.active_tab = .runtime;
+    if (app.viewport.ui.leftClicked(renderer_tab_key.hash(), .within)) self.state.active_tab = .renderer;
 
     const content_w = @max(0, width - 28.0);
     switch (self.state.active_tab) {
@@ -192,8 +193,7 @@ fn renderPanel(self: *const DevTools, app: *knots.App, window_w: f32, trigger_y:
         .renderer => try self.renderRenderer(app),
     }
 
-    app.ui.close();
-
+    app.viewport.ui.close();
 }
 
 fn centeredOverlayX(window_w: f32, width: f32) f32 {
@@ -202,7 +202,7 @@ fn centeredOverlayX(window_w: f32, width: f32) f32 {
 }
 
 fn renderTabs(self: *const DevTools, app: *knots.App) !void {
-    _ = try app.ui.open(panel_key.indexed(4), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(4), .{
         .width = .grow(),
         .height = .fixed(30),
         .direction = .row,
@@ -245,11 +245,11 @@ fn renderTabs(self: *const DevTools, app: *knots.App) !void {
         .text = .{ .content = "Renderer", .size = .xs },
     });
 
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 fn renderMetricsTab(self: *const DevTools, app: *knots.App, content_w: f32) !void {
-    _ = try app.ui.open(panel_key.indexed(40), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(40), .{
         .width = .grow(),
         .direction = .column,
         .gap = 12,
@@ -258,11 +258,11 @@ fn renderMetricsTab(self: *const DevTools, app: *knots.App, content_w: f32) !voi
     try self.renderMetricsGrid(app);
     try self.renderSparkline(app, content_w);
 
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 fn renderRuntimeTab(self: *const DevTools, app: *knots.App, content_w: f32) !void {
-    _ = try app.ui.open(panel_key.indexed(50), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(50), .{
         .width = .grow(),
         .direction = .column,
         .gap = 12,
@@ -271,7 +271,7 @@ fn renderRuntimeTab(self: *const DevTools, app: *knots.App, content_w: f32) !voi
     const columns: usize = if (content_w >= 620) 6 else if (content_w >= 420) 3 else 2;
     try self.renderRuntimeGrid(app, columns);
 
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 fn renderRuntimeGrid(self: *const DevTools, app: *knots.App, columns: usize) !void {
@@ -305,7 +305,7 @@ fn renderPerformanceMetrics(self: *const DevTools, app: *knots.App) !void {
 fn renderMetricsGrid(self: *const DevTools, app: *knots.App) !void {
     const arena = app.arena();
     const mm = self.state.perf.minMaxMs();
-    const stats = app.ui.last_stats;
+    const stats = app.viewport.ui.last_stats;
 
     try metricGridColumns(app, panel_key.indexed(12), 5, &.{
         .{ "FPS", try std.fmt.allocPrint(arena, "{d:.1}", .{self.state.perf.averageFps()}) },
@@ -316,8 +316,8 @@ fn renderMetricsGrid(self: *const DevTools, app: *knots.App) !void {
         .{ "Hit records", try std.fmt.allocPrint(arena, "{d}", .{stats.hit_records}) },
         .{ "Scroll roots", try std.fmt.allocPrint(arena, "{d}", .{stats.scroll_containers}) },
         .{ "Draw layers", try std.fmt.allocPrint(arena, "{d}", .{stats.layers}) },
-        .{ "Hovered", try formatId(arena, app.ui.state.hovered) },
-        .{ "Focused", try formatId(arena, app.ui.state.focused) },
+        .{ "Hovered", try formatId(arena, app.viewport.ui.state.hovered) },
+        .{ "Focused", try formatId(arena, app.viewport.ui.state.focused) },
     });
 }
 
@@ -330,7 +330,7 @@ fn renderSparkline(self: *const DevTools, app: *knots.App, width: f32) !void {
     const mm = self.state.perf.minMaxMs();
     const max_ms = @max(16.7, mm.max);
 
-    _ = try app.ui.open(spark_key.indexed(1), .{
+    _ = try app.viewport.ui.open(spark_key.indexed(1), .{
         .width = .grow(),
         .height = .fixed(68),
         .direction = .row,
@@ -360,13 +360,13 @@ fn renderSparkline(self: *const DevTools, app: *knots.App, width: f32) !void {
         },
     });
 
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
-    if (app.rendererReconfigureError() != null) self.state.present_mode = app.renderer.cfg.present_mode;
+    if (app.rendererReconfigureError() != null) self.state.present_mode = app.viewport.renderer.cfg.present_mode;
 
-    var supported_modes = app.renderer.supportedPresentModes();
+    var supported_modes = app.viewport.renderer.supportedPresentModes();
     var mode_values: [std.enums.values(PresentMode).len]PresentMode = undefined;
     var mode_labels: [mode_values.len][]const u8 = undefined;
     var mode_count: usize = 0;
@@ -377,24 +377,24 @@ fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
         mode_count += 1;
     }
 
-    _ = try app.ui.open(panel_key.indexed(20), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(20), .{
         .width = .grow(),
         .direction = .column,
         .gap = 8,
     }, .none);
 
-    _ = try app.ui.open(panel_key.indexed(21), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(21), .{
         .width = .grow(),
         .padding = .init(8, 10, 8, 10),
         .direction = .column,
         .gap = 8,
     }, .{ .rect = .{
-        .color = app.ui.theme.muted.value,
-        .corner_radius = app.ui.theme.radius.scale(0.5),
+        .color = app.viewport.ui.theme.muted.value,
+        .corner_radius = app.viewport.ui.theme.radius.scale(0.5),
         .border_width = .all(1),
-        .border_color = app.ui.theme.toned.value,
+        .border_color = app.viewport.ui.theme.toned.value,
     } });
-    _ = try app.ui.open(panel_key.indexed(22), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(22), .{
         .width = .grow(),
         .direction = .column,
         .gap = 4,
@@ -413,9 +413,9 @@ fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
         .width = .grow(),
         .selectable = false,
     });
-    app.ui.close();
+    app.viewport.ui.close();
 
-    _ = try app.ui.open(panel_key.indexed(24), .{
+    _ = try app.viewport.ui.open(panel_key.indexed(24), .{
         .width = .grow(),
         .direction = .column,
         .gap = 4,
@@ -446,7 +446,7 @@ fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
             .size = .sm,
         });
     }
-    app.ui.close();
+    app.viewport.ui.close();
 
     if (mode_count > 1) {
         try app.e(Button{
@@ -471,31 +471,31 @@ fn renderRenderer(self: *const DevTools, app: *knots.App) !void {
         });
     }
 
-    app.ui.close();
+    app.viewport.ui.close();
 
-    app.ui.close();
+    app.viewport.ui.close();
 
-    if (mode_count > 1 and app.ui.leftClickedWithin(apply_key.hash())) {
+    if (mode_count > 1 and app.viewport.ui.leftClicked(apply_key.hash(), .within)) {
         const present_mode_idx = selectedIdx(app, present_mode_key, mustFindIdx(mode_values[0..mode_count], self.state.present_mode));
         self.state.present_mode = mode_values[present_mode_idx];
-        var cfg = app.renderer.cfg;
+        var cfg = app.viewport.renderer.cfg;
         cfg.present_mode = self.state.present_mode;
-        try app.reconfigureRenderer(cfg);
+        app.reconfigureRenderer(cfg);
         if (self.onClick) |cb| try cb(app);
     }
 }
 
 fn renderDiagnostics(_: *const DevTools, app: *knots.App) !void {
     const arena = app.arena();
-    const stats = app.ui.last_stats;
+    const stats = app.viewport.ui.last_stats;
 
     try metricGrid(app, panel_key.indexed(31), &.{
         .{ "Elements", try std.fmt.allocPrint(arena, "{d}", .{stats.elements}) },
         .{ "Hit records", try std.fmt.allocPrint(arena, "{d}", .{stats.hit_records}) },
         .{ "Scroll roots", try std.fmt.allocPrint(arena, "{d}", .{stats.scroll_containers}) },
         .{ "Draw layers", try std.fmt.allocPrint(arena, "{d}", .{stats.layers}) },
-        .{ "Hovered", try formatId(arena, app.ui.state.hovered) },
-        .{ "Focused", try formatId(arena, app.ui.state.focused) },
+        .{ "Hovered", try formatId(arena, app.viewport.ui.state.hovered) },
+        .{ "Focused", try formatId(arena, app.viewport.ui.state.focused) },
     });
 }
 
@@ -514,7 +514,7 @@ fn metricGrid(app: *knots.App, key: knots.ui.Key, items: []const struct { []cons
 }
 
 fn metricGridColumns(app: *knots.App, key: knots.ui.Key, columns: usize, items: []const struct { []const u8, []const u8 }) !void {
-    _ = try app.ui.open(key, .{
+    _ = try app.viewport.ui.open(key, .{
         .width = .grow(),
         .direction = .column,
         .gap = 4,
@@ -522,7 +522,7 @@ fn metricGridColumns(app: *knots.App, key: knots.ui.Key, columns: usize, items: 
 
     var i: usize = 0;
     while (i < items.len) : (i += columns) {
-        _ = try app.ui.open(key.indexed(100 + i), .{
+        _ = try app.viewport.ui.open(key.indexed(100 + i), .{
             .width = .grow(),
             .direction = .row,
             .gap = 4,
@@ -544,10 +544,10 @@ fn metricGridColumns(app: *knots.App, key: knots.ui.Key, columns: usize, items: 
             }
         }
 
-        app.ui.close();
+        app.viewport.ui.close();
     }
 
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 const MetricCard = struct {

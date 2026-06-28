@@ -9,6 +9,7 @@ const ui_mod = @import("ui");
 const Color = ui_mod.Color;
 const Decoration = ui_mod.Decoration;
 const Key = ui_mod.Key;
+const Layer = ui_mod.Layer;
 const Size = ui_mod.Size;
 const State = ui_mod.State;
 const Style = ui_mod.Style;
@@ -45,7 +46,7 @@ grid_placement: ?Grid.Placement = null,
 
 delay_ms: u32 = 450,
 placement: PlacementKind = .top,
-z_index: u8 = 10,
+z_index: Layer = .popup,
 popup_padding: Element.Padding = .init(6, 8, 6, 8),
 popup_style: Style = .{ .color = .elevated, .corner_radius = .sm, .border_color = .toned, .border_width = .all(1) },
 popup_text_size: Size.Input = .xs,

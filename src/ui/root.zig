@@ -3,6 +3,7 @@ pub const Decoration = @import("decoration.zig").Decoration;
 pub const Style = @import("Style.zig");
 pub const Input = @import("Input.zig");
 pub const Key = @import("Key.zig");
+pub const Layer = @import("Layer.zig");
 pub const State = @import("State.zig");
 pub const Theme = @import("Theme.zig");
 pub const Accessibility = @import("Accessibility.zig");

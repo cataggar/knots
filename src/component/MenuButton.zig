@@ -12,6 +12,7 @@ const Text = @import("Text.zig");
 const Color = ui_mod.Color;
 const BorderWidth = ui_mod.BorderWidth;
 const Key = ui_mod.Key;
+const Layer = ui_mod.Layer;
 const State = ui_mod.State;
 const Style = ui_mod.Style;
 
@@ -40,7 +41,7 @@ pub fn MenuButton(comptime Menu: type) type {
 
         menu_width: ?f32 = null,
         fallback_menu_height: f32 = 180,
-        popup_z_index: u8 = 10,
+        popup_z_index: Layer = .popup,
         popup_padding: Element.Padding = .init(4, 4, 4, 4),
         popup_gap: f32 = 2,
         popup_style: Style = .{ .color = .elevated, .corner_radius = .sm, .border_color = .toned, .border_width = .all(1) },

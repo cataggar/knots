@@ -11,6 +11,7 @@ const State = @import("State.zig");
 const Theme = @import("Theme.zig");
 const UI = @import("UI.zig");
 const BorderWidth = @import("BorderWidth.zig");
+const Layer = @import("Layer.zig");
 
 const THUMB_ID_SALT: Element.Id = 0x5C205C205C205C20;
 const WHEEL_LOCK_IDLE_MS: i64 = 120;
@@ -28,7 +29,7 @@ pub const Geom = struct {
 
 pub const SlotGeom = struct {
     slot: Element.Slot,
-    layer: u8 = 0,
+    layer: Layer = Layer.base,
     parent_clip: Clip.State = .{},
     geom: Geom,
 };
@@ -251,7 +252,7 @@ pub fn route(ui: *UI) !void {
     }
 }
 
-pub fn recordForTessellate(ui: *UI, slot: Element.Slot, parent_clip: Clip.State, layer: u8) !void {
+pub fn recordForTessellate(ui: *UI, slot: Element.Slot, parent_clip: Clip.State, layer: Layer) !void {
     const el = &ui.layout_ctx.pool.elements.items[slot];
     const offset = ui.state.getScroll(el.id);
     const geom = compute(el, .{ offset[0], offset[1] }, &ui.theme) orelse return;
@@ -263,7 +264,7 @@ pub fn recordForTessellate(ui: *UI, slot: Element.Slot, parent_clip: Clip.State,
     });
 }
 
-pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
+pub fn render(ui: *UI, draw_list: *DrawList, layer: Layer) !void {
     const elements = ui.layout_ctx.pool.elements.items;
     const cr = ui.theme.scrollbar_corner_radius.value;
     const base: math.Vec4 = ui.theme.scrollbar_thumb_color.value;
@@ -271,7 +272,7 @@ pub fn render(ui: *UI, draw_list: *DrawList, layer: u8) !void {
     const track_color: [4]f32 = ui.theme.scrollbar_track_color.value;
 
     for (ui.scroll_geoms.items) |sg| {
-        if (sg.layer != layer) continue;
+        if (!sg.layer.eql(layer)) continue;
         const el = &elements[sg.slot];
         const sb_id = idFor(el.id);
 

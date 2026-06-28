@@ -4,6 +4,7 @@ const ui_mod = @import("ui");
 
 const Color = ui_mod.Color;
 const Key = ui_mod.Key;
+const Layer = ui_mod.Layer;
 const Style = ui_mod.Style;
 
 pub const CloseReason = enum {
@@ -17,7 +18,7 @@ onClose: ?*const fn (*App, CloseReason) anyerror!void = null,
 
 close_on_escape: bool = true,
 close_on_backdrop_press: bool = true,
-z_index: u8 = 200,
+z_index: Layer = .modal,
 margin: f32 = 24,
 
 width: Element.sizing.Axis = .{ .kind = .fit, .max = 640 },

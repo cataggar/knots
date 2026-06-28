@@ -1,5 +1,6 @@
 const std = @import("std");
 const Element = @import("layout").Element;
+const Layer = @import("Layer.zig");
 
 const InputScope = @This();
 
@@ -9,7 +10,7 @@ pub const Config = union(enum) {
 
 const ModalEntry = struct {
     id: Element.Id,
-    z_index: u8,
+    z_index: Layer,
     order: u32,
 };
 
@@ -49,7 +50,7 @@ pub fn current(self: *const InputScope) Element.Id {
     return self.stack.items[self.stack.items.len - 1];
 }
 
-pub fn begin(self: *InputScope, allocator: std.mem.Allocator, id: Element.Id, config: Config, z_index: u8) !void {
+pub fn begin(self: *InputScope, allocator: std.mem.Allocator, id: Element.Id, config: Config, z_index: Layer) !void {
     try self.stack.ensureUnusedCapacity(allocator, 1);
     switch (config) {
         .modal => try self.entries.ensureUnusedCapacity(allocator, 1),
@@ -87,14 +88,14 @@ pub fn cancel(self: *InputScope, id: Element.Id) void {
 pub fn resolveActive(self: *InputScope) void {
     self.active = .none;
     var has_best = false;
-    var best_z: u8 = 0;
+    var best_z: Layer = Layer.base;
     var best_order: u32 = 0;
 
     for (self.entries.items) |entry| {
         switch (entry) {
             .modal => |modal| if (!has_best or
-                modal.z_index > best_z or
-                (modal.z_index == best_z and modal.order > best_order))
+                modal.z_index.above(best_z) or
+                (modal.z_index.eql(best_z) and modal.order > best_order))
             {
                 self.active = .{ .modal = modal.id };
                 has_best = true;

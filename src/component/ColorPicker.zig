@@ -7,6 +7,7 @@ const ui_mod = @import("ui");
 const Color = ui_mod.Color;
 const Decoration = ui_mod.Decoration;
 const Key = ui_mod.Key;
+const Layer = ui_mod.Layer;
 const Size = ui_mod.Size;
 const State = ui_mod.State;
 const Style = ui_mod.Style;
