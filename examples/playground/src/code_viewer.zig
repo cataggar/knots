@@ -170,7 +170,7 @@ pub fn render(
     onToggle: *const fn (*knots.App) anyerror!void,
 ) !void {
     const panel_key = knots.ui.Key.str("code.viewer");
-    const panel_w = app.ui.anim(panel_key.hash(), "w", if (expanded) expanded_width else 0, .{
+    const panel_w = app.viewport.ui.anim(panel_key.hash(), "w", if (expanded) expanded_width else 0, .{
         .duration_ms = 180,
         .ease = .ease_out_cubic,
     });

@@ -38,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
 
     var ctx = Context{
         .app = app,
-        .dev_tools = try .init(init.gpa, app.renderer.cfg.present_mode),
+        .dev_tools = try .init(init.gpa, app.viewport.renderer.cfg.present_mode),
     };
     defer {
         ctx.dev_tools.deinit(init.gpa);
@@ -52,7 +52,7 @@ fn frameCb(app: *knots.App) !void {
     const zone = tracy.zoneBegin("frameCb", @src());
     defer tracy.zoneEnd(zone);
 
-    const size = app.window.getSize();
+    const size = app.viewport.window.getSize();
     const w: f32 = @floatFromInt(size.width);
     const h: f32 = @floatFromInt(size.height);
 
@@ -252,7 +252,7 @@ fn drawCanvas(app: *knots.App, painter: *Canvas.Painter) !void {
     const zone = tracy.zoneBegin("drawCanvas", @src());
     defer tracy.zoneEnd(zone);
 
-    const t = @as(f32, @floatFromInt(@mod(app.timer.ms(), 4000))) / 4000.0;
+    const t = @as(f32, @floatFromInt(@mod(app.viewport.timer.ms(), 4000))) / 4000.0;
     const bands: usize = 256;
     const bw: f32 = 2500.0 / @as(f32, @floatFromInt(bands));
     var i: usize = 0;
@@ -273,7 +273,7 @@ fn drawCanvas(app: *knots.App, painter: *Canvas.Painter) !void {
         });
     }
 
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn srgbToLinear(c: f32) f32 {

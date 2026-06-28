@@ -32,9 +32,9 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Self {
     });
     errdefer app.deinit();
 
-    try app.ui.font.addFace("jetbrains-mono", @embedFile("fonts/JetBrainsMono-VariableFont_wght.ttf"));
+    try app.viewport.ui.font.addFace("jetbrains-mono", @embedFile("fonts/JetBrainsMono-VariableFont_wght.ttf"));
 
-    var debug_devtools = try knots.debug.DevTools.init(allocator, app.renderer.cfg.present_mode);
+    var debug_devtools = try knots.debug.DevTools.init(allocator, app.viewport.renderer.cfg.present_mode);
     errdefer debug_devtools.deinit(allocator);
 
     return Self{
@@ -61,7 +61,7 @@ pub fn start(self: *Self) !void {
 
 fn frameCb(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
-    const size = app.window.getSize();
+    const size = app.viewport.window.getSize();
 
     try app.e(.{
         Rect{
@@ -167,7 +167,7 @@ fn renderDemoSummary(app: *knots.App) !void {
 fn toggleSource(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.show_source = !self.demo_state.show_source;
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn renderDemoPane(app: *knots.App) !void {
@@ -225,7 +225,7 @@ fn renderNav(app: *knots.App) !void {
 
 fn navRows(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
-    var inactive_bg = app.ui.theme.muted.value;
+    var inactive_bg = app.viewport.ui.theme.muted.value;
     inactive_bg[3] = 0;
 
     inline for (demos.all, 0..) |d, i| {
@@ -233,7 +233,7 @@ fn navRows(app: *knots.App) !void {
             fn click(a: *knots.App) !void {
                 const s: *Self = @fieldParentPtr("app", a);
                 s.active_demo = i;
-                try a.signal(.redraw);
+                a.requestFrame();
             }
         }.click;
 

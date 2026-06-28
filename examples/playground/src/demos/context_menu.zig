@@ -118,7 +118,7 @@ const ActionRow = struct {
     key: knots.ui.Key,
 
     pub fn open(self: *const ActionRow, app: *knots.App) !u64 {
-        const ui = &app.ui;
+        const ui = &app.viewport.ui;
         const id = self.key.hash();
         const hovered = ui.hovering(id);
 
@@ -144,15 +144,15 @@ const ActionRow = struct {
     }
 
     pub fn close(self: *const ActionRow, app: *knots.App) !void {
-        const ui = &app.ui;
+        const ui = &app.viewport.ui;
         const id = self.key.hash();
         ui.close();
 
-        if (ui.leftClickedWithin(id)) {
+        if (ui.leftClicked(id, .within)) {
             const root: *Self = @fieldParentPtr("app", app);
             root.demo_state.context_menu_last_action = self.action;
             root.demo_state.context_menu_last_target = self.target;
-            try app.signal(.redraw);
+            app.requestFrame();
         }
     }
 };

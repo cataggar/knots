@@ -73,7 +73,7 @@ fn onDraw(app: *knots.App, painter: *Canvas.Painter) !void {
 fn drawGradient(app: *knots.App, painter: *Canvas.Painter) !void {
     const w: f32 = canvas_width;
     const h: f32 = canvas_height;
-    const t = @as(f32, @floatFromInt(@mod(app.timer.ms(), 10000))) / 10000.0;
+    const t = @as(f32, @floatFromInt(@mod(app.viewport.timer.ms(), 10000))) / 10000.0;
     const n = 12;
 
     var i: usize = 0;
@@ -106,7 +106,7 @@ fn drawGradient(app: *knots.App, painter: *Canvas.Painter) !void {
         }
     }
 
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn drawClock(app: *knots.App, painter: *Canvas.Painter) !void {
@@ -132,7 +132,7 @@ fn drawClock(app: *knots.App, painter: *Canvas.Painter) !void {
         });
     }
 
-    const ms = app.timer.ms();
+    const ms = app.viewport.timer.ms();
     const seconds_f = @as(f32, @floatFromInt(@mod(ms, 60_000))) / 1000.0;
     const minutes_f = @as(f32, @floatFromInt(@mod(ms, 3_600_000))) / 60_000.0;
     const hours_f = @as(f32, @floatFromInt(@mod(ms, 43_200_000))) / 3_600_000.0;
@@ -162,7 +162,7 @@ fn drawClock(app: *knots.App, painter: *Canvas.Painter) !void {
 
     try painter.fillCircle(.{ .cx = cx, .cy = cy, .radius = 4, .color = .{ 0.83, 0.46, 0.18, 1.0 } });
 
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn drawBars(painter: *Canvas.Painter) !void {

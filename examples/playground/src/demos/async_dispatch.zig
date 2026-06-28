@@ -59,7 +59,7 @@ fn body(app: *knots.App) !void {
         .key = .src(@src()),
     });
 
-    if (self.demo_state.pending_async > 0) try app.signal(.redraw);
+    if (self.demo_state.pending_async > 0) app.requestFrame();
 }
 
 fn sleep10(app: *knots.App) !void {
@@ -78,7 +78,7 @@ fn sleep10(app: *knots.App) !void {
             onWakeup,
         );
     }
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn doSleep(io: std.Io, seconds: i64) std.Io.Cancelable!void {

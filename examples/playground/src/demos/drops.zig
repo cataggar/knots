@@ -17,11 +17,11 @@ fn body(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     const arena = app.arena();
 
-    const new_paths = try app.window.consumeDrops(self.allocator);
+    const new_paths = try app.viewport.window.consumeDrops(self.allocator);
     if (new_paths.len > 0) {
         try self.demo_state.dropped_paths.appendSlice(self.allocator, new_paths);
         self.allocator.free(new_paths);
-        try app.signal(.redraw);
+        app.requestFrame();
     }
 
     try app.e(.{
@@ -99,5 +99,5 @@ fn clear(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     for (self.demo_state.dropped_paths.items) |p| self.allocator.free(p);
     self.demo_state.dropped_paths.clearRetainingCapacity();
-    try app.signal(.redraw);
+    app.requestFrame();
 }

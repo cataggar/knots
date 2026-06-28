@@ -215,13 +215,13 @@ fn colorInput(app: *knots.App) !void {
 fn openConfirm(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.form_confirm_open = true;
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn closeConfirm(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.form_confirm_open = false;
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn submit(app: *knots.App) !void {
@@ -238,7 +238,7 @@ fn submit(app: *knots.App) !void {
         },
     );
     self.demo_state.form_confirm_open = false;
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn onRoleSelect(app: *knots.App, _: Role, idx: u32) !void {

@@ -128,8 +128,8 @@ fn Slot(comptime idx: u32) type {
         fn onClick(app: *knots.App) !void {
             const self: *Self = @fieldParentPtr("app", app);
             self.demo_state.theme_idx = idx;
-            app.ui.theme = entries[idx].theme;
-            try app.signal(.redraw);
+            app.viewport.ui.theme = entries[idx].theme;
+            app.requestFrame();
         }
     };
 }

@@ -114,17 +114,17 @@ fn pushItem(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.counter += 1;
     try self.demo_state.counter_items.append(self.allocator, self.demo_state.counter);
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn popItem(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     if (self.demo_state.counter_items.pop() != null) self.demo_state.counter -= 1;
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn toggle(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.show_details = !self.demo_state.show_details;
-    try app.signal(.redraw);
+    app.requestFrame();
 }

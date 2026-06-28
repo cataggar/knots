@@ -10,9 +10,10 @@ const MenuButton = knots.component.MenuButton;
 const Spacer = knots.component.Spacer;
 
 const Menu = MenuButton(ButtonMenu);
+const DEMO_TITLE = "Buttons";
 
 pub fn render(app: *knots.App) !void {
-    try ui_helpers.panel(app, "Buttons", body);
+    try ui_helpers.panel(app, DEMO_TITLE, body);
 }
 
 fn body(app: *knots.App) !void {
@@ -144,37 +145,37 @@ fn increment(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.counter += 1;
     try self.demo_state.counter_items.append(self.allocator, self.demo_state.counter);
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn decrement(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.counter -= 1;
     _ = self.demo_state.counter_items.pop();
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn reset(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.counter = 0;
     self.demo_state.counter_items.clearRetainingCapacity();
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn copy(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.menu_button_last_action = "copy";
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn rename(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.menu_button_last_action = "rename";
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn archive(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
     self.demo_state.menu_button_last_action = "archive";
-    try app.signal(.redraw);
+    app.requestFrame();
 }

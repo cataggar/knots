@@ -30,6 +30,8 @@ pub const Demo = struct {
         context_menu_last_action: []const u8 = "none",
         context_menu_last_target: []const u8 = "none",
         menu_button_last_action: []const u8 = "none",
+        floating_window_open: bool = false,
+        floating_window_second_open: bool = false,
         show_source: bool = true,
 
         pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
@@ -61,7 +63,7 @@ fn demo(
 }
 
 pub const all = [_]Demo{
-    demo("demos/buttons.zig", "\u{e913}", "Buttons", "Click handlers, hover animations, menu buttons and corner radii.", @import("demos/buttons.zig").render),
+    demo("demos/buttons.zig", "\u{e913}", "Buttons", "Button variants, click handlers, disabled state and a menu button.", @import("demos/buttons.zig").render),
     demo("demos/context_menu.zig", "\u{e5d2}", "Context menu", "Right-click wrapper component with custom user-defined actions.", @import("demos/context_menu.zig").render),
     demo("demos/sizing.zig", "\u{e85b}", "Sizing", "grow, fixed, percent and fit on the same axis.", @import("demos/sizing.zig").render),
     demo("demos/nesting.zig", "\u{e97a}", "Nesting", "Three levels of nested containers with shared layout.", @import("demos/nesting.zig").render),
@@ -75,7 +77,8 @@ pub const all = [_]Demo{
     demo("demos/virtual_list.zig", "\u{e8ef}", "Virtual list", "100,000 rows scrolled smoothly via VirtualList.", @import("demos/virtual_list.zig").render),
     demo("demos/canvas.zig", "\u{e3ae}", "Canvas", "Painter primitives: gradient grid, clock face, bar chart, polygon.", @import("demos/canvas.zig").render),
     demo("demos/async_dispatch.zig", "\u{e627}", "Async dispatch", "Schedule background work via app.dispatch and react to wakeups.", @import("demos/async_dispatch.zig").render),
-    demo("demos/drops.zig", "\u{e2c6}", "Drops", "Drag files onto the window and consume them via app.window.consumeDrops.", @import("demos/drops.zig").render),
+    demo("demos/windows.zig", "\u{e30c}", "Windows", "Floating windows in the current viewport and secondary native windows.", @import("demos/windows.zig").render),
+    demo("demos/drops.zig", "\u{e2c6}", "Drops", "Drag files onto the window and consume them via app.viewport.window.consumeDrops.", @import("demos/drops.zig").render),
     demo("demos/text_wrap.zig", "\u{e25b}", "Text wrap", "Text and TextInput with wrap=true.", @import("demos/text_wrap.zig").render),
     demo("demos/theme.zig", "\u{e40a}", "Theme", "Switch UI theme at runtime between dark, light and the playground's custom theme.", @import("demos/theme.zig").render),
 };

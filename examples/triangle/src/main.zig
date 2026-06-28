@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
     });
     var ctx = Context{
         .app = app,
-        .devtools = try .init(init.gpa, app.renderer.cfg.present_mode),
+        .devtools = try .init(init.gpa, app.viewport.renderer.cfg.present_mode),
     };
     defer {
         ctx.app.deinit();
@@ -34,7 +34,7 @@ pub fn main(init: std.process.Init) !void {
 
 fn frameCb(app: *knots.App) !void {
     const ctx: *Context = @fieldParentPtr("app", app);
-    const size = app.window.getSize();
+    const size = app.viewport.window.getSize();
     const w: f32 = @floatFromInt(size.width);
     const h: f32 = @floatFromInt(size.height);
 
