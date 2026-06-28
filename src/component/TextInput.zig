@@ -33,7 +33,7 @@ key: Key,
 const TextInput = @This();
 
 pub fn open(self: *const TextInput, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const is_focused = ui.focused(id);
     _ = try ui.state.getOrCreate(.measured, ui.allocator, id);
@@ -77,7 +77,7 @@ pub fn open(self: *const TextInput, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const TextInput, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const is_focused = ui.focused(id);
     const items = self.buf.items;

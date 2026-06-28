@@ -2,18 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const render = @import("render");
-const WindowConfig = @import("window").Config;
-const Window = @import("window").Window;
+const window = @import("window");
+const Window = window.Window;
+const WindowConfig = window.Config;
 const UI = @import("ui").UI;
-const Input = @import("ui").Input;
-const CompletionQueue = @import("CompletionQueue.zig");
-const Timer = @import("Timer.zig");
-const ReturnType = @import("util.zig").ReturnType;
 
-pub const Signal = enum {
-    redraw,
-    exit,
-};
+const CompletionQueue = @import("CompletionQueue.zig");
+const ReturnType = @import("util.zig").ReturnType;
+const Viewport = @import("Viewport.zig");
 
 pub const Callback = *const fn (*App) anyerror!void;
 
@@ -26,22 +22,23 @@ pub const Config = struct {
     timer_clock: std.Io.Clock = .real,
 };
 
+pub const OpenWindowConfig = struct {
+    window: WindowConfig,
+    renderer: ?render.Renderer.Config = null,
+    ui: ?UI.Config = null,
+};
+
 io: std.Io,
 allocator: std.mem.Allocator,
 frame_arena: std.heap.ArenaAllocator,
-signals: std.ArrayList(Signal),
+renderer_group: *render.RendererGroup,
+main_viewport: *Viewport,
+viewport: *Viewport,
+secondary_viewports: std.ArrayList(*Viewport),
+next_viewport_id: u32 = 1,
 completion_queue: CompletionQueue,
-renderer: render.Renderer,
-window: Window,
-ui: UI,
-timer: Timer,
 cfg: Config,
-pending_renderer_cfg: ?render.Renderer.Config = null,
-pending_reconfigure: bool = false,
-renderer_reconfigure_error: ?render.Renderer.ReconfigureError = null,
-frame_cb: ?Callback = null,
-frame_active: bool = false,
-frame_pending: bool = false,
+running: bool = false,
 frame_event_error: ?anyerror = null,
 
 const App = @This();
@@ -49,126 +46,254 @@ const App = @This();
 /// The `io` parameter will be the underlying `Io` implementation used when calling `dispatch`.
 /// The `allocator` parameter will be used as the backing allocator to the per-frame arena.
 pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
-    var window: Window = try .init(io, allocator, cfg.window);
-    errdefer window.deinit();
+    var main_window = try Window.init(io, allocator, cfg.window);
+    var main_window_owned = true;
+    errdefer if (main_window_owned) main_window.deinit();
+
+    const renderer_group = try allocator.create(render.RendererGroup);
+    errdefer allocator.destroy(renderer_group);
+    renderer_group.* = try render.RendererGroup.init(allocator, &main_window);
+    errdefer renderer_group.deinit();
 
     var completion_queue: CompletionQueue = try .init(allocator, cfg.max_completions_recv);
     errdefer completion_queue.deinit(allocator, io);
 
-    var ui: UI = try .init(allocator, cfg.ui);
-    errdefer ui.deinit();
+    var main_renderer: render.Renderer = try .init(allocator, renderer_group, &main_window, cfg.renderer);
+    var main_renderer_owned = true;
+    errdefer if (main_renderer_owned) main_renderer.deinit();
 
-    var renderer: render.Renderer = try .init(allocator, window, cfg.renderer);
-    errdefer renderer.deinit();
+    const main_viewport = try createViewport(allocator, .main, main_window, main_renderer, .{
+        .ui = cfg.ui,
+        .timer_clock = cfg.timer_clock,
+    });
+    main_window_owned = false;
+    main_renderer_owned = false;
+    errdefer {
+        main_viewport.deinit();
+        allocator.destroy(main_viewport);
+    }
 
     return .{
         .io = io,
         .allocator = allocator,
         .frame_arena = .init(allocator),
-        .signals = .empty,
+        .renderer_group = renderer_group,
+        .main_viewport = main_viewport,
+        .viewport = main_viewport,
+        .secondary_viewports = .empty,
         .completion_queue = completion_queue,
-        .renderer = renderer,
-        .timer = .init(cfg.timer_clock),
-        .window = window,
-        .ui = ui,
         .cfg = cfg,
     };
 }
 
-pub fn reconfigureRenderer(self: *App, new_cfg: render.Renderer.Config) !void {
-    self.pending_renderer_cfg = new_cfg;
-    try self.signal(.redraw);
+fn createViewport(allocator: std.mem.Allocator, id: Viewport.Id, window_value: Window, renderer: render.Renderer, cfg: Viewport.Config) !*Viewport {
+    const viewport = try allocator.create(Viewport);
+    errdefer allocator.destroy(viewport);
+    viewport.* = try .init(allocator, id, window_value, renderer, cfg);
+    return viewport;
+}
+
+fn destroyViewport(self: *App, viewport: *Viewport) void {
+    viewport.deinit();
+    self.allocator.destroy(viewport);
+}
+
+fn allocateViewportId(self: *App) !Viewport.Id {
+    if (self.next_viewport_id == 0) return error.TooManyViewports;
+    const id = self.next_viewport_id;
+    self.next_viewport_id +%= 1;
+    return @enumFromInt(id);
+}
+
+fn viewportForId(self: *App, id: Viewport.Id) ?*Viewport {
+    if (id == .main) return self.main_viewport;
+    for (self.secondary_viewports.items) |viewport| {
+        if (viewport.id == id) return viewport;
+    }
+    return null;
+}
+
+pub fn reconfigureRenderer(self: *App, new_cfg: render.Renderer.Config) void {
+    self.viewport.pending_renderer_cfg = new_cfg;
+    self.requestFrame();
 }
 
 pub fn deinit(self: *App) void {
-    self.frame_arena.deinit();
+    self.running = false;
     self.completion_queue.deinit(self.allocator, self.io);
-    self.signals.deinit(self.allocator);
-    self.ui.deinit();
-    self.renderer.deinit();
-    self.window.deinit();
+    self.destroySecondaryViewports();
+    self.secondary_viewports.deinit(self.allocator);
+    self.frame_arena.deinit();
+    self.destroyViewport(self.main_viewport);
+    self.renderer_group.deinit();
+    self.allocator.destroy(self.renderer_group);
 }
 
-/// Start a frame-loop that runs until the window is closed.
-pub fn start(self: *App, frameCb: Callback) !void {
-    self.window.startCapture();
-    self.frame_cb = frameCb;
-    self.window.setFrameHandler(.{
-        .ctx = self,
+/// Start a frame-loop that runs until the main window is closed.
+pub fn start(self: *App, frame_cb: Callback) !void {
+    if (self.running) return error.AppAlreadyStarted;
+    self.running = true;
+    self.main_viewport.app = self;
+    self.main_viewport.frame_cb = frame_cb;
+    self.main_viewport.window.startCapture();
+    self.main_viewport.window.setFrameHandler(.{
+        .ctx = self.main_viewport,
         .step = stepFrameHook,
     });
-    self.timer.start(self.io);
-    self.window.requestFrame();
-    self.window.pollEvents(self.io);
+    self.main_viewport.timer.start(self.io);
+    self.main_viewport.window.requestFrame();
+    self.main_viewport.window.pollEvents(self.io);
 
     switch (builtin.os.tag) {
-        inline .emscripten => {},
-        inline else => {
-            defer self.window.clearFrameHandler();
+        .emscripten => {},
+        else => {
+            defer {
+                self.running = false;
+                self.viewport = self.main_viewport;
+                self.destroySecondaryViewports();
+                self.main_viewport.window.clearFrameHandler();
+            }
             try self.takeFrameEventError();
-            while (self.window.isOpen()) {
-                self.window.waitEvents(self.io);
+            try self.renderer_group.sweepSharedCaches();
+            self.sweepClosedViewports();
+            while (self.main_viewport.window.isOpen()) {
+                self.main_viewport.window.waitEvents(self.io);
                 try self.takeFrameEventError();
+                try self.renderer_group.sweepSharedCaches();
+                self.sweepClosedViewports();
             }
         },
     }
 }
 
+/// Open an independently scheduled native window.
+///
+/// All native windows share the renderer group created for the main window.
+/// Secondary windows can fail to open if their surface does not support the
+/// main window's selected GPU device or surface format.
+/// Returns an id that is stable until that viewport closes.
+pub fn openWindow(self: *App, open_cfg: OpenWindowConfig, frame_cb: Callback) !Viewport.Id {
+    if (!self.running) return error.AppNotStarted;
+    if (builtin.os.tag == .emscripten) return error.UnsupportedPlatform;
+    try self.secondary_viewports.ensureUnusedCapacity(self.allocator, 1);
+    const id = try self.allocateViewportId();
+
+    const current = self.viewport;
+    const viewport = blk: {
+        var window_value = try Window.initSecondary(&self.main_viewport.window, self.io, self.allocator, open_cfg.window);
+        var window_owned = true;
+        errdefer if (window_owned) window_value.deinit();
+
+        var renderer: render.Renderer = try .init(self.allocator, self.renderer_group, &window_value, open_cfg.renderer orelse current.renderer.cfg);
+        var renderer_owned = true;
+        errdefer if (renderer_owned) renderer.deinit();
+
+        const viewport = try createViewport(self.allocator, id, window_value, renderer, .{
+            .ui = open_cfg.ui orelse current.ui_cfg,
+            .timer_clock = self.cfg.timer_clock,
+        });
+        window_owned = false;
+        renderer_owned = false;
+        break :blk viewport;
+    };
+
+    viewport.app = self;
+    viewport.frame_cb = frame_cb;
+    viewport.window.startCapture();
+    viewport.window.setFrameHandler(.{
+        .ctx = viewport,
+        .step = stepFrameHook,
+    });
+    viewport.timer.start(self.io);
+    self.secondary_viewports.appendAssumeCapacity(viewport);
+    viewport.window.requestFrame();
+    return id;
+}
+
+/// Close the current viewport's window. Closing the main viewport exits the application.
+pub fn closeWindow(self: *App) void {
+    if (self.viewport == self.main_viewport)
+        self.exitApplication()
+    else
+        self.viewport.window.close();
+}
+
+pub fn currentViewportId(self: *const App) Viewport.Id {
+    return self.viewport.id;
+}
+
+pub fn requestFrameFor(self: *App, id: Viewport.Id) !void {
+    const viewport = self.viewportForId(id) orelse return error.InvalidViewportId;
+    viewport.window.requestFrame();
+}
+
+pub fn closeWindowById(self: *App, id: Viewport.Id) !void {
+    const viewport = self.viewportForId(id) orelse return error.InvalidViewportId;
+    if (viewport == self.main_viewport)
+        self.exitApplication()
+    else
+        viewport.window.close();
+}
+
 /// Frame ordering, per tick:
 ///  1. `resolveWindow`: Collects input + routes scroll against the previous frame's tree.
 ///  2. `reset`: Clears the layout pool / decoration list.
-///  3. `frameCb`: User code.
+///  3. `frame_cb`: User code.
 ///  4. `endFrame`: TTL sweep over per-widget state.
 ///  5. `resolve` |> `tessellate` |> `resolveHit`: compute layout, build draw list, hit-test against the new tree.
-fn renderFrame(self: *App, frameCb: Callback) !void {
+fn renderFrame(self: *App, viewport: *Viewport) !void {
     defer _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
 
-    self.timer.tick(self.io);
+    viewport.timer.tick(self.io);
 
-    if (self.window.consumeResize()) |ev| {
+    if (viewport.window.consumeResize()) |ev| {
         if (ev.physical.width == 0 or ev.physical.height == 0) return;
-        try self.renderer.resize(ev.physical.width, ev.physical.height);
+        try viewport.renderer.resize(ev.physical.width, ev.physical.height);
     }
-    self.handleRendererReconfigure();
+    handleRendererReconfigure(viewport);
 
-    const input = try self.window.collectInput();
-    defer self.window.finishInputFrame();
-    try self.ui.resolveWindow(input, self.timer.ms(), self.window.getContentScale());
-    self.ui.reset();
+    const input = try viewport.window.collectInput();
+    defer viewport.window.finishInputFrame();
+    try viewport.ui.resolveWindow(input, viewport.timer.ms(), viewport.window.getContentScale());
+    viewport.ui.reset();
 
-    try self.completion_queue.consume(self, self.io);
+    try self.consumeGlobalCompletions();
 
-    try @call(.auto, frameCb, .{self});
+    try @call(.auto, viewport.frame_cb.?, .{self});
+    if (!viewport.window.isOpen()) return;
 
-    try self.ui.endFrame(&self.window);
-    if (self.drainSignals()) return;
+    try viewport.ui.endFrame(&viewport.window);
 
-    try self.ui.resolve();
-    const draw_list = self.renderer.beginFrame();
-    try self.ui.tessellate(self.frame_arena.allocator(), draw_list);
-    const hover_changed = self.ui.resolveHit();
-    self.renderer.endFrame(self.ui.font.glyph_builder, self.ui.content_scale) catch |err| switch (err) {
+    try viewport.ui.resolve();
+    const draw_list = viewport.renderer.beginFrame();
+    try viewport.ui.tessellate(self.frame_arena.allocator(), draw_list);
+    const hover_changed = viewport.ui.resolveHit();
+    viewport.renderer.endFrame(viewport.ui.font.glyph_builder, viewport.ui.content_scale) catch |err| switch (err) {
         error.SurfaceUnavailable => return,
         else => return err,
     };
 
-    if (hover_changed or self.ui.anim_active) try self.signal(.redraw);
-    _ = self.drainSignals();
+    if (hover_changed or viewport.ui.anim_active) viewport.window.requestFrame();
 }
 
-fn stepFrame(self: *App) !void {
-    const frame_cb = self.frame_cb orelse return error.AppNotStarted;
-    if (self.frame_active) {
-        self.frame_pending = true;
+fn stepFrame(self: *App, viewport: *Viewport) !void {
+    if (viewport.frame_cb == null) return error.AppNotStarted;
+    if (viewport.frame_active) {
+        viewport.frame_pending = true;
         return;
     }
-    self.frame_active = true;
-    defer self.frame_active = false;
 
-    try self.renderFrame(frame_cb);
-    while (self.frame_pending) {
-        self.frame_pending = false;
-        try self.renderFrame(frame_cb);
+    const previous = self.viewport;
+    self.viewport = viewport;
+    defer self.viewport = previous;
+
+    viewport.frame_active = true;
+    defer viewport.frame_active = false;
+
+    try self.renderFrame(viewport);
+    while (viewport.frame_pending) {
+        viewport.frame_pending = false;
+        try self.renderFrame(viewport);
     }
 }
 
@@ -179,35 +304,59 @@ fn takeFrameEventError(self: *App) !void {
     }
 }
 
-fn drainSignals(self: *App) bool {
-    var should_exit = false;
-    while (self.signals.pop()) |s| switch (s) {
-        .redraw => self.window.requestFrame(),
-        .exit => {
-            @branchHint(.cold);
-            self.window.close();
-            should_exit = true;
-        },
-    };
-    return should_exit;
+fn consumeGlobalCompletions(self: *App) !void {
+    const previous = self.viewport;
+    self.viewport = self.main_viewport;
+    defer self.viewport = previous;
+    try self.completion_queue.consume(self, self.io);
+}
+
+fn exitApplication(self: *App) void {
+    self.main_viewport.window.close();
+    for (self.secondary_viewports.items) |viewport| viewport.window.close();
+}
+
+fn sweepClosedViewports(self: *App) void {
+    var i: usize = 0;
+    while (i < self.secondary_viewports.items.len) {
+        const viewport = self.secondary_viewports.items[i];
+        if (viewport.window.isOpen()) {
+            i += 1;
+            continue;
+        }
+        _ = self.secondary_viewports.swapRemove(i);
+        self.destroyViewport(viewport);
+    }
+}
+
+fn destroySecondaryViewports(self: *App) void {
+    while (self.secondary_viewports.pop()) |viewport| self.destroyViewport(viewport);
 }
 
 fn stepFrameHook(ctx: *anyopaque) void {
-    const self: *App = @ptrCast(@alignCast(ctx));
+    const viewport: *Viewport = @ptrCast(@alignCast(ctx));
+    const self = viewport.app orelse return;
     if (self.frame_event_error != null) return;
-    self.stepFrame() catch |err| {
-        self.frame_event_error = err;
-        self.window.postEmptyEvent();
-        switch (builtin.os.tag) {
-            inline .emscripten => std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr),
-            inline else => {},
-        }
+    self.stepFrame(viewport) catch |err| {
+        self.reportFrameHookError(err);
+        return;
     };
+    if (builtin.os.tag == .emscripten)
+        self.renderer_group.sweepSharedCaches() catch |err| self.reportFrameHookError(err);
 }
 
-/// Queue a frame signal, `.redraw` or `.exit`. May allocate.
-pub inline fn signal(self: *App, s: Signal) !void {
-    try self.signals.append(self.allocator, s);
+fn reportFrameHookError(self: *App, err: anyerror) void {
+    self.frame_event_error = err;
+    self.main_viewport.window.postEmptyEvent();
+    switch (builtin.os.tag) {
+        inline .emscripten => std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr),
+        inline else => {},
+    }
+}
+
+/// Request another frame for the currently rendering viewport.
+pub inline fn requestFrame(self: *App) void {
+    self.viewport.window.requestFrame();
 }
 
 /// Returns an arena allocator that is safe to use during the frame callback.
@@ -223,27 +372,28 @@ pub inline fn dispatch(self: *App, func: anytype, args: anytype, onComplete: Com
 }
 
 pub fn consumeReconfigure(self: *App) bool {
-    const v = self.pending_reconfigure;
-    self.pending_reconfigure = false;
-    return v;
+    const viewport = self.viewport;
+    const value = viewport.pending_reconfigure;
+    viewport.pending_reconfigure = false;
+    return value;
 }
 
 pub fn rendererReconfigureError(self: *const App) ?render.Renderer.ReconfigureError {
-    return self.renderer_reconfigure_error;
+    return self.viewport.renderer_reconfigure_error;
 }
 
-fn handleRendererReconfigure(self: *App) void {
-    const new_cfg = self.pending_renderer_cfg orelse return;
-    self.pending_renderer_cfg = null;
+fn handleRendererReconfigure(viewport: *Viewport) void {
+    const new_cfg = viewport.pending_renderer_cfg orelse return;
+    viewport.pending_renderer_cfg = null;
 
-    self.renderer.reconfigure(new_cfg) catch |err| {
-        self.renderer_reconfigure_error = err;
+    viewport.renderer.reconfigure(new_cfg) catch |err| {
+        viewport.renderer_reconfigure_error = err;
         return;
     };
 
-    self.renderer_reconfigure_error = null;
-    self.ui.font.glyph_builder.markAllDirty();
-    self.pending_reconfigure = true;
+    viewport.renderer_reconfigure_error = null;
+    viewport.ui.font.glyph_builder.markAllDirty();
+    viewport.pending_reconfigure = true;
 }
 
 /// Register a component tree to be rendered in the UI.

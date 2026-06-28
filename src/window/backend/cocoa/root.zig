@@ -35,13 +35,20 @@ pub const Backend = struct {
             ak.CFRunLoopSourceInvalidate(source);
             ak.CFRelease(source);
         }
+        const nil = objc.Object{ .value = null };
+        self.ns_window.msgSend(void, "setDelegate:", .{nil});
+        ak.setOwner(self.ns_view, null);
+        ak.setOwner(self.delegate, null);
+        self.ns_view.msgSend(void, "unregisterDraggedTypes", .{});
         self.ns_window.msgSend(void, "close", .{});
+        self.delegate.msgSend(void, "release", .{});
+        self.ns_view.msgSend(void, "release", .{});
+        self.ns_window.msgSend(void, "release", .{});
     }
 
     pub fn startCapture(self: *Self, owner: *window.Window) void {
-        const owner_value = ak.wrapPointer(owner);
-        self.ns_view.setInstanceVariable(ak.IVAR_OWNER, owner_value);
-        self.delegate.setInstanceVariable(ak.IVAR_OWNER, owner_value);
+        ak.setOwner(self.ns_view, owner);
+        ak.setOwner(self.delegate, owner);
         self.ns_window.msgSend(void, "makeFirstResponder:", .{self.ns_view});
 
         var context: ak.CFRunLoopSourceContext = .{
@@ -170,8 +177,8 @@ pub const Backend = struct {
             .move => NSCursor.msgSend(objc.Object, "openHandCursor", .{}),
             .resize_horizontal => NSCursor.msgSend(objc.Object, "resizeLeftRightCursor", .{}),
             .resize_vertical => NSCursor.msgSend(objc.Object, "resizeUpDownCursor", .{}),
-            .resize_diagonal_nw_se => NSCursor.msgSend(objc.Object, "resizeNorthwestSoutheastCursor", .{}),
-            .resize_diagonal_ne_sw => NSCursor.msgSend(objc.Object, "resizeNortheastSouthwestCursor", .{}),
+            .resize_diagonal_nw_se => cursorOrArrow(NSCursor, "_windowResizeNorthWestSouthEastCursor"),
+            .resize_diagonal_ne_sw => cursorOrArrow(NSCursor, "_windowResizeNorthEastSouthWestCursor"),
             .not_allowed => NSCursor.msgSend(objc.Object, "operationNotAllowedCursor", .{}),
         };
         cursor.msgSend(void, "set", .{});
@@ -247,6 +254,13 @@ pub const Backend = struct {
     }
 };
 
+fn cursorOrArrow(NSCursor: objc.Class, selector: [:0]const u8) objc.Object {
+    if (NSCursor.msgSend(bool, "respondsToSelector:", .{objc.sel(selector)})) {
+        return NSCursor.msgSend(objc.Object, selector, .{});
+    }
+    return NSCursor.msgSend(objc.Object, "arrowCursor", .{});
+}
+
 pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     if (!classes_registered) {
         const registered = try classes.registerClasses();
@@ -259,6 +273,13 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
     NSApp.msgSend(void, "setActivationPolicy:", .{ak.NSApplicationActivationPolicyRegular});
     NSApp.msgSend(void, "finishLaunching", .{});
 
+    const backend = try initWindow(cfg);
+    NSApp.msgSend(void, "activateIgnoringOtherApps:", .{ak.boolParam(true)});
+    drainEventQueue(NSApp);
+    return backend;
+}
+
+fn initWindow(cfg: window.Config) !Backend {
     const NSWindowClass = objc.getClass("NSWindow").?;
     const style: c_ulong = ak.NSWindowStyleMaskTitled | ak.NSWindowStyleMaskClosable |
         ak.NSWindowStyleMaskMiniaturizable | (if (cfg.resizable) ak.NSWindowStyleMaskResizable else 0);
@@ -300,16 +321,17 @@ pub fn init(_: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
         .msgSend(objc.Object, "init", .{});
     ns_window.msgSend(void, "setDelegate:", .{delegate});
 
-    NSApp.msgSend(void, "activateIgnoringOtherApps:", .{ak.boolParam(true)});
     ns_window.msgSend(void, "makeKeyAndOrderFront:", .{@as(c.id, null)});
-
-    drainEventQueue(NSApp);
 
     return .{
         .ns_window = ns_window,
         .ns_view = view,
         .delegate = delegate,
     };
+}
+
+pub fn initSecondary(_: *const Backend, _: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
+    return initWindow(cfg);
 }
 
 fn frameSourcePerform(info: ?*anyopaque) callconv(.c) void {

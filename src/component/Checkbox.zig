@@ -28,7 +28,7 @@ hover_border_color: Color.Input = .primary,
 const Checkbox = @This();
 
 pub fn open(self: *const Checkbox, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
 
     const min_height = @max(self.box_size, try ui.lineHeight(self.label_size.resolve(), null));
     const id = try ui.open(self.key, .{
@@ -48,7 +48,7 @@ pub fn open(self: *const Checkbox, app: *App) !Element.Id {
 
     const key_activate = ui.focused(id) and
         (ui.input.containsKey(.space) or ui.input.containsKey(.enter) or ui.input.containsKey(.kp_enter));
-    if (ui.leftClickedWithin(id) or key_activate) {
+    if (ui.leftClicked(id, .within) or key_activate) {
         self.checked.* = !self.checked.*;
         if (key_activate) ui.input.consumeKeyboard();
         if (self.onChange) |cb| try cb(app);
@@ -58,7 +58,7 @@ pub fn open(self: *const Checkbox, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const Checkbox, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const hovered = ui.hovering(id) or ui.isHoveredWithin(id);
     const focused = ui.focused(id);

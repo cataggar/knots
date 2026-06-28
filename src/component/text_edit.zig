@@ -11,7 +11,7 @@ const util = @import("util.zig");
 const DOUBLE_CLICK_MS: i64 = 400;
 
 pub fn processInputEarly(buf: *std.ArrayList(u8), app: *App, s: *State.TextInput, multiline: bool) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     var len: u32 = @intCast(buf.items.len);
     s.cursor = @min(s.cursor, len);
     s.sel_anchor = @min(s.sel_anchor, len);
@@ -40,16 +40,16 @@ pub fn processInputEarly(buf: *std.ArrayList(u8), app: *App, s: *State.TextInput
         switch (key) {
             .c => if (super_ctrl_held) {
                 const sel = selectionRange(s);
-                if (sel.lo != sel.hi) _ = app.window.setClipboardText(app.allocator, buf.items[sel.lo..sel.hi]) catch false;
+                if (sel.lo != sel.hi) _ = app.viewport.window.setClipboardText(app.allocator, buf.items[sel.lo..sel.hi]) catch false;
             },
             .x => if (super_ctrl_held) {
                 const sel = selectionRange(s);
-                if (sel.lo != sel.hi and (app.window.setClipboardText(app.allocator, buf.items[sel.lo..sel.hi]) catch false)) {
+                if (sel.lo != sel.hi and (app.viewport.window.setClipboardText(app.allocator, buf.items[sel.lo..sel.hi]) catch false)) {
                     deleteSelection(buf, &len, s);
                 }
             },
             .v => if (super_ctrl_held) {
-                const raw = (app.window.getClipboardText(app.allocator) catch null) orelse continue;
+                const raw = (app.viewport.window.getClipboardText(app.allocator) catch null) orelse continue;
                 defer app.allocator.free(raw);
                 _ = std.unicode.Utf8View.init(raw) catch continue;
 

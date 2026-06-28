@@ -36,8 +36,8 @@ const PANEL_INDEX: usize = 2;
 pub fn open(self: *const Dialog, app: *App) !Element.Id {
     if (!self.is_open.*) return Element.INVALID_ID;
 
-    const ui = &app.ui;
-    const size = app.window.getSize();
+    const ui = &app.viewport.ui;
+    const size = app.viewport.window.getSize();
     const viewport_w: f32 = @floatFromInt(size.width);
     const viewport_h: f32 = @floatFromInt(size.height);
     const panel_max_w = @max(0, viewport_w - self.margin * 2);
@@ -49,7 +49,7 @@ pub fn open(self: *const Dialog, app: *App) !Element.Id {
         .direction = .layer,
         .alignment = .center,
         .justify = .center,
-        .z_index = self.z_index,
+        .z_index = self.z_index.index(),
     }, .none);
     try ui.beginInputScope(root_id, .modal);
 
@@ -84,13 +84,13 @@ pub fn open(self: *const Dialog, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const Dialog, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const root_id = self.key.hash();
     if (ui.layout_ctx.slotForId(root_id) == null) return;
 
     if (ui.isActiveScope(root_id)) {
         const backdrop_id = self.key.indexed(BACKDROP_INDEX).hash();
-        if (self.close_on_backdrop_press and ui.leftClicked(backdrop_id)) {
+        if (self.close_on_backdrop_press and ui.leftPressed(backdrop_id, .exact)) {
             try self.requestClose(app, .backdrop);
         } else if (self.close_on_escape and ui.input.containsKey(.escape)) {
             try self.requestClose(app, .escape);
@@ -109,7 +109,7 @@ fn requestClose(self: *const Dialog, app: *App, reason: CloseReason) !void {
     if (!self.is_open.*) return;
     self.is_open.* = false;
     if (self.onClose) |cb| try cb(app, reason);
-    try app.signal(.redraw);
+    app.requestFrame();
 }
 
 fn clampAxisToMax(axis: Element.sizing.Axis, max_size: f32) Element.sizing.Axis {

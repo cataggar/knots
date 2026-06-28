@@ -53,14 +53,14 @@ pub const Rule = struct {
 
 pub fn open(self: *const Graph, app: *App) !Element.Id {
     const id = self.key.hash();
-    _ = try app.ui.state.getOrCreate(.measured, app.ui.allocator, id);
-    const rect = self.style.toRect(&app.ui.theme);
+    _ = try app.viewport.ui.state.getOrCreate(.measured, app.viewport.ui.allocator, id);
+    const rect = self.style.toRect(&app.viewport.ui.theme);
     const needs_clip_shape = !rect.corner_radius.isZero() or !rect.border_width.isZero();
     const decoration: Decoration = if (self.style.hasDecoration() or needs_clip_shape)
         .{ .rect = rect }
     else
         .none;
-    return try app.ui.open(self.key, .{
+    return try app.viewport.ui.open(self.key, .{
         .width = self.width,
         .height = self.height,
         .overflow = .hidden,
@@ -68,7 +68,7 @@ pub fn open(self: *const Graph, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const Graph, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const slot = ui.currentSlot();
     const s = self.size(ui);
 
@@ -158,7 +158,7 @@ fn maxGraphCommandCount(self: *const Graph) usize {
 fn appendStyle(self: *const Graph, writer: *CommandWriter, app: *App, s: Size) void {
     if (!self.style.hasDecoration()) return;
 
-    const rect = self.style.toRect(&app.ui.theme);
+    const rect = self.style.toRect(&app.viewport.ui.theme);
     if (rect.color[3] > 0) {
         writer.append(.{ .fill_rect = .{
             .x = 0,
@@ -193,7 +193,7 @@ fn appendStyle(self: *const Graph, writer: *CommandWriter, app: *App, s: Size) v
 fn appendRule(writer: *CommandWriter, app: *App, mapper: Mapper, rule: Rule) void {
     if (rule.thickness <= 0) return;
 
-    const color = rule.color.resolve(&app.ui.theme);
+    const color = rule.color.resolve(&app.viewport.ui.theme);
     if (color[3] <= 0) return;
 
     const plot = mapper.plot;
@@ -230,7 +230,7 @@ fn appendSeries(writer: *CommandWriter, app: *App, mapper: Mapper, series_: Seri
 fn appendLine(writer: *CommandWriter, app: *App, mapper: Mapper, series_: Series) void {
     if (series_.thickness <= 0) return;
 
-    const color = series_.color.resolve(&app.ui.theme);
+    const color = series_.color.resolve(&app.viewport.ui.theme);
     if (color[3] <= 0) return;
 
     switch (series_.data) {
@@ -274,7 +274,7 @@ fn appendLine(writer: *CommandWriter, app: *App, mapper: Mapper, series_: Series
 }
 
 fn appendBars(writer: *CommandWriter, app: *App, mapper: Mapper, series_: Series) void {
-    const color = series_.color.resolve(&app.ui.theme);
+    const color = series_.color.resolve(&app.viewport.ui.theme);
     if (color[3] <= 0) return;
 
     const baseline = mapper.y(series_.baseline);
@@ -325,7 +325,7 @@ fn appendBars(writer: *CommandWriter, app: *App, mapper: Mapper, series_: Series
 fn appendPoints(writer: *CommandWriter, app: *App, mapper: Mapper, series_: Series) void {
     if (series_.radius <= 0) return;
 
-    const color = series_.color.resolve(&app.ui.theme);
+    const color = series_.color.resolve(&app.viewport.ui.theme);
     if (color[3] <= 0) return;
 
     switch (series_.data) {

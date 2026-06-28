@@ -26,22 +26,18 @@ const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
 const OutputState = struct {
     output: *wl.Output,
     scale: i32 = 1,
-    entered: bool = false,
 };
 
-const State = struct {
+const Shared = struct {
     io: std.Io,
     allocator: std.mem.Allocator,
+    refs: usize = 1,
     display: *wl.Display,
     registry: *wl.Registry,
     compositor: ?*wl.Compositor = null,
-    surface: *wl.Surface,
-    xdg_surface: *xdg.Surface,
-    toplevel: *xdg.Toplevel,
     shm: ?*wl.Shm = null,
     wm_base: ?*xdg.WmBase = null,
     decoration_manager: ?*zxdg.DecorationManagerV1 = null,
-    decoration: ?*zxdg.ToplevelDecorationV1 = null,
     seat: ?*wl.Seat = null,
     pointer: ?*wl.Pointer = null,
     keyboard: ?*wl.Keyboard = null,
@@ -53,36 +49,14 @@ const State = struct {
     selection_mime: ?[*:0]const u8 = null,
     cursor_theme: ?*wl.CursorTheme = null,
     cursor_surface: ?*wl.Surface = null,
-    cursor: ?*wl.Cursor = null,
-    owner: ?*window.Window = null,
     wake_pipe: [2]posix.fd_t = .{ -1, -1 },
-    frame_requested: bool = false,
-    logical_size: window.Size,
-    configured_size: window.Size,
-    scale: i32 = 1,
-    preferred_scale: i32 = 1,
-    configured: bool = false,
-    should_close: bool = false,
-    display_mode: window.DisplayMode = .windowed,
-    desired_display_mode: window.DisplayMode = .windowed,
-    display_mode_transition: bool = false,
-    cursor_visible: bool = true,
-    cursor_shape: window.CursorShape = .default,
-    pointer_enter_serial: u32 = 0,
-    cursor_pos: [2]f64 = .{ 0, 0 },
-    pending_axis: [2]f64 = .{ 0, 0 },
-    pending_axis_discrete: [2]?i32 = .{ null, null },
-    pending_axis_value120: [2]?i32 = .{ null, null },
-    pending_axis_source: ?wl.Pointer.AxisSource = null,
     outputs: [16]OutputState = undefined,
     output_count: usize = 0,
-    title_buf: [512:0]u8 = undefined,
-    drop_paths_buf: [64][1024]u8 = undefined,
-    drop_slices: [64][]const u8 = undefined,
     pending_offer: ?*wl.DataOffer = null,
     pending_offer_has_uri: bool = false,
     pending_offer_mime: ?[*:0]const u8 = null,
     drag_offer: ?*wl.DataOffer = null,
+    drag_state: ?*State = null,
     drag_serial: u32 = 0,
     drag_has_uri: bool = false,
     drag_action_ok: bool = false,
@@ -96,8 +70,11 @@ const State = struct {
     repeat_char: ?u21 = null,
     repeat_next_ms: i64 = 0,
     last_keyboard_serial: u32 = 0,
+    keyboard_state: ?*State = null,
+    pointer_state: ?*State = null,
+    first: ?*State = null,
 
-    fn deinit(self: *State) void {
+    fn deinit(self: *Shared) void {
         self.clearRepeat();
         self.deinitXkb();
         self.clearClipboardSource();
@@ -110,13 +87,9 @@ const State = struct {
         if (self.seat) |seat| releaseSeat(seat);
         if (self.cursor_theme) |theme| theme.destroy();
         if (self.cursor_surface) |surface| surface.destroy();
-        if (self.decoration) |decoration| decoration.destroy();
         if (self.decoration_manager) |manager| manager.destroy();
         for (self.outputs[0..self.output_count]) |entry| releaseOutput(entry.output);
         if (self.shm) |shm| shm.destroy();
-        self.toplevel.destroy();
-        self.xdg_surface.destroy();
-        self.surface.destroy();
         if (self.wm_base) |wm_base| wm_base.destroy();
         if (self.compositor) |compositor| compositor.destroy();
         self.registry.destroy();
@@ -126,7 +99,7 @@ const State = struct {
         self.allocator.destroy(self);
     }
 
-    fn clearClipboardSource(self: *State) void {
+    fn clearClipboardSource(self: *Shared) void {
         if (self.clipboard_source) |source| source.destroy();
         self.clipboard_source = null;
         if (self.clipboard_text.len > 0) {
@@ -135,7 +108,7 @@ const State = struct {
         }
     }
 
-    fn deinitXkb(self: *State) void {
+    fn deinitXkb(self: *Shared) void {
         if (self.xkb_state) |state| {
             xkb.xkb_state_unref(state);
             self.xkb_state = null;
@@ -150,7 +123,7 @@ const State = struct {
         }
     }
 
-    fn currentMods(self: *const State) window.Mods {
+    fn currentMods(self: *const Shared) window.Mods {
         const state = self.xkb_state orelse return .{};
         return .{
             .shift = xkb.xkb_state_mod_name_is_active(state, "Shift", xkb.STATE_MODS_EFFECTIVE) > 0,
@@ -160,7 +133,7 @@ const State = struct {
         };
     }
 
-    fn utf32ForKey(self: *const State, evdev_key: u32) ?u21 {
+    fn utf32ForKey(self: *const Shared, evdev_key: u32) ?u21 {
         const state = self.xkb_state orelse return null;
         const cp = xkb.xkb_state_key_get_utf32(state, evdev_key + 8);
         if (cp < 0x20 or cp == 0x7F or cp > std.math.maxInt(u21)) return null;
@@ -169,13 +142,13 @@ const State = struct {
         return @intCast(cp);
     }
 
-    fn clearRepeat(self: *State) void {
+    fn clearRepeat(self: *Shared) void {
         self.repeat_key = null;
         self.repeat_char = null;
         self.repeat_next_ms = 0;
     }
 
-    fn startRepeat(self: *State, evdev_key: u32, translated: window.Key, cp: ?u21) void {
+    fn startRepeat(self: *Shared, evdev_key: u32, translated: window.Key, cp: ?u21) void {
         if (self.repeat_rate <= 0) {
             self.clearRepeat();
             return;
@@ -187,7 +160,7 @@ const State = struct {
         self.repeat_next_ms = time_ms + @as(i64, self.repeat_delay_ms);
     }
 
-    fn repeatTimeoutMs(self: *const State, io: std.Io) i32 {
+    fn repeatTimeoutMs(self: *const Shared, io: std.Io) i32 {
         if (self.repeat_key == null) return -1;
         const now = std.Io.Timestamp.now(io, .real).toMilliseconds();
         if (self.repeat_next_ms <= now) return 0;
@@ -195,8 +168,8 @@ const State = struct {
         return @intCast(@min(delta, std.math.maxInt(i32)));
     }
 
-    fn processRepeat(self: *State, io: std.Io) void {
-        const owner = self.owner orelse return;
+    fn processRepeat(self: *Shared, io: std.Io) void {
+        const owner = (self.keyboard_state orelse return).owner orelse return;
         if (self.repeat_key == null or self.repeat_rate <= 0) return;
 
         const now = std.Io.Timestamp.now(io, .real).toMilliseconds();
@@ -211,38 +184,16 @@ const State = struct {
         }
     }
 
-    fn recomputeScale(self: *State) void {
-        var next = @max(self.preferred_scale, 1);
-        for (self.outputs[0..self.output_count]) |entry| {
-            if (entry.entered) next = @max(next, entry.scale);
-        }
-        if (next == self.scale) return;
-        self.scale = next;
-        self.surface.setBufferScale(next);
-        self.surface.commit();
-        if (self.owner) |owner| {
-            owner.markResized();
-            owner.requestFrame();
-        }
-    }
-
-    fn findOutput(self: *State, output: *wl.Output) ?*OutputState {
-        for (self.outputs[0..self.output_count]) |*entry| {
-            if (entry.output == output) return entry;
-        }
-        return null;
-    }
-
-    fn setupDataDevice(self: *State) void {
+    fn setupDataDevice(self: *Shared) void {
         if (self.data_device != null) return;
         const manager = self.data_device_manager orelse return;
         const seat = self.seat orelse return;
         const data_device = manager.getDataDevice(seat) catch return;
-        data_device.setListener(*State, dataDeviceListener, self);
+        data_device.setListener(*Shared, dataDeviceListener, self);
         self.data_device = data_device;
     }
 
-    fn offerMime(self: *State, data_offer: *wl.DataOffer, mime: [*:0]const u8) void {
+    fn offerMime(self: *Shared, data_offer: *wl.DataOffer, mime: [*:0]const u8) void {
         if (self.pending_offer != data_offer) return;
         if (std.mem.orderZ(u8, mime, TEXT_URI_LIST) == .eq) {
             self.pending_offer_has_uri = true;
@@ -253,43 +204,7 @@ const State = struct {
         }
     }
 
-    fn applyCursor(self: *State) void {
-        const pointer = self.pointer orelse return;
-        if (!self.cursor_visible) {
-            pointer.setCursor(self.pointer_enter_serial, null, 0, 0);
-            _ = self.display.flush();
-            return;
-        }
-
-        const cursor = self.cursor orelse return;
-        if (cursor.image_count == 0) return;
-        const image = cursor.images[0];
-        const buffer = image.getBuffer() catch return;
-        const surface = self.cursor_surface orelse return;
-        surface.attach(buffer, 0, 0);
-        surface.damageBuffer(0, 0, @intCast(image.width), @intCast(image.height));
-        surface.commit();
-        pointer.setCursor(
-            self.pointer_enter_serial,
-            surface,
-            @intCast(image.hotspot_x),
-            @intCast(image.hotspot_y),
-        );
-        _ = self.display.flush();
-    }
-
-    fn reconcileDisplayMode(self: *State) void {
-        if (self.display_mode_transition or self.display_mode == self.desired_display_mode) return;
-        switch (self.desired_display_mode) {
-            .windowed => self.toplevel.unsetFullscreen(),
-            .fullscreen => self.toplevel.setFullscreen(null),
-        }
-        self.surface.commit();
-        _ = self.display.flush();
-        self.display_mode_transition = true;
-    }
-
-    fn handleKeymap(state: *State, format: wl.Keyboard.KeymapFormat, fd: i32, size: u32) !void {
+    fn handleKeymap(state: *Shared, format: wl.Keyboard.KeymapFormat, fd: i32, size: u32) !void {
         defer closeFd(fd);
         if (format != .xkb_v1 or size == 0) return;
 
@@ -327,6 +242,118 @@ const State = struct {
     }
 };
 
+const State = struct {
+    shared: *Shared,
+    previous: ?*State = null,
+    next: ?*State = null,
+    surface: *wl.Surface,
+    xdg_surface: *xdg.Surface,
+    toplevel: *xdg.Toplevel,
+    decoration: ?*zxdg.ToplevelDecorationV1 = null,
+    owner: ?*window.Window = null,
+    frame_requested: bool = false,
+    logical_size: window.Size,
+    configured_size: window.Size,
+    scale: i32 = 1,
+    preferred_scale: i32 = 1,
+    configured: bool = false,
+    should_close: bool = false,
+    display_mode: window.DisplayMode = .windowed,
+    desired_display_mode: window.DisplayMode = .windowed,
+    display_mode_transition: bool = false,
+    cursor_visible: bool = true,
+    cursor_shape: window.CursorShape = .default,
+    cursor: ?*wl.Cursor = null,
+    pointer_enter_serial: u32 = 0,
+    cursor_pos: [2]f64 = .{ 0, 0 },
+    pending_axis: [2]f64 = .{ 0, 0 },
+    pending_axis_discrete: [2]?i32 = .{ null, null },
+    pending_axis_value120: [2]?i32 = .{ null, null },
+    pending_axis_source: ?wl.Pointer.AxisSource = null,
+    entered_outputs: [16]bool = @splat(false),
+    title_buf: [512:0]u8 = undefined,
+    drop_paths_buf: [64][1024]u8 = undefined,
+    drop_slices: [64][]const u8 = undefined,
+
+    fn deinit(self: *State) void {
+        const shared = self.shared;
+        if (shared.pointer_state == self) shared.pointer_state = null;
+        if (shared.keyboard_state == self) {
+            shared.keyboard_state = null;
+            shared.clearRepeat();
+        }
+        if (shared.drag_state == self) {
+            if (shared.drag_offer) |offer| offer.destroy();
+            shared.drag_offer = null;
+            shared.drag_state = null;
+            shared.drag_has_uri = false;
+            shared.drag_action_ok = false;
+        }
+        if (self.previous) |previous| previous.next = self.next else shared.first = self.next;
+        if (self.next) |next| next.previous = self.previous;
+        if (self.decoration) |decoration| decoration.destroy();
+        self.toplevel.destroy();
+        self.xdg_surface.destroy();
+        self.surface.destroy();
+        shared.refs -= 1;
+        shared.allocator.destroy(self);
+        if (shared.refs == 0) shared.deinit();
+    }
+
+    fn recomputeScale(self: *State) void {
+        var next = @max(self.preferred_scale, 1);
+        for (self.shared.outputs[0..self.shared.output_count], 0..) |entry, i| {
+            if (self.entered_outputs[i]) next = @max(next, entry.scale);
+        }
+        if (next == self.scale) return;
+        self.scale = next;
+        self.surface.setBufferScale(next);
+        self.surface.commit();
+        if (self.owner) |owner| {
+            owner.markResized();
+            owner.requestFrame();
+        }
+    }
+
+    fn outputIndex(self: *const State, output: *wl.Output) ?usize {
+        for (self.shared.outputs[0..self.shared.output_count], 0..) |entry, i| {
+            if (entry.output == output) return i;
+        }
+        return null;
+    }
+
+    fn applyCursor(self: *State) void {
+        if (self.shared.pointer_state != self) return;
+        const pointer = self.shared.pointer orelse return;
+        if (!self.cursor_visible) {
+            pointer.setCursor(self.pointer_enter_serial, null, 0, 0);
+            _ = self.shared.display.flush();
+            return;
+        }
+        const cursor = self.cursor orelse return;
+        if (cursor.image_count == 0) return;
+        const image = cursor.images[0];
+        const buffer = image.getBuffer() catch return;
+        const surface = self.shared.cursor_surface orelse return;
+        surface.attach(buffer, 0, 0);
+        surface.damageBuffer(0, 0, @intCast(image.width), @intCast(image.height));
+        surface.commit();
+        pointer.setCursor(self.pointer_enter_serial, surface, @intCast(image.hotspot_x), @intCast(image.hotspot_y));
+        _ = self.shared.display.flush();
+    }
+
+    fn reconcileDisplayMode(self: *State) void {
+        if (self.display_mode_transition or self.display_mode == self.desired_display_mode) return;
+        switch (self.desired_display_mode) {
+            .windowed => self.toplevel.unsetFullscreen(),
+            .fullscreen => self.toplevel.setFullscreen(null),
+        }
+        self.surface.commit();
+        _ = self.shared.display.flush();
+        self.display_mode_transition = true;
+    }
+};
+
 pub const Backend = struct {
     state: *State,
 
@@ -341,51 +368,53 @@ pub const Backend = struct {
     }
 
     pub fn pollEvents(self: *const Self, io: std.Io) void {
-        drainWake(self.state);
-        _ = self.state.display.dispatchPending();
-        self.state.processRepeat(io);
-        drainWake(self.state);
-        dispatchFrame(self.state);
+        const shared = self.state.shared;
+        drainWake(shared);
+        _ = shared.display.dispatchPending();
+        shared.processRepeat(io);
+        drainWake(shared);
+        dispatchFrames(shared);
     }
 
     pub fn waitEvents(self: *const Self, io: std.Io) void {
-        while (!self.state.display.prepareRead()) {
-            _ = self.state.display.dispatchPending();
+        const shared = self.state.shared;
+        while (!shared.display.prepareRead()) {
+            _ = shared.display.dispatchPending();
         }
 
-        _ = self.state.display.flush();
+        _ = shared.display.flush();
 
         var fds = [_]posix.pollfd{
             .{
-                .fd = self.state.display.getFd(),
+                .fd = shared.display.getFd(),
                 .events = @intCast(posix.POLL.IN),
                 .revents = 0,
             },
             .{
-                .fd = self.state.wake_pipe[0],
+                .fd = shared.wake_pipe[0],
                 .events = @intCast(posix.POLL.IN),
                 .revents = 0,
             },
         };
-        const ready = posix.poll(&fds, self.state.repeatTimeoutMs(io)) catch 0;
+        const ready = posix.poll(&fds, shared.repeatTimeoutMs(io)) catch 0;
         if (ready > 0 and (fds[0].revents & @as(i16, @intCast(posix.POLL.IN))) != 0) {
-            _ = self.state.display.readEvents();
+            _ = shared.display.readEvents();
         } else {
-            self.state.display.cancelRead();
+            shared.display.cancelRead();
         }
         if (ready > 0 and (fds[1].revents & @as(i16, @intCast(posix.POLL.IN))) != 0) {
-            drainWake(self.state);
+            drainWake(shared);
         }
 
-        _ = self.state.display.dispatchPending();
-        self.state.processRepeat(io);
-        drainWake(self.state);
-        dispatchFrame(self.state);
+        _ = shared.display.dispatchPending();
+        shared.processRepeat(io);
+        drainWake(shared);
+        dispatchFrames(shared);
     }
 
     pub fn postEmptyEvent(self: *const Self) void {
         const byte: [1]u8 = .{1};
-        _ = linux.write(self.state.wake_pipe[1], &byte, 1);
+        _ = linux.write(self.state.shared.wake_pipe[1], &byte, 1);
     }
 
     pub fn requestFrame(self: *const Self, owner: *window.Window) void {
@@ -424,7 +453,7 @@ pub const Backend = struct {
 
     pub fn getNativeHandle(self: *const Self, _: ?[:0]const u8) gpu.Context.WindowHandle {
         return .{ .linux = .{ .wayland = .{
-            .display = @ptrCast(self.state.display),
+            .display = @ptrCast(self.state.shared.display),
             .surface = @ptrCast(self.state.surface),
         } } };
     }
@@ -438,7 +467,7 @@ pub const Backend = struct {
     pub fn setCursorShape(self: *Self, shape: window.CursorShape) void {
         if (self.state.cursor_shape == shape) return;
         self.state.cursor_shape = shape;
-        if (self.state.cursor_theme) |theme| {
+        if (self.state.shared.cursor_theme) |theme| {
             const name: [*:0]const u8 = switch (shape) {
                 .default => "left_ptr",
                 .text => "text",
@@ -492,84 +521,110 @@ pub const Backend = struct {
     }
 
     pub fn getClipboardText(self: *Self, allocator: std.mem.Allocator) !?[]u8 {
-        if (self.state.selection_offer) |offer| {
-            const mime = self.state.selection_mime orelse return null;
-            return receiveClipboardText(self.state, allocator, offer, mime) catch null;
+        const shared = self.state.shared;
+        if (shared.selection_offer) |offer| {
+            const mime = shared.selection_mime orelse return null;
+            return receiveClipboardText(shared, allocator, offer, mime) catch null;
         }
-        if (self.state.clipboard_text.len > 0) return try allocator.dupe(u8, self.state.clipboard_text);
+        if (shared.clipboard_text.len > 0) return try allocator.dupe(u8, shared.clipboard_text);
         return null;
     }
 
     pub fn setClipboardText(self: *Self, _: std.mem.Allocator, text: []const u8) !bool {
-        const manager = self.state.data_device_manager orelse return false;
-        const data_device = self.state.data_device orelse return false;
-        if (self.state.last_keyboard_serial == 0) return false;
+        const shared = self.state.shared;
+        const manager = shared.data_device_manager orelse return false;
+        const data_device = shared.data_device orelse return false;
+        if (shared.last_keyboard_serial == 0) return false;
 
         const source = manager.createDataSource() catch return false;
         errdefer source.destroy();
-        const owned_text = try self.state.allocator.dupe(u8, text);
-        errdefer self.state.allocator.free(owned_text);
+        const owned_text = try shared.allocator.dupe(u8, text);
+        errdefer shared.allocator.free(owned_text);
 
-        source.setListener(*State, dataSourceListener, self.state);
+        source.setListener(*Shared, dataSourceListener, shared);
         source.offer(TEXT_UTF8);
         source.offer(TEXT_PLAIN);
 
-        self.state.clearClipboardSource();
-        self.state.clipboard_source = source;
-        self.state.clipboard_text = owned_text;
+        shared.clearClipboardSource();
+        shared.clipboard_source = source;
+        shared.clipboard_text = owned_text;
 
-        data_device.setSelection(source, self.state.last_keyboard_serial);
-        _ = self.state.display.flush();
+        data_device.setSelection(source, shared.last_keyboard_serial);
+        _ = shared.display.flush();
         return true;
     }
 };
 
 pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backend {
-    if (cfg.title.len >= 512) return error.TitleTooLong;
+    const shared = try initShared(io, allocator);
+    return initWindow(shared, cfg);
+}
+
+pub fn initSecondary(primary: *const Backend, _: std.Io, _: std.mem.Allocator, cfg: window.Config) !Backend {
+    primary.state.shared.refs += 1;
+    return initWindow(primary.state.shared, cfg);
+}
+
+fn initShared(io: std.Io, allocator: std.mem.Allocator) !*Shared {
     const display = try wl.Display.connect(null);
     errdefer display.disconnect();
-
     const registry = try display.getRegistry();
     errdefer registry.destroy();
-
-    const state = try allocator.create(State);
-    errdefer allocator.destroy(state);
-
-    var title_buf: [512:0]u8 = undefined;
-    const title_len = cfg.title.len;
-    @memcpy(title_buf[0..title_len], cfg.title[0..title_len]);
-    title_buf[title_len] = 0;
-
-    state.* = .{
+    const shared = try allocator.create(Shared);
+    errdefer allocator.destroy(shared);
+    shared.* = .{
         .io = io,
         .allocator = allocator,
         .display = display,
         .registry = registry,
-        .surface = undefined,
-        .xdg_surface = undefined,
-        .toplevel = undefined,
+    };
+    shared.wake_pipe = try createWakePipe();
+    errdefer {
+        closeFd(shared.wake_pipe[0]);
+        closeFd(shared.wake_pipe[1]);
+    }
+    registry.setListener(*Shared, registryListener, shared);
+    if (display.roundtrip() != .SUCCESS) return error.WaylandRoundtripFailed;
+    const compositor = shared.compositor orelse return error.NoWlCompositor;
+    _ = shared.wm_base orelse return error.NoXdgWmBase;
+    if (shared.shm) |shm| {
+        shared.cursor_theme = wl.CursorTheme.load(null, 24, shm) catch null;
+        shared.cursor_surface = compositor.createSurface() catch null;
+    }
+    shared.setupDataDevice();
+    return shared;
+}
+
+fn initWindow(shared: *Shared, cfg: window.Config) !Backend {
+    errdefer {
+        shared.refs -= 1;
+        if (shared.refs == 0) shared.deinit();
+    }
+    if (cfg.title.len >= 512) return error.TitleTooLong;
+    const compositor = shared.compositor.?;
+    const surface = try compositor.createSurface();
+    errdefer surface.destroy();
+    const xdg_surface = try shared.wm_base.?.getXdgSurface(surface);
+    errdefer xdg_surface.destroy();
+    const toplevel = try xdg_surface.getToplevel();
+    errdefer toplevel.destroy();
+    const state = try shared.allocator.create(State);
+    errdefer shared.allocator.destroy(state);
+    var title_buf: [512:0]u8 = undefined;
+    @memcpy(title_buf[0..cfg.title.len], cfg.title);
+    title_buf[cfg.title.len] = 0;
+    state.* = .{
+        .shared = shared,
+        .surface = surface,
+        .xdg_surface = xdg_surface,
+        .toplevel = toplevel,
         .logical_size = .{ .width = cfg.width, .height = cfg.height },
         .configured_size = .{ .width = cfg.width, .height = cfg.height },
         .title_buf = title_buf,
     };
-
-    state.wake_pipe = try createWakePipe();
-    errdefer {
-        closeFd(state.wake_pipe[0]);
-        closeFd(state.wake_pipe[1]);
-    }
-
-    registry.setListener(*State, registryListener, state);
-    if (display.roundtrip() != .SUCCESS) return error.WaylandRoundtripFailed;
-
-    const compositor = state.compositor orelse return error.NoWlCompositor;
-    const wm_base = state.wm_base orelse return error.NoXdgWmBase;
-
-    state.surface = try compositor.createSurface();
-    state.surface.setListener(*State, surfaceListener, state);
-    state.xdg_surface = try wm_base.getXdgSurface(state.surface);
-    state.xdg_surface.setListener(*State, xdgSurfaceListener, state);
-    state.toplevel = try state.xdg_surface.getToplevel();
+    errdefer if (state.decoration) |decoration| decoration.destroy();
+    surface.setListener(*State, surfaceListener, state);
+    xdg_surface.setListener(*State, xdgSurfaceListener, state);
     state.toplevel.setListener(*State, xdgToplevelListener, state);
     state.toplevel.setTitle(@ptrCast(&state.title_buf));
     state.toplevel.setAppId("knots");
@@ -583,7 +638,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backe
         if (cfg.max_size) |size| state.toplevel.setMaxSize(@intCast(size.width), @intCast(size.height));
     }
 
-    if (state.decoration_manager) |manager| {
+    if (shared.decoration_manager) |manager| {
         if (manager.getToplevelDecoration(state.toplevel)) |decoration| {
             decoration.setListener(*State, decorationListener, state);
             decoration.setMode(.server_side);
@@ -591,23 +646,24 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backe
         } else |_| {}
     }
 
-    if (state.shm) |shm| {
-        state.cursor_theme = wl.CursorTheme.load(null, 24, shm) catch null;
-        if (state.cursor_theme) |theme| state.cursor = theme.getCursor("left_ptr");
-        state.cursor_surface = compositor.createSurface() catch null;
+    if (shared.cursor_theme) |theme| state.cursor = theme.getCursor("left_ptr");
+    state.next = shared.first;
+    if (shared.first) |first| first.previous = state;
+    shared.first = state;
+    errdefer {
+        if (state.next) |next| next.previous = null;
+        shared.first = state.next;
     }
-
-    state.setupDataDevice();
     state.surface.commit();
 
     while (!state.configured) {
-        if (display.dispatch() != .SUCCESS) return error.WaylandDispatchFailed;
+        if (shared.display.dispatch() != .SUCCESS) return error.WaylandDispatchFailed;
     }
 
     return .{ .state = state };
 }
 
-fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *State) void {
+fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *Shared) void {
     switch (event) {
         .global => |global| {
             if (std.mem.orderZ(u8, global.interface, wl.Compositor.interface.name) == .eq) {
@@ -616,13 +672,13 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *St
                 state.shm = registry.bind(global.name, wl.Shm, global.version) catch null;
             } else if (std.mem.orderZ(u8, global.interface, wl.Seat.interface.name) == .eq) {
                 const seat = registry.bind(global.name, wl.Seat, global.version) catch return;
-                seat.setListener(*State, seatListener, state);
+                seat.setListener(*Shared, seatListener, state);
                 state.seat = seat;
                 state.setupDataDevice();
             } else if (std.mem.orderZ(u8, global.interface, wl.Output.interface.name) == .eq) {
                 if (state.output_count >= state.outputs.len) return;
                 const output = registry.bind(global.name, wl.Output, global.version) catch return;
-                output.setListener(*State, outputListener, state);
+                output.setListener(*Shared, outputListener, state);
                 state.outputs[state.output_count] = .{ .output = output };
                 state.output_count += 1;
             } else if (std.mem.orderZ(u8, global.interface, wl.DataDeviceManager.interface.name) == .eq) {
@@ -630,7 +686,7 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *St
                 state.setupDataDevice();
             } else if (std.mem.orderZ(u8, global.interface, xdg.WmBase.interface.name) == .eq) {
                 const wm_base = registry.bind(global.name, xdg.WmBase, global.version) catch return;
-                wm_base.setListener(*State, wmBaseListener, state);
+                wm_base.setListener(*Shared, wmBaseListener, state);
                 state.wm_base = wm_base;
             } else if (std.mem.orderZ(u8, global.interface, zxdg.DecorationManagerV1.interface.name) == .eq) {
                 state.decoration_manager = registry.bind(global.name, zxdg.DecorationManagerV1, global.version) catch null;
@@ -640,7 +696,7 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *St
     }
 }
 
-fn wmBaseListener(wm_base: *xdg.WmBase, event: xdg.WmBase.Event, _: *State) void {
+fn wmBaseListener(wm_base: *xdg.WmBase, event: xdg.WmBase.Event, _: *Shared) void {
     switch (event) {
         .ping => |ping| wm_base.pong(ping.serial),
     }
@@ -650,15 +706,15 @@ fn surfaceListener(_: *wl.Surface, event: wl.Surface.Event, state: *State) void 
     switch (event) {
         .enter => |enter| {
             const output = enter.output orelse return;
-            if (state.findOutput(output)) |entry| {
-                entry.entered = true;
+            if (state.outputIndex(output)) |i| {
+                state.entered_outputs[i] = true;
                 state.recomputeScale();
             }
         },
         .leave => |leave| {
             const output = leave.output orelse return;
-            if (state.findOutput(output)) |entry| {
-                entry.entered = false;
+            if (state.outputIndex(output)) |i| {
+                state.entered_outputs[i] = false;
                 state.recomputeScale();
             }
         },
@@ -715,60 +771,79 @@ fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, state: *Stat
 
 fn decorationListener(_: *zxdg.ToplevelDecorationV1, _: zxdg.ToplevelDecorationV1.Event, _: *State) void {}
 
-fn outputListener(output: *wl.Output, event: wl.Output.Event, state: *State) void {
-    const entry = state.findOutput(output) orelse return;
+fn outputListener(output: *wl.Output, event: wl.Output.Event, shared: *Shared) void {
+    var index: ?usize = null;
+    for (shared.outputs[0..shared.output_count], 0..) |entry, i| {
+        if (entry.output == output) {
+            index = i;
+            break;
+        }
+    }
+    const i = index orelse return;
     switch (event) {
         .scale => |scale| {
-            entry.scale = @max(scale.factor, 1);
-            state.recomputeScale();
+            shared.outputs[i].scale = @max(scale.factor, 1);
+            var state = shared.first;
+            while (state) |current| : (state = current.next) {
+                if (current.entered_outputs[i]) current.recomputeScale();
+            }
         },
         .geometry, .mode, .done, .name, .description => {},
     }
 }
 
-fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, state: *State) void {
+fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, state: *Shared) void {
     switch (event) {
         .capabilities => |cap| {
             if (cap.capabilities.pointer and state.pointer == null) {
                 const pointer = seat.getPointer() catch return;
-                pointer.setListener(*State, pointerListener, state);
+                pointer.setListener(*Shared, pointerListener, state);
                 state.pointer = pointer;
             } else if (!cap.capabilities.pointer and state.pointer != null) {
                 releasePointer(state.pointer.?);
                 state.pointer = null;
-                if (state.owner) |owner| owner.cancelPointerInput();
+                if (state.pointer_state) |target| {
+                    if (target.owner) |owner| owner.cancelPointerInput();
+                }
+                state.pointer_state = null;
             }
 
             if (cap.capabilities.keyboard and state.keyboard == null) {
                 const keyboard = seat.getKeyboard() catch return;
-                keyboard.setListener(*State, keyboardListener, state);
+                keyboard.setListener(*Shared, keyboardListener, state);
                 state.keyboard = keyboard;
             } else if (!cap.capabilities.keyboard and state.keyboard != null) {
                 releaseKeyboard(state.keyboard.?);
                 state.keyboard = null;
                 state.clearRepeat();
-                if (state.owner) |owner| owner.setFocused(false);
+                if (state.keyboard_state) |target| {
+                    if (target.owner) |owner| owner.setFocused(false);
+                }
+                state.keyboard_state = null;
             }
         },
         .name => {},
     }
 }
 
-fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, state: *State) void {
-    const owner = state.owner;
+fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, shared: *Shared) void {
     switch (event) {
         .enter => |enter| {
+            const state = findState(shared, enter.surface) orelse return;
+            shared.pointer_state = state;
             state.pointer_enter_serial = enter.serial;
             state.cursor_pos = .{ enter.surface_x.toDouble(), enter.surface_y.toDouble() };
-            if (owner) |o| o.setCursorPos(state.cursor_pos);
+            if (state.owner) |owner| owner.setCursorPos(state.cursor_pos);
             state.applyCursor();
         },
-        .leave => {},
+        .leave => shared.pointer_state = null,
         .motion => |motion| {
+            const state = shared.pointer_state orelse return;
             state.cursor_pos = .{ motion.surface_x.toDouble(), motion.surface_y.toDouble() };
-            if (owner) |o| o.setCursorPos(state.cursor_pos);
+            if (state.owner) |owner| owner.setCursorPos(state.cursor_pos);
         },
         .button => |button| {
+            const state = shared.pointer_state orelse return;
             const translated: ?window.MouseButton = switch (button.button) {
                 BTN_LEFT => .left,
                 BTN_RIGHT => .right,
@@ -777,22 +852,28 @@ fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, state: *State) void 
                 BTN_EXTRA => .forward,
                 else => null,
             };
-            if (translated) |mouse_button| if (owner) |o| o.setMouseButton(mouse_button, button.state == .pressed, state.cursor_pos);
+            if (translated) |mouse_button| if (state.owner) |owner| owner.setMouseButton(mouse_button, button.state == .pressed, state.cursor_pos);
         },
         .axis => |axis| {
+            const state = shared.pointer_state orelse return;
             const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;
             state.pending_axis[idx] += axis.value.toDouble();
         },
-        .axis_source => |axis| state.pending_axis_source = axis.axis_source,
+        .axis_source => |axis| {
+            if (shared.pointer_state) |state| state.pending_axis_source = axis.axis_source;
+        },
         .axis_discrete => |axis| {
+            const state = shared.pointer_state orelse return;
             const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;
             state.pending_axis_discrete[idx] = axis.discrete;
         },
         .axis_value120 => |axis| {
+            const state = shared.pointer_state orelse return;
             const idx: usize = if (axis.axis == .horizontal_scroll) 0 else 1;
             state.pending_axis_value120[idx] = axis.value120;
         },
         .frame => {
+            const state = shared.pointer_state orelse return;
             const dx = axisAmount(state.pending_axis[0], state.pending_axis_discrete[0], state.pending_axis_value120[0]);
             const dy = axisAmount(state.pending_axis[1], state.pending_axis_discrete[1], state.pending_axis_value120[1]);
             const x_is_line = state.pending_axis_value120[0] != null or state.pending_axis_discrete[0] != null;
@@ -801,31 +882,36 @@ fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, state: *State) void 
             state.pending_axis_discrete = .{ null, null };
             state.pending_axis_value120 = .{ null, null };
             state.pending_axis_source = null;
-            if (owner) |o| if (dx != 0 or dy != 0) {
+            if (state.owner) |owner| if (dx != 0 or dy != 0) {
                 if ((x_is_line and dx != 0) or (y_is_line and dy != 0))
-                    o.addScrollLines(if (x_is_line) dx else 0, if (y_is_line) dy else 0);
+                    owner.addScrollLines(if (x_is_line) dx else 0, if (y_is_line) dy else 0);
                 if ((!x_is_line and dx != 0) or (!y_is_line and dy != 0))
-                    o.addScrollPixels(if (x_is_line) 0 else dx, if (y_is_line) 0 else dy);
+                    owner.addScrollPixels(if (x_is_line) 0 else dx, if (y_is_line) 0 else dy);
             };
         },
         .axis_stop => {},
     }
 }
 
-fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *State) void {
+fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *Shared) void {
     switch (event) {
         .keymap => |keymap_event| state.handleKeymap(keymap_event.format, keymap_event.fd, keymap_event.size) catch |err| {
             std.log.warn("failed to load Wayland XKB keymap: {s}", .{@errorName(err)});
         },
-        .enter => {
-            if (state.owner) |owner| owner.setFocused(true);
+        .enter => |enter| {
+            const target = findState(state, enter.surface) orelse return;
+            state.keyboard_state = target;
+            if (target.owner) |owner| owner.setFocused(true);
         },
         .leave => {
             state.clearRepeat();
-            if (state.owner) |owner| owner.setFocused(false);
+            if (state.keyboard_state) |target| {
+                if (target.owner) |owner| owner.setFocused(false);
+            }
+            state.keyboard_state = null;
         },
         .key => |key| {
-            const owner = state.owner orelse return;
+            const owner = (state.keyboard_state orelse return).owner orelse return;
             const translated = keymap.translateEvdev(key.key);
             const mods = state.currentMods();
             state.last_keyboard_serial = key.serial;
@@ -855,7 +941,9 @@ fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *State) vo
                     mods.group,
                 );
             }
-            if (state.owner) |owner| owner.setMods(state.currentMods());
+            if (state.keyboard_state) |target| {
+                if (target.owner) |owner| owner.setMods(state.currentMods());
+            }
         },
         .repeat_info => |repeat| {
             state.repeat_rate = @max(repeat.rate, 0);
@@ -865,15 +953,16 @@ fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *State) vo
     }
 }
 
-fn dataDeviceListener(_: *wl.DataDevice, event: wl.DataDevice.Event, state: *State) void {
+fn dataDeviceListener(_: *wl.DataDevice, event: wl.DataDevice.Event, state: *Shared) void {
     switch (event) {
         .data_offer => |data_offer| {
             state.pending_offer = data_offer.id;
             state.pending_offer_has_uri = false;
             state.pending_offer_mime = null;
-            data_offer.id.setListener(*State, dataOfferListener, state);
+            data_offer.id.setListener(*Shared, dataOfferListener, state);
         },
         .enter => |enter| {
+            state.drag_state = findState(state, enter.surface);
             state.drag_offer = enter.id;
             state.drag_serial = enter.serial;
             state.drag_has_uri = enter.id != null and state.pending_offer == enter.id.? and state.pending_offer_has_uri;
@@ -888,11 +977,12 @@ fn dataDeviceListener(_: *wl.DataDevice, event: wl.DataDevice.Event, state: *Sta
         .leave => {
             if (state.drag_offer) |offer| offer.destroy();
             state.drag_offer = null;
+            state.drag_state = null;
             state.drag_has_uri = false;
             state.drag_action_ok = false;
         },
         .motion => |motion| {
-            state.cursor_pos = .{ motion.x.toDouble(), motion.y.toDouble() };
+            if (state.drag_state) |target| target.cursor_pos = .{ motion.x.toDouble(), motion.y.toDouble() };
             if (state.drag_offer) |offer| {
                 offer.accept(state.drag_serial, if (state.drag_has_uri) TEXT_URI_LIST else null);
             }
@@ -902,13 +992,15 @@ fn dataDeviceListener(_: *wl.DataDevice, event: wl.DataDevice.Event, state: *Sta
             defer {
                 offer.destroy();
                 state.drag_offer = null;
+                state.drag_state = null;
                 state.drag_has_uri = false;
                 state.drag_action_ok = false;
             }
+            const target = state.drag_state orelse return;
             if (!state.drag_has_uri) return;
-            const count = receiveUriListDrop(state, offer) catch 0;
+            const count = receiveUriListDrop(target, offer) catch 0;
             if (count > 0) {
-                if (state.owner) |owner| owner.markDropped(count);
+                if (target.owner) |owner| owner.markDropped(count);
             }
             if (offer.getVersion() >= 3 and state.drag_action_ok) offer.finish();
         },
@@ -932,7 +1024,7 @@ fn dataDeviceListener(_: *wl.DataDevice, event: wl.DataDevice.Event, state: *Sta
     }
 }
 
-fn dataOfferListener(data_offer: *wl.DataOffer, event: wl.DataOffer.Event, state: *State) void {
+fn dataOfferListener(data_offer: *wl.DataOffer, event: wl.DataOffer.Event, state: *Shared) void {
     switch (event) {
         .offer => |offer| state.offerMime(data_offer, offer.mime_type),
         .action => |action| {
@@ -944,7 +1036,7 @@ fn dataOfferListener(data_offer: *wl.DataOffer, event: wl.DataOffer.Event, state
     }
 }
 
-fn dataSourceListener(data_source: *wl.DataSource, event: wl.DataSource.Event, state: *State) void {
+fn dataSourceListener(data_source: *wl.DataSource, event: wl.DataSource.Event, state: *Shared) void {
     switch (event) {
         .send => |send| {
             defer closeFd(send.fd);
@@ -973,7 +1065,7 @@ fn dataSourceListener(data_source: *wl.DataSource, event: wl.DataSource.Event, s
     }
 }
 
-fn receiveClipboardText(state: *State, allocator: std.mem.Allocator, offer: *wl.DataOffer, mime: [*:0]const u8) !?[]u8 {
+fn receiveClipboardText(state: *Shared, allocator: std.mem.Allocator, offer: *wl.DataOffer, mime: [*:0]const u8) !?[]u8 {
     var fds: [2]i32 = undefined;
     switch (posix.errno(linux.pipe2(&fds, .{ .CLOEXEC = true }))) {
         .SUCCESS => {},
@@ -1012,7 +1104,7 @@ fn receiveUriListDrop(state: *State, offer: *wl.DataOffer) !usize {
 
     offer.receive(TEXT_URI_LIST, fds[1]);
     closeFd(fds[1]);
-    _ = state.display.flush();
+    _ = state.shared.display.flush();
 
     var data: [8192]u8 = undefined;
     var len: usize = 0;
@@ -1087,7 +1179,7 @@ fn createWakePipe() ![2]posix.fd_t {
     }
 }
 
-fn drainWake(state: *State) void {
+fn drainWake(state: *Shared) void {
     var buf: [64]u8 = undefined;
     while (true) {
         const n = posix.read(state.wake_pipe[0], &buf) catch |err| switch (err) {
@@ -1098,11 +1190,23 @@ fn drainWake(state: *State) void {
     }
 }
 
-fn dispatchFrame(state: *State) void {
-    if (!state.frame_requested) return;
-    state.frame_requested = false;
-    const owner = state.owner orelse return;
-    if (owner.isOpen()) owner.stepFrame();
+fn findState(shared: *Shared, surface: *wl.Surface) ?*State {
+    var state = shared.first;
+    while (state) |current| : (state = current.next) {
+        if (current.surface == surface) return current;
+    }
+    return null;
+}
+
+fn dispatchFrames(shared: *Shared) void {
+    var state = shared.first;
+    while (state) |current| {
+        state = current.next;
+        if (!current.frame_requested) continue;
+        current.frame_requested = false;
+        const owner = current.owner orelse continue;
+        if (owner.isOpen()) owner.stepFrame();
+    }
 }
 
 fn closeFd(fd: i32) void {

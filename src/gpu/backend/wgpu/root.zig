@@ -1,4 +1,5 @@
-pub const Context = @import("Context.zig");
+pub const Device = @import("Device.zig");
+pub const Surface = @import("Surface.zig");
 pub const Buffer = @import("Buffer.zig");
 pub const Pipeline = @import("Pipeline.zig");
 pub const BindGroup = @import("BindGroup.zig");

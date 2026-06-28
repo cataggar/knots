@@ -443,6 +443,10 @@ pub fn init(_: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backen
     return backend;
 }
 
+pub fn initSecondary(_: *const Backend, io: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backend {
+    return init(io, allocator, cfg);
+}
+
 fn ownerOf(hwnd: win32.HWND) ?*window.Window {
     const raw: usize = @bitCast(win32.GetWindowLongPtrW(hwnd, win32.GWLP_USERDATA));
     if (raw == 0) return null;

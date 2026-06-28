@@ -17,4 +17,5 @@ pub const Canvas = @import("Canvas.zig");
 pub const Image = @import("Image.zig");
 pub const Graph = @import("Graph.zig");
 pub const Dialog = @import("Dialog.zig");
+pub const FloatingWindow = @import("FloatingWindow.zig");
 pub const ContextMenu = @import("ContextMenu.zig").ContextMenu;

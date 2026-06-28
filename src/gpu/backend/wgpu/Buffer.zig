@@ -1,4 +1,3 @@
-const std = @import("std");
 const wgpu = @import("wgpu");
 const Usage = @import("gpu").Buffer.Usage;
 
@@ -10,7 +9,7 @@ device: wgpu.Device,
 size: usize,
 usage: wgpu.Buffer.Usage,
 
-pub fn create(_: std.mem.Allocator, device: wgpu.Device, queue: wgpu.Queue, size: usize, usage: Usage) !Buffer {
+pub fn create(device: wgpu.Device, queue: wgpu.Queue, size: usize, usage: Usage) !Buffer {
     const wgpu_usage = toWgpuUsage(usage);
     return .{
         .buffer = try device.createBuffer(.{

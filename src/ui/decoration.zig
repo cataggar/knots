@@ -1,5 +1,6 @@
 const Radius = @import("Radius.zig");
 const BorderWidth = @import("BorderWidth.zig");
+const TextureId = @import("render").TextureId;
 
 pub const Decoration = union(enum) {
     none: void,
@@ -31,7 +32,7 @@ pub const Decoration = union(enum) {
     };
 
     pub const Image = struct {
-        texture_id: u32,
+        texture_id: TextureId,
         tint: [4]f32 = .{ 1, 1, 1, 1 },
     };
 

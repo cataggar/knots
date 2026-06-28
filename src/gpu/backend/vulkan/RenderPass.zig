@@ -1,5 +1,7 @@
+const std = @import("std");
 const vk = @import("vk");
-const Context = @import("Context.zig");
+const Device = @import("Device.zig");
+const Surface = @import("Surface.zig");
 const Buffer = @import("Buffer.zig");
 const Pipeline = @import("Pipeline.zig");
 const BindGroup = @import("BindGroup.zig");
@@ -27,13 +29,13 @@ pub const Desc = struct {
     color_attachment: ColorAttachment = .{},
 };
 
-pub fn create(command_buffer: vk.CommandBuffer, ctx: *Context, image_index: u32, desc: Desc) !RenderPass {
+pub fn create(command_buffer: vk.CommandBuffer, device: *Device, surface: *Surface, image_index: u32, desc: Desc) !RenderPass {
     const ca = desc.color_attachment;
     if (ca.target != null) return error.UnsupportedRenderTarget;
     if (ca.load_op != .clear or ca.store_op != .store) return error.UnsupportedRenderPassOperation;
 
-    const image = ctx.swapchain_images[image_index];
-    ctx.vkd.cmdPipelineBarrier2(command_buffer, &.{
+    const image = surface.swapchain_images[image_index];
+    device.vkd.cmdPipelineBarrier2(command_buffer, &.{
         .image_memory_barrier_count = 1,
         .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
             .dst_stage_mask = .{ .color_attachment_output_bit = true },
@@ -47,13 +49,13 @@ pub fn create(command_buffer: vk.CommandBuffer, ctx: *Context, image_index: u32,
         }},
     });
 
-    ctx.vkd.cmdBeginRendering(command_buffer, &.{
-        .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = ctx.swapchain_extent },
+    device.vkd.cmdBeginRendering(command_buffer, &.{
+        .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = surface.swapchain_extent },
         .layer_count = 1,
         .view_mask = 0,
         .color_attachment_count = 1,
         .p_color_attachments = &[_]vk.RenderingAttachmentInfo{.{
-            .image_view = ctx.swapchain_views[image_index],
+            .image_view = surface.swapchain_views[image_index],
             .image_layout = .color_attachment_optimal,
             .resolve_mode = .{},
             .resolve_image_layout = .undefined,
@@ -64,22 +66,22 @@ pub fn create(command_buffer: vk.CommandBuffer, ctx: *Context, image_index: u32,
             } } },
         }},
     });
-    ctx.vkd.cmdSetViewport(command_buffer, 0, &.{.{
+    device.vkd.cmdSetViewport(command_buffer, 0, &.{.{
         .x = 0,
         .y = 0,
-        .width = @floatFromInt(ctx.swapchain_extent.width),
-        .height = @floatFromInt(ctx.swapchain_extent.height),
+        .width = @floatFromInt(surface.swapchain_extent.width),
+        .height = @floatFromInt(surface.swapchain_extent.height),
         .min_depth = 0,
         .max_depth = 1,
     }});
-    ctx.vkd.cmdSetScissor(command_buffer, 0, &.{.{
+    device.vkd.cmdSetScissor(command_buffer, 0, &.{.{
         .offset = .{ .x = 0, .y = 0 },
-        .extent = ctx.swapchain_extent,
+        .extent = surface.swapchain_extent,
     }});
 
     return .{
         .command_buffer = command_buffer,
-        .vkd = ctx.vkd,
+        .vkd = device.vkd,
         .image = image,
         .current_pipeline_layout = .null_handle,
     };
@@ -118,11 +120,13 @@ pub fn setBindGroup(self: *RenderPass, group_index: u32, group: *const BindGroup
     );
 }
 
-pub fn setVertexBuffer(self: *RenderPass, slot: u32, buf: *const Buffer, offset: usize, _: usize) void {
+pub fn setVertexBuffer(self: *RenderPass, slot: u32, buf: *const Buffer, offset: usize, size: usize) void {
+    std.debug.assert(offset <= buf.size and size <= buf.size - offset);
     self.vkd.cmdBindVertexBuffers(self.command_buffer, slot, &.{buf.buffer}, &.{@as(vk.DeviceSize, @intCast(offset))});
 }
 
-pub fn setIndexBuffer(self: *RenderPass, buf: *const Buffer, offset: usize, _: usize) void {
+pub fn setIndexBuffer(self: *RenderPass, buf: *const Buffer, offset: usize, size: usize) void {
+    std.debug.assert(offset <= buf.size and size <= buf.size - offset);
     self.vkd.cmdBindIndexBuffer(self.command_buffer, buf.buffer, @intCast(offset), .uint32);
 }
 

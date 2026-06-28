@@ -1,7 +1,6 @@
-const std = @import("std");
 const vk = @import("vk");
 const CommonSampler = @import("gpu").Sampler;
-const Context = @import("Context.zig");
+const Device = @import("Device.zig");
 
 const Sampler = @This();
 
@@ -13,8 +12,8 @@ sampler: vk.Sampler,
 vkd: vk.DeviceWrapper,
 device: vk.Device,
 
-pub fn create(_: std.mem.Allocator, ctx: *Context, desc: Desc) !Sampler {
-    const sampler = try ctx.vkd.createSampler(ctx.device, &.{
+pub fn create(device: *Device, desc: Desc) !Sampler {
+    const sampler = try device.vkd.createSampler(device.device, &.{
         .mag_filter = toVkFilter(desc.mag_filter),
         .min_filter = toVkFilter(desc.min_filter),
         .mipmap_mode = .nearest,
@@ -34,8 +33,8 @@ pub fn create(_: std.mem.Allocator, ctx: *Context, desc: Desc) !Sampler {
 
     return .{
         .sampler = sampler,
-        .vkd = ctx.vkd,
-        .device = ctx.device,
+        .vkd = device.vkd,
+        .device = device.device,
     };
 }
 

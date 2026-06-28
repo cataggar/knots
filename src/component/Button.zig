@@ -48,7 +48,7 @@ pub const ButtonText = struct {
 const Button = @This();
 
 pub fn open(self: *const Button, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const is_hovered = !self.disabled and ui.hovering(id);
     const effective_style = if (self.disabled)
@@ -99,7 +99,7 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
         const key_activate = ui.focused(rect) and
             (ui.input.containsKey(.enter) or ui.input.containsKey(.kp_enter) or ui.input.containsKey(.space));
         if (self.onClick) |cb| {
-            if (ui.leftClickedWithin(rect) or key_activate) try cb(app);
+            if (ui.leftClicked(rect, .within) or key_activate) try cb(app);
         }
         if (key_activate) ui.input.consumeKeyboard();
 
@@ -127,5 +127,5 @@ pub fn open(self: *const Button, app: *App) !Element.Id {
 }
 
 pub fn close(_: *const Button, app: *App) !void {
-    app.ui.close();
+    app.viewport.ui.close();
 }

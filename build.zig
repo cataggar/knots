@@ -222,6 +222,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "text", .module = text_mod },
             .{ .name = "math", .module = math_mod },
             .{ .name = "gpu", .module = gpu_mod },
+            .{ .name = "render", .module = render_mod },
         },
     });
 

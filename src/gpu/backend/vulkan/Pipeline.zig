@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("vk");
-const Context = @import("Context.zig");
+const Device = @import("Device.zig");
 const Texture = @import("Texture.zig");
 const CommonPipeline = @import("gpu").Pipeline;
 
@@ -13,9 +13,9 @@ descriptor_set_layouts: []vk.DescriptorSetLayout,
 vkd: vk.DeviceWrapper,
 device: vk.Device,
 
-pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.Desc) !Pipeline {
-    const vkd = ctx.vkd;
-    const device = ctx.device;
+pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipeline.Desc) !Pipeline {
+    const vkd = device.vkd;
+    const vk_device = device.device;
 
     const spirv = switch (desc.shader) {
         .spirv => |s| s,
@@ -25,7 +25,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
     const dsls = try allocator.alloc(vk.DescriptorSetLayout, desc.bind_group_layouts.len);
     errdefer allocator.free(dsls);
     var dsls_created: usize = 0;
-    errdefer for (dsls[0..dsls_created]) |dsl| vkd.destroyDescriptorSetLayout(device, dsl, null);
+    errdefer for (dsls[0..dsls_created]) |dsl| vkd.destroyDescriptorSetLayout(vk_device, dsl, null);
 
     var binding_buf: [16]vk.DescriptorSetLayoutBinding = undefined;
     for (desc.bind_group_layouts, 0..) |bgl, i| {
@@ -42,38 +42,38 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
                 .p_immutable_samplers = null,
             };
         }
-        dsls[i] = try vkd.createDescriptorSetLayout(device, &.{
+        dsls[i] = try vkd.createDescriptorSetLayout(vk_device, &.{
             .binding_count = @intCast(bgl.entries.len),
             .p_bindings = binding_buf[0..bgl.entries.len].ptr,
         }, null);
         dsls_created += 1;
     }
 
-    const pipeline_layout = try vkd.createPipelineLayout(device, &.{
+    const pipeline_layout = try vkd.createPipelineLayout(vk_device, &.{
         .set_layout_count = @intCast(dsls.len),
         .p_set_layouts = dsls.ptr,
         .push_constant_range_count = 0,
         .p_push_constant_ranges = null,
     }, null);
-    errdefer vkd.destroyPipelineLayout(device, pipeline_layout, null);
+    errdefer vkd.destroyPipelineLayout(vk_device, pipeline_layout, null);
 
-    const vert_module = try vkd.createShaderModule(device, &.{
+    const vert_module = try vkd.createShaderModule(vk_device, &.{
         .code_size = spirv.vs.len,
         .p_code = @ptrCast(@alignCast(spirv.vs.ptr)),
     }, null);
-    defer vkd.destroyShaderModule(device, vert_module, null);
+    defer vkd.destroyShaderModule(vk_device, vert_module, null);
 
-    const frag_module = try vkd.createShaderModule(device, &.{
+    const frag_module = try vkd.createShaderModule(vk_device, &.{
         .code_size = spirv.fs.len,
         .p_code = @ptrCast(@alignCast(spirv.fs.ptr)),
     }, null);
-    defer vkd.destroyShaderModule(device, frag_module, null);
+    defer vkd.destroyShaderModule(vk_device, frag_module, null);
 
     var apply_srgb_encode: u32 = 0;
     var spec_map: [1]vk.SpecializationMapEntry = undefined;
     var frag_spec_info: vk.SpecializationInfo = undefined;
     const frag_spec_ptr: ?*const vk.SpecializationInfo = if (spirv.srgb_encode_constant) |cid| blk: {
-        apply_srgb_encode = if (ctx.swapchain_is_srgb) 0 else 1;
+        apply_srgb_encode = if (device.surface_is_srgb) 0 else 1;
         spec_map[0] = .{ .constant_id = cid, .offset = 0, .size = @sizeOf(u32) };
         frag_spec_info = .{
             .map_entry_count = 1,
@@ -139,7 +139,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
     @memcpy(fs_entry_buf[0..spirv.fs_entry.len], spirv.fs_entry);
     fs_entry_buf[spirv.fs_entry.len] = 0;
 
-    const color_format = if (desc.color_target.format) |format| Texture.toVkFormat(format) else ctx.swapchain_format;
+    const color_format = if (desc.color_target.format) |format| Texture.toVkFormat(format) else device.surface_format;
     const rendering_info = vk.PipelineRenderingCreateInfo{
         .view_mask = 0,
         .color_attachment_count = 1,
@@ -149,7 +149,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
     };
 
     var vk_pipeline: [1]vk.Pipeline = undefined;
-    _ = try vkd.createGraphicsPipelines(device, .null_handle, &.{.{
+    _ = try vkd.createGraphicsPipelines(vk_device, .null_handle, &.{.{
         .p_next = &rendering_info,
         .stage_count = 2,
         .p_stages = &[_]vk.PipelineShaderStageCreateInfo{
@@ -207,7 +207,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
         .pipeline_layout = pipeline_layout,
         .descriptor_set_layouts = dsls,
         .vkd = vkd,
-        .device = device,
+        .device = vk_device,
     };
 }
 

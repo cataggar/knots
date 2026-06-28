@@ -46,7 +46,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn frameCb(app: *knots.App) !void {
-    const size = app.window.getSize();
+    const size = app.viewport.window.getSize();
     return app.e(.{
         knots.component.Rect{
             .width = .fixed(@floatFromInt(size.width)),

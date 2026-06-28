@@ -39,7 +39,7 @@ key: Key,
 const TextArea = @This();
 
 pub fn open(self: *const TextArea, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const is_focused = ui.focused(id);
     if (ui.hovering(id)) ui.requestCursor(.text);
@@ -94,7 +94,7 @@ pub fn open(self: *const TextArea, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const TextArea, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const is_focused = ui.focused(id);
     const items = self.buf.items;

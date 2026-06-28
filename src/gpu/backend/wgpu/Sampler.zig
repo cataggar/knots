@@ -1,4 +1,3 @@
-const std = @import("std");
 const wgpu = @import("wgpu");
 const CommonSampler = @import("gpu").Sampler;
 
@@ -10,7 +9,7 @@ const Desc = CommonSampler.Desc;
 
 sampler: wgpu.Sampler,
 
-pub fn create(_: std.mem.Allocator, device: wgpu.Device, desc: Desc) !Sampler {
+pub fn create(device: wgpu.Device, desc: Desc) !Sampler {
     const sampler = try device.createSampler(.{
         .mag_filter = toWgpuFilter(desc.mag_filter),
         .min_filter = toWgpuFilter(desc.min_filter),

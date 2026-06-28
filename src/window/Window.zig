@@ -46,6 +46,14 @@ const Mouse = struct {
 };
 
 pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !Window {
+    return initWithPrimary(null, io, allocator, cfg);
+}
+
+pub fn initSecondary(primary: *const Window, io: std.Io, allocator: std.mem.Allocator, cfg: Config) !Window {
+    return initWithPrimary(primary, io, allocator, cfg);
+}
+
+fn initWithPrimary(primary: ?*const Window, io: std.Io, allocator: std.mem.Allocator, cfg: Config) !Window {
     _ = std.unicode.Utf8View.init(cfg.title) catch return error.InvalidTitle;
     if (cfg.min_size) |min_size| {
         if (cfg.max_size) |max_size| {
@@ -53,7 +61,10 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !Window {
                 return error.InvalidSizeConstraints;
         }
     }
-    var be: impl.Backend = try impl.init(io, allocator, cfg);
+    var be: impl.Backend = if (primary) |parent|
+        try impl.initSecondary(&parent.backend, io, allocator, cfg)
+    else
+        try impl.init(io, allocator, cfg);
     return Window{
         .backend = be,
         .allocator = allocator,

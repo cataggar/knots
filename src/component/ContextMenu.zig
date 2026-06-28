@@ -47,7 +47,7 @@ pub fn ContextMenu(comptime Menu: type) type {
         const POPUP_INDEX: usize = 1;
 
         pub fn open(self: *const Self, app: *App) !Element.Id {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const id = self.key.hash();
             const s = try ui.state.getOrCreate(.context_menu, ui.allocator, id);
 
@@ -64,11 +64,11 @@ pub fn ContextMenu(comptime Menu: type) type {
 
             if (ui.input.mouseButton(.right).pressed and containsInputPoint(s.anchor_box, ui.input.mouse_pos)) {
                 openAtPointer(s, ui.input.mouse_pos);
-                try app.signal(.redraw);
+                app.requestFrame();
             } else if (ui.focused(id) and ui.input.containsKey(.menu)) {
                 openAtAnchor(s);
                 ui.input.consumeKeyboard();
-                try app.signal(.redraw);
+                app.requestFrame();
             }
 
             const decoration: Decoration = if (self.style.hasDecoration())
@@ -98,7 +98,7 @@ pub fn ContextMenu(comptime Menu: type) type {
         }
 
         pub fn close(self: *const Self, app: *App) !void {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const id = self.key.hash();
             ui.close();
 
@@ -110,12 +110,12 @@ pub fn ContextMenu(comptime Menu: type) type {
             const popup_id = self.key.indexed(POPUP_INDEX).hash();
             if (ui.input.mouseButton(.left).released and ui.isHoveredWithin(popup_id)) {
                 s.open = false;
-                try app.signal(.redraw);
+                app.requestFrame();
             }
         }
 
         fn renderPopup(self: *const Self, app: *App, s: *State.ContextMenu) !void {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const popup_key = self.key.indexed(POPUP_INDEX);
             const popup_id = popup_key.hash();
 
@@ -124,7 +124,7 @@ pub fn ContextMenu(comptime Menu: type) type {
             const measured_box = if (measured) |m| m.box else math.Rect.zero;
             if (!sameRect(s.popup_box, measured_box)) {
                 s.popup_box = measured_box;
-                try app.signal(.redraw);
+                app.requestFrame();
             }
 
             const measured_h = if (measured_box.h() > 0) measured_box.h() else self.fallback_menu_height;
@@ -135,7 +135,7 @@ pub fn ContextMenu(comptime Menu: type) type {
                 .width = .fixed(p.width),
                 .height = .{ .kind = .fit, .max = p.max_height },
                 .overflow = .scroll_y,
-                .z_index = self.popup_z_index,
+                .z_index = self.popup_z_index.index(),
                 .padding = self.popup_padding,
                 .gap = self.popup_gap,
                 .interactive = true,

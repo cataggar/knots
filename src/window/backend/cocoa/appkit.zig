@@ -81,20 +81,35 @@ pub fn nsstring(s: []const u8) objc.Object {
     return NSString.msgSend(objc.Object, "stringWithBytes:length:encoding:", .{ s.ptr, @as(c_ulong, @intCast(s.len)), NSUTF8StringEncoding });
 }
 
-pub fn wrapPointer(ptr: anytype) objc.Object {
-    const NSValue = objc.getClass("NSValue").?;
-    return NSValue.msgSend(objc.Object, "valueWithPointer:", .{@as(*const anyopaque, @ptrCast(ptr))});
-}
-
 const std = @import("std");
 const Window = @import("window").Window;
 
+pub fn addOwnerIvar(cls: objc.Class) bool {
+    const result = c.class_addIvar(
+        cls.value,
+        IVAR_OWNER.ptr,
+        @sizeOf(*anyopaque),
+        std.math.log2_int(u8, @sizeOf(*anyopaque)),
+        "^v",
+    );
+    return switch (c.BOOL) {
+        bool => result,
+        i8 => result != 0,
+        else => @compileError("unexpected BOOL type"),
+    };
+}
+
+pub fn setOwner(obj: objc.Object, owner: ?*Window) void {
+    const ptr: ?*anyopaque = if (owner) |value| @ptrCast(value) else null;
+    _ = c.object_setInstanceVariable(obj.value, IVAR_OWNER.ptr, ptr);
+}
+
 pub fn unwrapOwner(self_id: c.id) ?*Window {
     const obj = objc.Object.fromId(self_id);
-    const value = obj.getInstanceVariable(IVAR_OWNER);
-    if (value.value == null) return null;
-    const ptr = value.msgSend(?*anyopaque, "pointerValue", .{}) orelse return null;
-    return @ptrCast(@alignCast(ptr));
+    var ptr: ?*anyopaque = null;
+    _ = c.object_getInstanceVariable(obj.value, IVAR_OWNER.ptr, &ptr);
+    const value = ptr orelse return null;
+    return @ptrCast(@alignCast(value));
 }
 
 pub fn pushUtf8Chars(owner: *Window, slice: []const u8, comptime filter_function_keys: bool) void {

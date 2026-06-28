@@ -1,6 +1,6 @@
 const std = @import("std");
 const wgpu = @import("wgpu");
-const GpuContext = @import("Context.zig");
+const Surface = @import("Surface.zig");
 const RenderPass = @import("RenderPass.zig");
 const gpu = @import("gpu");
 
@@ -9,7 +9,7 @@ const Frame = @This();
 surface_texture: ?wgpu.Texture,
 view: ?wgpu.TextureView,
 encoder: ?wgpu.CommandEncoder,
-ctx: *GpuContext,
+surface: *Surface,
 
 pub const ContextHandle = struct {
     frame: *Frame,
@@ -30,17 +30,17 @@ pub const ContextHandle = struct {
 
 pub const Context = ContextHandle;
 
-pub fn create(_: std.mem.Allocator, ctx: *GpuContext) !Frame {
+pub fn create(surface: *Surface) !Frame {
     return .{
         .surface_texture = null,
         .view = null,
         .encoder = null,
-        .ctx = ctx,
+        .surface = surface,
     };
 }
 
 pub fn begin(self: *Frame) !ContextHandle {
-    _ = self.ctx.device.poll(true);
+    _ = self.surface.device.device.poll(true);
     return .{ .frame = self, .upload_slot = 0 };
 }
 
@@ -53,7 +53,7 @@ pub fn prepareResize(self: *Frame) void {
     self.view = null;
     if (self.surface_texture) |t| t.deinit();
     self.surface_texture = null;
-    _ = self.ctx.device.poll(true);
+    _ = self.surface.device.device.poll(true);
 }
 
 pub fn deinit(self: *Frame) void {
@@ -64,27 +64,27 @@ pub fn deinit(self: *Frame) void {
 
 fn beginRenderPass(self: *Frame, desc: RenderPass.Desc) !RenderPass {
     if (self.encoder == null) {
-        self.encoder = try self.ctx.device.createCommandEncoder(.{ .label = "frame_encoder" });
+        self.encoder = try self.surface.device.device.createCommandEncoder(.{ .label = "frame_encoder" });
     }
 
     const target_view = if (desc.color_attachment.target) |target| blk: {
         break :blk target.view;
     } else blk: {
         if (self.surface_texture == null) {
-            self.surface_texture = self.ctx.surface.getCurrentTexture() catch |err| switch (err) {
+            self.surface_texture = self.surface.surface.getCurrentTexture() catch |err| switch (err) {
                 error.CurrentTextureOutdated, error.CurrentTextureLost => retry: {
-                    _ = self.ctx.device.poll(true);
-                    self.ctx.reconfigureSurface(self.ctx.surface_width, self.ctx.surface_height);
-                    break :retry try self.ctx.surface.getCurrentTexture();
+                    _ = self.surface.device.device.poll(true);
+                    self.surface.configure(self.surface.surface_width, self.surface.surface_height);
+                    break :retry try self.surface.surface.getCurrentTexture();
                 },
                 else => return err,
             };
-            self.view = try self.surface_texture.?.createView(.{ .format = self.ctx.surface_format });
+            self.view = try self.surface_texture.?.createView(.{ .format = self.surface.device.surface_format });
         }
         break :blk self.view.?;
     };
 
-    return RenderPass.create(self.ctx.allocator, self.encoder.?, target_view, desc);
+    return RenderPass.create(self.encoder.?, target_view, desc);
 }
 
 fn submit(self: *Frame) !void {
@@ -98,8 +98,8 @@ fn submit(self: *Frame) !void {
     }
 
     const cmd = try self.encoder.?.finish(.{});
-    self.ctx.queue.submitCommands(&.{cmd});
-    try self.ctx.surface.present();
+    self.surface.device.queue.submitCommands(&.{cmd});
+    try self.surface.surface.present();
 }
 
 fn submitReadback(self: *Frame, allocator: std.mem.Allocator) !gpu.SurfaceReadback {
@@ -112,16 +112,16 @@ fn submitReadback(self: *Frame, allocator: std.mem.Allocator) !gpu.SurfaceReadba
         self.surface_texture = null;
     }
 
-    if (!self.ctx.surface_copy_src) return error.SurfaceReadbackUnsupported;
+    if (!self.surface.surface_copy_src) return error.SurfaceReadbackUnsupported;
     if (self.encoder == null or self.surface_texture == null) return error.SurfaceReadbackUnavailable;
 
-    const width = self.ctx.surface_width;
-    const height = self.ctx.surface_height;
-    const format = self.ctx.surfaceFormat();
+    const width = self.surface.surface_width;
+    const height = self.surface.surface_height;
+    const format = self.surface.format();
     const row_bytes = try readbackRowBytes(width, format);
     const padded_row_bytes = (std.math.add(usize, row_bytes, 255) catch return error.SurfaceReadbackTooLarge) & ~@as(usize, 255);
     const readback_size = std.math.mul(usize, padded_row_bytes, @as(usize, height)) catch return error.SurfaceReadbackTooLarge;
-    var readback_buffer = try self.ctx.device.createBuffer(.{
+    var readback_buffer = try self.surface.device.device.createBuffer(.{
         .label = "surface_readback",
         .size = readback_size,
         .usage = .{ .copy_dst = true, .map_read = true },
@@ -162,7 +162,7 @@ fn submitReadback(self: *Frame, allocator: std.mem.Allocator) !gpu.SurfaceReadba
             .userdata1 = &state,
         },
     );
-    while (!state.done.load(.acquire)) _ = self.ctx.device.poll(true);
+    while (!state.done.load(.acquire)) _ = self.surface.device.device.poll(true);
     if (!state.success.load(.monotonic)) return error.SurfaceReadbackMapFailed;
 
     const mapped = readback_buffer.getConstMappedRange(u8, 0, readback_size) orelse return error.SurfaceReadbackMapFailed;
@@ -182,5 +182,5 @@ fn readbackRowBytes(width: u32, format: gpu.Texture.Format) !usize {
 }
 
 pub fn waitForCompletion(self: *Frame) !void {
-    _ = self.ctx.device.poll(true);
+    _ = self.surface.device.device.poll(true);
 }

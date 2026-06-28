@@ -60,7 +60,7 @@ pub fn start(self: *Runner) !void {
 
 fn frame(app: *knots.App) !void {
     const self: *Runner = @fieldParentPtr("app", app);
-    if (app.renderer.takeReadback()) |completed| {
+    if (app.viewport.renderer.takeReadback()) |completed| {
         var readback = completed;
         defer readback.deinit();
         var capture = try capture_utils.fromReadback(self.allocator, readback);
@@ -68,12 +68,12 @@ fn frame(app: *knots.App) !void {
         if (!try self.check(scene_names[self.scene], capture)) self.failures += 1;
         self.scene += 1;
         if (self.scene == scene_names.len) {
-            try app.signal(.exit);
+            app.closeWindow();
             return;
         }
     }
 
-    app.ui.content_scale = 1.0;
+    app.viewport.ui.content_scale = 1.0;
     switch (self.scene) {
         0 => try renderLayout(app),
         1 => try self.renderComponents(app),
@@ -81,8 +81,8 @@ fn frame(app: *knots.App) !void {
         3 => try self.renderOverlay(app),
         else => unreachable,
     }
-    try app.renderer.requestReadback(self.allocator);
-    try app.signal(.redraw);
+    try app.viewport.renderer.requestReadback(self.allocator);
+    app.requestFrame();
 }
 
 fn check(self: *Runner, name: []const u8, capture: capture_utils.Frame) !bool {
@@ -163,9 +163,9 @@ fn check(self: *Runner, name: []const u8, capture: capture_utils.Frame) !bool {
 
 fn renderComponents(self: *Runner, app: *knots.App) !void {
     const hovered = knots.ui.Key.str("component-primary").hash();
-    app.ui.state.hovered = hovered;
-    app.ui.state.focused = knots.ui.Key.str("component-checkbox").hash();
-    const scroll = try app.ui.state.getOrCreate(.scroll, app.ui.allocator, knots.ui.Key.str("component-scroll").hash());
+    app.viewport.ui.state.hovered = hovered;
+    app.viewport.ui.state.focused = knots.ui.Key.str("component-checkbox").hash();
+    const scroll = try app.viewport.ui.state.getOrCreate(.scroll, app.viewport.ui.allocator, knots.ui.Key.str("component-scroll").hash());
     scroll.offset[1] = 30;
     try app.e(.{
         page(),

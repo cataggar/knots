@@ -56,7 +56,7 @@ pub fn RadioButton(comptime T: type) type {
         const Self = @This();
 
         pub fn open(self: *const Self, app: *App) !Element.Id {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
 
             const min_height = @max(self.dot_size, try ui.lineHeight(self.label_size.resolve(), null));
             const id = try ui.open(self.key, .{
@@ -76,7 +76,7 @@ pub fn RadioButton(comptime T: type) type {
 
             const key_activate = ui.focused(id) and
                 (ui.input.containsKey(.space) or ui.input.containsKey(.enter) or ui.input.containsKey(.kp_enter));
-            const activate = ui.leftClickedWithin(id) or key_activate;
+            const activate = ui.leftClicked(id, .within) or key_activate;
             if (activate) {
                 if (!std.meta.eql(self.selected.*, self.value)) {
                     self.selected.* = self.value;
@@ -89,7 +89,7 @@ pub fn RadioButton(comptime T: type) type {
         }
 
         pub fn close(self: *const Self, app: *App) !void {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const id = self.key.hash();
             const selected = std.meta.eql(self.selected.*, self.value);
             const hovered = ui.hovering(id) or ui.isHoveredWithin(id);
@@ -183,18 +183,18 @@ pub fn RadioGroup(comptime T: type) type {
         pub fn open(self: *const Self, app: *App) !Element.Id {
             if (self.values.len != self.labels.len) return error.RadioGroupMismatchedOptions;
             if (self.values.len > 0 and
-                (app.ui.input.containsKey(.left) or app.ui.input.containsKey(.up) or
-                    app.ui.input.containsKey(.right) or app.ui.input.containsKey(.down)))
+                (app.viewport.ui.input.containsKey(.left) or app.viewport.ui.input.containsKey(.up) or
+                    app.viewport.ui.input.containsKey(.right) or app.viewport.ui.input.containsKey(.down)))
             {
                 var focused_index: ?usize = null;
                 for (self.values, 0..) |_, i| {
-                    if (app.ui.state.focused == self.key.indexed(1 + i).hash()) {
+                    if (app.viewport.ui.state.focused == self.key.indexed(1 + i).hash()) {
                         focused_index = i;
                         break;
                     }
                 }
                 if (focused_index) |i| {
-                    const backward = app.ui.input.containsKey(.left) or app.ui.input.containsKey(.up);
+                    const backward = app.viewport.ui.input.containsKey(.left) or app.viewport.ui.input.containsKey(.up);
                     const next_i = if (backward)
                         (i + self.values.len - 1) % self.values.len
                     else
@@ -204,11 +204,11 @@ pub fn RadioGroup(comptime T: type) type {
                         self.selected.* = next;
                         if (self.onChange) |cb| try cb(app, next);
                     }
-                    app.ui.state.focused = self.key.indexed(1 + next_i).hash();
-                    app.ui.input.consumeKeyboard();
+                    app.viewport.ui.state.focused = self.key.indexed(1 + next_i).hash();
+                    app.viewport.ui.input.consumeKeyboard();
                 }
             }
-            return try app.ui.open(self.key, .{
+            return try app.viewport.ui.open(self.key, .{
                 .width = self.width,
                 .height = self.height,
                 .padding = self.padding,
@@ -236,7 +236,7 @@ pub fn RadioGroup(comptime T: type) type {
                     .hover_border_color = self.hover_border_color,
                 });
             }
-            app.ui.close();
+            app.viewport.ui.close();
         }
     };
 }

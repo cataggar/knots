@@ -39,13 +39,13 @@ const PREVIEW_INDEX: usize = 7;
 const HEX_INDEX: usize = 8;
 
 pub fn open(self: *const ColorPicker, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const s = try ui.state.getOrCreate(.color_picker, ui.allocator, id);
 
     syncStateFromColor(s, self.value.*);
 
-    if (ui.leftClicked(id)) {
+    if (ui.leftPressed(id, .exact)) {
         s.open = !s.open;
         s.editing_hex = false;
         if (s.open) {
@@ -81,7 +81,7 @@ pub fn open(self: *const ColorPicker, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const ColorPicker, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     const s = try ui.state.getOrCreate(.color_picker, ui.allocator, id);
 
@@ -125,7 +125,7 @@ pub fn close(self: *const ColorPicker, app: *App) !void {
 }
 
 fn handlePickerInput(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const sv_id = self.key.indexed(SV_INDEX).hash();
     const hue_id = self.key.indexed(HUE_INDEX).hash();
     const alpha_id = self.key.indexed(ALPHA_INDEX).hash();
@@ -233,7 +233,7 @@ fn isCommittableHexLen(hex: []const u8, allow_shorthand: bool) bool {
 }
 
 fn renderPopover(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const anchor = s.anchor_box;
     const viewport = s.viewport_box;
     const popup_id = self.key.indexed(POPUP_INDEX).hash();
@@ -253,7 +253,7 @@ fn renderPopover(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !vo
         .width = .fixed(self.popover_width),
         .height = .{ .kind = .fit, .max = max_h },
         .overflow = .scroll_y,
-        .z_index = 1,
+        .z_index = Layer.dropdown.index(),
         .padding = .init(10, 10, 10, 10),
         .gap = 8,
         .interactive = true,
@@ -269,7 +269,7 @@ fn renderPopover(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !vo
 }
 
 fn isPointerInside(self: *const ColorPicker, app: *App, s: *const State.ColorPicker) bool {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const p = .{ @as(f32, @floatCast(ui.input.mouse_pos[0])), @as(f32, @floatCast(ui.input.mouse_pos[1])) };
     if (s.anchor_box.contains(p)) return true;
 
@@ -282,7 +282,7 @@ fn isPointerInside(self: *const ColorPicker, app: *App, s: *const State.ColorPic
 }
 
 fn renderSvControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.indexed(SV_INDEX).hash();
     _ = try ui.state.getOrCreate(.measured, ui.allocator, id);
 
@@ -341,7 +341,7 @@ fn renderSvControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !
 }
 
 fn renderHueControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.indexed(HUE_INDEX).hash();
     _ = try ui.state.getOrCreate(.measured, ui.allocator, id);
 
@@ -379,7 +379,7 @@ fn renderHueControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) 
 }
 
 fn renderAlphaControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.indexed(ALPHA_INDEX).hash();
     _ = try ui.state.getOrCreate(.measured, ui.allocator, id);
 
@@ -413,7 +413,7 @@ fn renderAlphaControl(self: *const ColorPicker, app: *App, s: *State.ColorPicker
 }
 
 fn renderPreview(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     var cmds: std.ArrayList(Decoration.DrawCmd) = .empty;
     const arena = app.arena();
     const w = self.popover_width - 20;
@@ -435,7 +435,7 @@ fn renderPreview(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !vo
 }
 
 fn renderHexField(self: *const ColorPicker, app: *App, s: *State.ColorPicker) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.indexed(HEX_INDEX).hash();
     const focused = ui.focused(id);
     const style = if (focused) self.focused_style else self.style;

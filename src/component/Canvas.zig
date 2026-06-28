@@ -59,13 +59,13 @@ pub const Painter = struct {
 };
 
 pub fn open(self: *const Canvas, app: *App) !Element.Id {
-    const rect = self.style.toRect(&app.ui.theme);
+    const rect = self.style.toRect(&app.viewport.ui.theme);
     const needs_clip_shape = !rect.corner_radius.isZero() or !rect.border_width.isZero();
     const decoration: Decoration = if (self.style.hasDecoration() or needs_clip_shape)
         .{ .rect = rect }
     else
         .none;
-    return try app.ui.open(self.key, .{
+    return try app.viewport.ui.open(self.key, .{
         .width = self.width,
         .height = self.height,
         .overflow = .hidden,
@@ -74,7 +74,7 @@ pub fn open(self: *const Canvas, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const Canvas, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const allocator = app.arena();
 
     var cmds: std.ArrayList(DrawCmd) = .empty;

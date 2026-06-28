@@ -3,7 +3,7 @@ const wgpu = @import("wgpu");
 const CommonPipeline = @import("gpu").Pipeline;
 const TextureFormat = @import("gpu").Texture.Format;
 
-const Context = @import("Context.zig");
+const Device = @import("Device.zig");
 
 const Pipeline = @This();
 
@@ -12,13 +12,13 @@ render_pipeline: wgpu.RenderPipeline,
 bind_group_layouts: []wgpu.BindGroupLayout,
 device: wgpu.Device,
 
-pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.Desc) !Pipeline {
+pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipeline.Desc) !Pipeline {
     const wgsl = switch (desc.shader) {
         .wgsl => |s| s,
         .spirv => return error.UnsupportedShaderSource,
     };
 
-    const shader_module = try wgpu.ShaderModule.init(ctx.device.device, .{ .wgsl = wgsl });
+    const shader_module = try wgpu.ShaderModule.init(device.device.device, .{ .wgsl = wgsl });
     defer shader_module.deinit();
 
     const bgls = try allocator.alloc(wgpu.BindGroupLayout, desc.bind_group_layouts.len);
@@ -33,14 +33,14 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
         for (bgl_desc.entries, 0..) |e, i| {
             entry_buf[i] = toWgpuBglEntry(e);
         }
-        bgls[bgl_i] = try ctx.device.createBindGroupLayout(.{
+        bgls[bgl_i] = try device.device.createBindGroupLayout(.{
             .label = bgl_desc.label,
             .entries = entry_buf[0..bgl_desc.entries.len],
         });
         bgls_created += 1;
     }
 
-    const pipeline_layout = try ctx.device.createPipelineLayout(desc.label, bgls);
+    const pipeline_layout = try device.device.createPipelineLayout(desc.label, bgls);
     defer pipeline_layout.deinit();
 
     var attr_buf: [4][16]wgpu.RenderPipeline.VertexAttribute = undefined;
@@ -65,10 +65,10 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
         };
     }
 
-    const target_format = if (desc.color_target.format) |f| toWgpuFormat(f) else ctx.surface_format;
+    const target_format = if (desc.color_target.format) |f| toWgpuFormat(f) else device.surface_format;
     const blend = if (desc.color_target.blend) |b| toWgpuBlend(b) else null;
 
-    const pipeline = try ctx.device.createRenderPipeline(.{
+    const pipeline = try device.device.createRenderPipeline(.{
         .label = desc.label,
         .layout = pipeline_layout,
         .vertex = .{
@@ -87,7 +87,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *Context, desc: CommonPipeline.
         .allocator = allocator,
         .render_pipeline = pipeline,
         .bind_group_layouts = bgls,
-        .device = ctx.device,
+        .device = device.device,
     };
 }
 

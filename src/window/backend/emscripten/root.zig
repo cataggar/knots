@@ -323,3 +323,7 @@ pub fn init(_: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backen
     try backend.setTitle(cfg.title);
     return backend;
 }
+
+pub fn initSecondary(_: *const Backend, _: std.Io, _: std.mem.Allocator, _: window.Config) !Backend {
+    return error.UnsupportedPlatform;
+}

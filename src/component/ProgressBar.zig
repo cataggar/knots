@@ -16,7 +16,7 @@ key: Key,
 const ProgressBar = @This();
 
 pub fn open(self: *const ProgressBar, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     return try ui.open(self.key, .{
         .width = self.width,
         .height = self.height,
@@ -29,5 +29,5 @@ pub fn open(self: *const ProgressBar, app: *App) !Element.Id {
 }
 
 pub fn close(_: *const ProgressBar, app: *App) !void {
-    app.ui.close();
+    app.viewport.ui.close();
 }

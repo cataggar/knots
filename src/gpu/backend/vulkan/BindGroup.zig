@@ -1,6 +1,5 @@
-const std = @import("std");
 const vk = @import("vk");
-const Context = @import("Context.zig");
+const Device = @import("Device.zig");
 const Pipeline = @import("Pipeline.zig");
 const Buffer = @import("Buffer.zig");
 const Texture = @import("Texture.zig");
@@ -8,7 +7,7 @@ const Sampler = @import("Sampler.zig");
 
 const BindGroup = @This();
 
-ctx: *Context,
+device: *Device,
 descriptor_set: vk.DescriptorSet,
 descriptor_pool: vk.DescriptorPool,
 
@@ -37,10 +36,10 @@ pub const Desc = struct {
     entries: []const BindingEntry,
 };
 
-pub fn create(_: std.mem.Allocator, ctx: *Context, desc: Desc) !BindGroup {
+pub fn create(device: *Device, desc: Desc) !BindGroup {
     const layout = desc.pipeline.descriptorSetLayout(desc.layout_index);
 
-    const alloc_result = try ctx.allocateDescriptorSetWithPool(layout);
+    const alloc_result = try device.allocateDescriptorSetWithPool(layout);
 
     var writes_buf: [16]vk.WriteDescriptorSet = undefined;
     var buf_info_buf: [16]vk.DescriptorBufferInfo = undefined;
@@ -120,15 +119,15 @@ pub fn create(_: std.mem.Allocator, ctx: *Context, desc: Desc) !BindGroup {
         }
     }
 
-    ctx.vkd.updateDescriptorSets(ctx.device, writes_buf[0..desc.entries.len], null);
+    device.vkd.updateDescriptorSets(device.device, writes_buf[0..desc.entries.len], null);
 
     return .{
-        .ctx = ctx,
+        .device = device,
         .descriptor_set = alloc_result.set,
         .descriptor_pool = alloc_result.pool,
     };
 }
 
 pub fn deinit(self: *BindGroup) void {
-    self.ctx.vkd.freeDescriptorSets(self.ctx.device, self.descriptor_pool, &.{self.descriptor_set}) catch {};
+    self.device.vkd.freeDescriptorSets(self.device.device, self.descriptor_pool, &.{self.descriptor_set}) catch {};
 }

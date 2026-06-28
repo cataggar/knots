@@ -1,4 +1,6 @@
 pub const App = @import("App.zig");
+pub const Viewport = @import("Viewport.zig");
+pub const render = @import("render");
 pub const window = @import("window");
 pub const component = @import("component");
 pub const control = @import("control");

@@ -2,6 +2,7 @@ const App = @import("knots").App;
 const Key = @import("ui").Key;
 const Element = @import("layout").Element;
 const gpu = @import("gpu");
+const render = @import("render");
 
 pub const Pixels = struct {
     pub const UploadPolicy = enum {
@@ -21,7 +22,7 @@ pub const Pixels = struct {
 };
 
 pub const Source = union(enum) {
-    texture: u32,
+    texture: render.TextureId,
     pixels: Pixels,
 };
 
@@ -37,7 +38,7 @@ const Image = @This();
 pub fn open(self: *const Image, app: *App) !Element.Id {
     const texture_id = switch (self.source) {
         .texture => |id| id,
-        .pixels => |p| try app.renderer.textureFromPixels(
+        .pixels => |p| try app.viewport.renderer.textureFromPixels(
             self.key.hash(),
             p.data,
             p.width,
@@ -49,7 +50,7 @@ pub fn open(self: *const Image, app: *App) !Element.Id {
         ),
     };
 
-    return try app.ui.open(self.key, .{
+    return try app.viewport.ui.open(self.key, .{
         .width = self.width,
         .height = self.height,
         .position = self.position,
@@ -61,5 +62,5 @@ pub fn open(self: *const Image, app: *App) !Element.Id {
 }
 
 pub fn close(_: *const Image, app: *App) !void {
-    app.ui.close();
+    app.viewport.ui.close();
 }

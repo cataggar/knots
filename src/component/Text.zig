@@ -24,7 +24,7 @@ const BODY_INDEX: usize = 1; // text decoration
 const SPANS_BASE: usize = 16; // selection line overlays start here, one per line
 
 pub fn open(self: *const Text, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     if (!self.selectable) {
         var decoration = try ui.textDecoration(self.content, self.size.resolve(), self.font, self.wrap);
         decoration.text.color = self.color.resolve(&ui.theme);
@@ -42,7 +42,7 @@ pub fn open(self: *const Text, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const Text, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     if (!self.selectable) {
         ui.close();
         return;

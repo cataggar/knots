@@ -1,11 +1,13 @@
 const std = @import("std");
 
-const State = @import("ui").State;
-const Style = @import("ui").Style;
-const Color = @import("ui").Color;
-const Size = @import("ui").Size;
-const Key = @import("ui").Key;
-const Decoration = @import("ui").Decoration;
+const ui_mod = @import("ui");
+
+const State = ui_mod.State;
+const Style = ui_mod.Style;
+const Color = ui_mod.Color;
+const Size = ui_mod.Size;
+const Key = ui_mod.Key;
+const Decoration = ui_mod.Decoration;
 
 const App = @import("knots").App;
 
@@ -54,14 +56,14 @@ pub fn SelectInput(comptime T: type) type {
         pub fn open(self: *const Self, app: *App) !Element.Id {
             if (self.labels.len != self.values.len) return error.SelectInputMismatchedOptions;
             if (!has_implicit_options and self.values.len == 0) return error.SelectInputRequiresOptions;
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
 
             const id = self.key.hash();
             const existed = ui.state.get(.select_input, id) != null;
             const s = try ui.state.getOrCreate(.select_input, ui.allocator, id);
             if (!existed) s.selected = self.initial_selected;
 
-            if (ui.leftClicked(id)) s.open = !s.open;
+            if (ui.leftPressed(id, .exact)) s.open = !s.open;
             if (ui.focused(id)) {
                 var next_selected: ?usize = null;
                 if (ui.input.containsKey(.escape)) {
@@ -105,7 +107,7 @@ pub fn SelectInput(comptime T: type) type {
             if (s.open) {
                 for (self.labels, 0..) |_, i| {
                     const opt_id = self.key.indexed(4 + i).hash();
-                    if (ui.leftClicked(opt_id)) {
+                    if (ui.leftPressed(opt_id, .exact)) {
                         const idx_u32: u32 = @intCast(i);
                         s.selected = idx_u32;
                         s.open = false;
@@ -159,7 +161,7 @@ pub fn SelectInput(comptime T: type) type {
         }
 
         pub fn close(self: *const Self, app: *App) !void {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const id = self.key.hash();
             const s = try ui.state.getOrCreate(.select_input, ui.allocator, id);
             const size = self.size.resolve();

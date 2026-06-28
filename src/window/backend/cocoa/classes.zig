@@ -17,7 +17,7 @@ pub fn registerClasses() !Registered {
 fn registerView() !objc.Class {
     const NSView = objc.getClass("NSView").?;
     const cls = objc.allocateClassPair(NSView, "KnotsView") orelse return error.AllocateClassFailed;
-    if (!cls.addIvar(ak.IVAR_OWNER)) return error.AddIvarFailed;
+    if (!ak.addOwnerIvar(cls)) return error.AddIvarFailed;
     const methods = events.view_misc_methods ++ events.mouse_methods ++
         events.keyboard_methods ++ events.drag_methods ++ text_input.text_input_methods;
 
@@ -30,7 +30,7 @@ fn registerView() !objc.Class {
 fn registerDelegate() !objc.Class {
     const NSObject = objc.getClass("NSObject").?;
     const cls = objc.allocateClassPair(NSObject, "KnotsWindowDelegate") orelse return error.AllocateClassFailed;
-    if (!cls.addIvar(ak.IVAR_OWNER)) return error.AddIvarFailed;
+    if (!ak.addOwnerIvar(cls)) return error.AddIvarFailed;
     inline for (events.delegate_methods) |entry| {
         if (!cls.addMethod(entry[0], entry[1])) return error.AddMethodFailed;
     }

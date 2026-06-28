@@ -51,28 +51,28 @@ pub fn MenuButton(comptime Menu: type) type {
         const TEXT_INDEX: usize = 2;
 
         pub fn open(self: *const Self, app: *App) !Element.Id {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const id = self.key.hash();
             const s = try ui.state.getOrCreate(.menu_button, ui.allocator, id);
 
             if (s.open and ui.input.mouseButton(.left).pressed and !isPointerInside(s, ui.input.mouse_pos)) {
                 s.open = false;
-                try app.signal(.redraw);
+                app.requestFrame();
             }
 
-            if (ui.leftClicked(id)) {
+            if (ui.leftPressed(id, .exact)) {
                 s.open = !s.open;
-                try app.signal(.redraw);
+                app.requestFrame();
             } else if (ui.focused(id) and openKeyPressed(ui.input)) {
                 s.open = true;
                 ui.input.consumeKeyboard();
-                try app.signal(.redraw);
+                app.requestFrame();
             }
 
             if (s.open and ui.input.containsKey(.escape)) {
                 s.open = false;
                 ui.input.consumeKeyboard();
-                try app.signal(.redraw);
+                app.requestFrame();
             }
 
             const is_hovered = ui.hovering(id);
@@ -133,7 +133,7 @@ pub fn MenuButton(comptime Menu: type) type {
         }
 
         pub fn close(self: *const Self, app: *App) !void {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const id = self.key.hash();
             ui.close();
 
@@ -144,15 +144,15 @@ pub fn MenuButton(comptime Menu: type) type {
 
             if (self.close_on_popup_click) {
                 const popup_id = self.key.indexed(POPUP_INDEX).hash();
-                if (ui.leftClickedWithin(popup_id)) {
+                if (ui.leftClicked(popup_id, .within)) {
                     s.open = false;
-                    try app.signal(.redraw);
+                    app.requestFrame();
                 }
             }
         }
 
         fn renderPopup(self: *const Self, app: *App, s: *State.MenuButton) !void {
-            const ui = &app.ui;
+            const ui = &app.viewport.ui;
             const popup_key = self.key.indexed(POPUP_INDEX);
             const popup_id = popup_key.hash();
 
@@ -161,7 +161,7 @@ pub fn MenuButton(comptime Menu: type) type {
             const measured_box = if (measured) |m| m.box else math.Rect.zero;
             if (!s.popup_box.eql(measured_box)) {
                 s.popup_box = measured_box;
-                try app.signal(.redraw);
+                app.requestFrame();
             }
 
             const measured_h = if (measured_box.h() > 0) measured_box.h() else self.fallback_menu_height;
@@ -173,7 +173,7 @@ pub fn MenuButton(comptime Menu: type) type {
                 .width = .fixed(p.width),
                 .height = .{ .kind = .fit, .max = p.max_height },
                 .overflow = .scroll_y,
-                .z_index = self.popup_z_index,
+                .z_index = self.popup_z_index.index(),
                 .padding = self.popup_padding,
                 .gap = self.popup_gap,
                 .interactive = true,

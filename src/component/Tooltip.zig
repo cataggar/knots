@@ -58,7 +58,7 @@ const POPUP_INDEX: usize = 1;
 const TEXT_INDEX: usize = 2;
 
 pub fn open(self: *const Tooltip, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     _ = try ui.state.getOrCreate(.tooltip, ui.allocator, id);
 
@@ -84,7 +84,7 @@ pub fn open(self: *const Tooltip, app: *App) !Element.Id {
 }
 
 pub fn close(self: *const Tooltip, app: *App) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
     ui.close();
 
@@ -103,22 +103,22 @@ pub fn close(self: *const Tooltip, app: *App) !void {
 }
 
 fn hoverDelayElapsed(app: *App, s: *State.Tooltip, delay_ms: u32) !bool {
-    const now = app.ui.input.now_ms;
+    const now = app.viewport.ui.input.now_ms;
     if (s.hover_started_ms == null) {
         s.hover_started_ms = now;
-        try app.signal(.redraw);
+        app.requestFrame();
         return delay_ms == 0;
     }
 
     const elapsed = now - s.hover_started_ms.?;
     if (elapsed >= @as(i64, @intCast(delay_ms))) return true;
 
-    try app.signal(.redraw);
+    app.requestFrame();
     return false;
 }
 
 fn renderPopup(self: *const Tooltip, app: *App, s: *State.Tooltip) !void {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const popup_key = self.key.indexed(POPUP_INDEX);
     const popup_id = popup_key.hash();
 
@@ -126,7 +126,7 @@ fn renderPopup(self: *const Tooltip, app: *App, s: *State.Tooltip) !void {
     const measured_box = if (ui.state.get(.measured, popup_id)) |m| m.box else math.Rect.zero;
     if (!sameRect(s.popup_box, measured_box)) {
         s.popup_box = measured_box;
-        try app.signal(.redraw);
+        app.requestFrame();
     }
 
     const fallback_size = try self.fallbackPopupSize(ui, s.viewport_box);
@@ -141,7 +141,7 @@ fn renderPopup(self: *const Tooltip, app: *App, s: *State.Tooltip) !void {
         .direction = .row,
         .width = .fixed(p.width),
         .height = .{ .kind = .fit, .max = @max(p.height, s.viewport_box.h()) },
-        .z_index = self.z_index,
+        .z_index = self.z_index.index(),
         .padding = self.popup_padding,
         .overflow = .hidden,
     }, .{ .rect = self.popup_style.toRect(&ui.theme) });

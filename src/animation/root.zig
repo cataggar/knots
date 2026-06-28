@@ -25,10 +25,10 @@ pub const Collapsible = struct {
         const clip_key = self.key.indexed(COLLAPSIBLE_KEY_SALT + 2);
         const measure_id = measure_key.hash();
 
-        _ = try app.ui.state.getOrCreate(.measured, app.ui.allocator, measure_id);
-        const measured_h: f32 = if (app.ui.state.get(.measured, measure_id)) |s| s.height else 0;
+        _ = try app.viewport.ui.state.getOrCreate(.measured, app.viewport.ui.allocator, measure_id);
+        const measured_h: f32 = if (app.viewport.ui.state.get(.measured, measure_id)) |s| s.height else 0;
         const target_h: f32 = if (self.open) measured_h else 0;
-        const h = app.ui.anim(tween_key.hash(), "h", target_h, self.animation);
+        const h = app.viewport.ui.anim(tween_key.hash(), "h", target_h, self.animation);
 
         if (!self.open and h <= 0) return;
 
@@ -36,16 +36,16 @@ pub const Collapsible = struct {
         const clip_height: Element.sizing.Axis =
             if (need_remeasure) .fit() else .fixed(h);
 
-        _ = try app.ui.open(clip_key, .{
+        _ = try app.viewport.ui.open(clip_key, .{
             .width = self.width,
             .height = clip_height,
             .direction = .column,
             .overflow = .hidden,
         }, .none);
-        defer app.ui.close();
+        defer app.viewport.ui.close();
 
-        _ = try app.ui.open(measure_key, .{ .width = self.width }, .none);
-        defer app.ui.close();
+        _ = try app.viewport.ui.open(measure_key, .{ .width = self.width }, .none);
+        defer app.viewport.ui.close();
         try self.child(app);
     }
 };

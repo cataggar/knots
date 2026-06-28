@@ -1,6 +1,5 @@
-const std = @import("std");
 const wgpu = @import("wgpu");
-const Context = @import("Context.zig");
+const Device = @import("Device.zig");
 const Pipeline = @import("Pipeline.zig");
 const Buffer = @import("Buffer.zig");
 const Texture = @import("Texture.zig");
@@ -35,7 +34,7 @@ pub const Desc = struct {
     entries: []const BindingEntry,
 };
 
-pub fn create(_: std.mem.Allocator, ctx: *Context, desc: Desc) !BindGroup {
+pub fn create(device: *Device, desc: Desc) !BindGroup {
     const layout = desc.pipeline.bindGroupLayout(desc.layout_index);
 
     var entry_buf: [16]wgpu.BindGroup.Entry = undefined;
@@ -63,7 +62,7 @@ pub fn create(_: std.mem.Allocator, ctx: *Context, desc: Desc) !BindGroup {
         entry_buf[i] = w;
     }
 
-    const bg = try ctx.device.createBindGroup(.{
+    const bg = try device.device.createBindGroup(.{
         .label = desc.label,
         .layout = layout,
         .entries = entry_buf[0..desc.entries.len],

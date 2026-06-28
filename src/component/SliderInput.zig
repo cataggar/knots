@@ -25,7 +25,7 @@ key: Key,
 const SliderInput = @This();
 
 pub fn open(self: *const SliderInput, app: *App) !Element.Id {
-    const ui = &app.ui;
+    const ui = &app.viewport.ui;
     const id = self.key.hash();
 
     const slider_state = try ui.state.getOrCreate(.slider, ui.allocator, id);
@@ -114,7 +114,7 @@ pub fn open(self: *const SliderInput, app: *App) !Element.Id {
 }
 
 pub fn close(_: *const SliderInput, app: *App) !void {
-    app.ui.close();
+    app.viewport.ui.close();
 }
 
 fn steppedValue(self: *const SliderInput, value: f32) f32 {

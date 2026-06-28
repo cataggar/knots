@@ -1,4 +1,3 @@
-const std = @import("std");
 const wgpu = @import("wgpu");
 const CommonTexture = @import("gpu").Texture;
 
@@ -25,7 +24,7 @@ format: Format,
 ready: bool,
 native_handle: NativeHandle,
 
-pub fn create(_: std.mem.Allocator, device: wgpu.Device, queue: wgpu.Queue, desc: Desc) !Texture {
+pub fn create(device: wgpu.Device, queue: wgpu.Queue, desc: Desc) !Texture {
     const wgpu_format = toWgpuFormat(desc.format);
 
     const texture = try device.createTexture(.{

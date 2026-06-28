@@ -1,4 +1,3 @@
-const std = @import("std");
 const wgpu = @import("wgpu");
 const Buffer = @import("Buffer.zig");
 const Pipeline = @import("Pipeline.zig");
@@ -24,7 +23,7 @@ pub const Desc = struct {
     color_attachment: ColorAttachment = .{},
 };
 
-pub fn create(_: std.mem.Allocator, encoder: wgpu.CommandEncoder, view: wgpu.TextureView, desc: Desc) !RenderPass {
+pub fn create(encoder: wgpu.CommandEncoder, view: wgpu.TextureView, desc: Desc) !RenderPass {
     const ca = desc.color_attachment;
 
     const pass = try encoder.beginRenderPass(.{
