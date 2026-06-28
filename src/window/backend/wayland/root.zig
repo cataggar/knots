@@ -829,7 +829,7 @@ fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, state: *Shared) void {
 fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, shared: *Shared) void {
     switch (event) {
         .enter => |enter| {
-            const state = findState(shared, enter.surface) orelse return;
+            const state = findState(shared, enter.surface orelse return) orelse return;
             shared.pointer_state = state;
             state.pointer_enter_serial = enter.serial;
             state.cursor_pos = .{ enter.surface_x.toDouble(), enter.surface_y.toDouble() };
@@ -899,7 +899,7 @@ fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, state: *Shared) v
             std.log.warn("failed to load Wayland XKB keymap: {s}", .{@errorName(err)});
         },
         .enter => |enter| {
-            const target = findState(state, enter.surface) orelse return;
+            const target = findState(state, enter.surface orelse return) orelse return;
             state.keyboard_state = target;
             if (target.owner) |owner| owner.setFocused(true);
         },
@@ -962,7 +962,7 @@ fn dataDeviceListener(_: *wl.DataDevice, event: wl.DataDevice.Event, state: *Sha
             data_offer.id.setListener(*Shared, dataOfferListener, state);
         },
         .enter => |enter| {
-            state.drag_state = findState(state, enter.surface);
+            state.drag_state = findState(state, enter.surface orelse return);
             state.drag_offer = enter.id;
             state.drag_serial = enter.serial;
             state.drag_has_uri = enter.id != null and state.pending_offer == enter.id.? and state.pending_offer_has_uri;
