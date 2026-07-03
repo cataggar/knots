@@ -44,8 +44,8 @@ pub fn parse(comptime def: anytype) Theme {
 
 pub fn parseWithBase(comptime base: Theme, comptime def: anytype) Theme {
     var res = base;
-    const def_info = @typeInfo(@TypeOf(def));
-    inline for (def_info.@"struct".field_names) |field_name| {
+    inline for (@typeInfo(@TypeOf(def)).@"struct".fields) |field| {
+        const field_name = field.name;
         const v = @field(def, field_name);
         const Field = @TypeOf(@field(res, field_name));
         if (Field == Radius) {

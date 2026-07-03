@@ -23,15 +23,15 @@
             .hash = "win32-25.0.28-preview-mX5pFWMt5QPTVIGh3r2-OpPunpcCCjApyRbA6Zn6WALH",
         },
         .TrueType = .{
-            .url = "git+https://codeberg.org/alichraghi/TrueType#da87817f4e1f7390e5b76776967e212dd8e21ae4",
-            .hash = "TrueType-0.0.0-Ne-mWPpxAQByxdanUCTsGKxKbgcQKN7HfpvcGtSAlP-_",
+            .url = "git+https://codeberg.org/alichraghi/TrueType#2d7f80bf0d18c0e74fd5291aa0749718db3405d0",
+            .hash = "TrueType-0.0.0-Ne-mWPBxAQCuGsQqPVw_0AyZVJcgKCpZDmd-XHEwNOEP",
         },
         .wayland = .{
             .url = "git+https://codeberg.org/ifreund/zig-wayland.git#a8e10e87e5ebb49ce518ac3d2198909c87ee615a",
             .hash = "wayland-0.7.0-dev-lQa1kjT8AQDBstL61Gy3WCMtGwVaMN1p6w5wGfdDvP15",
         },
     },
-    .minimum_zig_version = "0.17.0-dev.813+2153f8143",
+    .minimum_zig_version = "0.16.0",
     .paths = .{
         "build.zig",
         "build.zig.zon",
