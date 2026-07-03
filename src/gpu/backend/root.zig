@@ -5,6 +5,7 @@ const std = @import("std");
 pub const Backend = enum {
     vulkan,
     wgpu,
+    webgpu_js,
 
     pub const available = @import("config").gpu_backends;
 
@@ -50,6 +51,10 @@ pub const Backend = enum {
                 .emscripten => {
                     if (available.wgpu) return .wgpu;
                 },
+                .freestanding => {
+                    // wasm32-freestanding target using the zjb-based WebGPU backend.
+                    if (available.webgpu_js) return .webgpu_js;
+                },
                 else => @compileError("Unsupported OS: " ++ @tagName(builtin.os.tag)),
             }
 
@@ -64,6 +69,7 @@ pub const Backend = enum {
                 const module = switch (@as(Backend, @enumFromInt(field.value))) {
                     .wgpu => @import("gpu_wgpu"),
                     .vulkan => @import("gpu_vulkan"),
+                    .webgpu_js => @import("gpu_webgpu_js"),
                 };
                 return module.init(allocator, window_handle, cfg);
             }

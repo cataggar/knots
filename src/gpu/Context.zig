@@ -29,6 +29,9 @@ pub const WindowHandle = union(enum) {
     emscripten: struct {
         selector: []const u8,
     },
+    wasm: struct {
+        selector: []const u8,
+    },
 };
 
 pub const PresentMode = enum {

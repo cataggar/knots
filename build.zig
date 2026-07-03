@@ -7,6 +7,7 @@ pub const GPUBackend = @import("src/gpu/backend/root.zig").Backend;
 const SupportedBackends = struct {
     wgpu: bool,
     vulkan: bool,
+    webgpu_js: bool,
 };
 
 pub fn build(b: *std.Build) void {
@@ -17,11 +18,12 @@ pub fn build(b: *std.Build) void {
         b.option([]const GPUBackend, "gpu_backends", "Which GPU backends to be available at runtime.") orelse
         &[_]GPUBackend{ .wgpu, .vulkan };
 
-    var se = SupportedBackends{ .vulkan = false, .wgpu = false };
+    var se = SupportedBackends{ .vulkan = false, .wgpu = false, .webgpu_js = false };
     for (gpu_backends) |be| {
         switch (be) {
             .vulkan => se.vulkan = true,
             .wgpu => se.wgpu = true,
+            .webgpu_js => se.webgpu_js = true,
         }
     }
 
@@ -43,6 +45,13 @@ pub fn build(b: *std.Build) void {
     var gpu_backend_opts = b.addOptions();
     gpu_backend_opts.addOption(SupportedBackends, "gpu_backends", se);
     gpu_backend_mod.addOptions("config", gpu_backend_opts);
+
+    // Captured so it can also be wired onto the top-level `knots` module
+    // below (as `gpu_webgpu_js`) -- the wasm entry point needs to reach the
+    // *same* compiled module instance `gpu.backend.webgpu_js.Context` uses
+    // internally, since `bootstrap.zig`'s adapter/device state is
+    // module-level (see Phase 4 in the implementation plan).
+    var webgpu_js_backend_mod: ?*std.Build.Module = null;
 
     for (gpu_backends) |gpu_backend| {
         const backend_mod = blk: switch (gpu_backend) {
@@ -71,6 +80,20 @@ pub fn build(b: *std.Build) void {
                         .{ .name = "gpu", .module = gpu_mod },
                     },
                 });
+            },
+            .webgpu_js => {
+                const zjb = b.dependency("zjb", .{});
+                const m = b.createModule(.{
+                    .target = target,
+                    .optimize = optimize,
+                    .root_source_file = b.path("src/gpu/backend/webgpu_js/root.zig"),
+                    .imports = &.{
+                        .{ .name = "zjb", .module = zjb.module("zjb") },
+                        .{ .name = "gpu", .module = gpu_mod },
+                    },
+                });
+                webgpu_js_backend_mod = m;
+                break :blk m;
             },
         };
         gpu_backend_mod.addImport(b.fmt("gpu_{s}", .{@tagName(gpu_backend)}), backend_mod);
@@ -110,6 +133,15 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/window/backend/emscripten/root.zig"),
             .imports = &.{.{ .name = "gpu", .module = gpu_mod }},
         }),
+        .freestanding => if (target.result.cpu.arch == .wasm32) b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/window/backend/wasm/root.zig"),
+            .imports = &.{
+                .{ .name = "gpu", .module = gpu_mod },
+                .{ .name = "zjb", .module = b.dependency("zjb", .{}).module("zjb") },
+            },
+        }) else std.debug.panic("windowing implementation for freestanding target {s} is not yet implemented", .{@tagName(target.result.cpu.arch)}),
         .linux => {
             const scanner = WaylandScanner.create(b, .{});
             scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
@@ -144,6 +176,20 @@ pub fn build(b: *std.Build) void {
         },
         else => |os| std.debug.panic("windowing implementation for {s} is not yet implemented", .{@tagName(os)}),
     };
+
+    // Captured so it can also be wired onto the top-level `knots` module
+    // below (as `wasm_io`) -- wasm entry points need a `std.Io` to pass to
+    // `App.init` (see src/window/backend/wasm/io.zig; std.Io.Threaded can't
+    // compile for wasm32-freestanding at all).
+    var wasm_io_mod: ?*std.Build.Module = null;
+    if (target.result.os.tag == .freestanding and target.result.cpu.arch == .wasm32) {
+        wasm_io_mod = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/window/backend/wasm/io.zig"),
+            .imports = &.{.{ .name = "zjb", .module = b.dependency("zjb", .{}).module("zjb") }},
+        });
+    }
 
     const window_mod = b.createModule(.{
         .target = target,
@@ -183,11 +229,11 @@ pub fn build(b: *std.Build) void {
     });
 
     var render_shader_opts = b.addOptions();
-    render_shader_opts.addOption(bool, "has_wgpu_shaders", se.wgpu);
+    render_shader_opts.addOption(bool, "has_wgpu_shaders", se.wgpu or se.webgpu_js);
     render_shader_opts.addOption(bool, "has_vulkan_shaders", se.vulkan);
     render_mod.addOptions("shader_config", render_shader_opts);
 
-    if (se.wgpu) {
+    if (se.wgpu or se.webgpu_js) {
         render_mod.addAnonymousImport("primitives_wgsl", .{ .root_source_file = b.path("src/gpu/backend/wgpu/shaders/ui_primitives.wgsl") });
         render_mod.addAnonymousImport("slug_wgsl", .{ .root_source_file = b.path("src/gpu/backend/wgpu/shaders/slug.wgsl") });
     }
@@ -291,6 +337,14 @@ pub fn build(b: *std.Build) void {
     control_mod.addImport("knots", mod);
     animation_mod.addImport("knots", mod);
     debug_mod.addImport("knots", mod);
+
+    // Exposes `gpu_webgpu_js` (the *same* compiled module `gpu_backend_mod`
+    // uses internally, not a duplicate) so wasm entry points can reach
+    // `webgpu_js`'s `bootstrap.requestDeviceAsync` -- see `root.zig`.
+    if (webgpu_js_backend_mod) |m| mod.addImport("gpu_webgpu_js", m);
+
+    // Exposes `wasm_io` similarly, for constructing `App.init`'s `std.Io`.
+    if (wasm_io_mod) |m| mod.addImport("wasm_io", m);
 
     const mod_tests = b.addTest(.{ .root_module = mod });
     const layout_tests = b.addTest(.{ .root_module = layout_mod });
