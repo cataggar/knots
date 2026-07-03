@@ -501,7 +501,7 @@ publicly exposed from `root.zig` yet — deferred to Phase 5, when
 
 ---
 
-## Phase 4: GPU backend — `src/gpu/backend/webgpu_js/`
+## Phase 4: GPU backend — `src/gpu/backend/webgpu_js/` — ✅ Complete
 
 ### Overview
 
@@ -516,64 +516,94 @@ coverage.
 
 ### Changes Required:
 
-#### 1. `src/gpu/backend/webgpu_js/bootstrap.zig`
-Package-level async bootstrap, called from the wasm entry point
-(Phase 5), *before* `App.init`:
-```zig
-pub fn requestDeviceAsync(on_ready: *const fn (adapter: zjb.Handle, device: zjb.Handle) callconv(.c) void) void { ... }
-```
-Internally: `zjb.global("navigator").get("gpu", zjb.Handle).call("requestAdapter", .{}, zjb.Handle).call("then", .{ zjb.fnHandle("onAdapterReady", &onAdapterReady) }, void)`,
-then in `onAdapterReady`, `adapter.call("requestDevice", .{}, zjb.Handle).call("then", .{ zjb.fnHandle("onDeviceReady", &onDeviceReady) }, void)`,
-then in `onDeviceReady`, store both handles in module-level state and invoke
-the caller's `on_ready`.
+#### 1. `src/gpu/backend/webgpu_js/bootstrap.zig` ✅
+Implemented as planned: `requestDeviceAsync(on_ready)` chains
+`navigator.gpu.requestAdapter().then(...)` → `adapter.requestDevice().then(...)`,
+storing `resolved_adapter`/`resolved_device` as public module-level
+optionals before invoking `on_ready(adapter, device)`.
 
-#### 2. `src/gpu/backend/webgpu_js/Context.zig`
-`init(allocator, window_handle, cfg) !gpu.Context`: reads the
-already-resolved adapter/device `Handle`s set by `bootstrap.zig`
-(`@panic`s with a clear message if called before the bootstrap completed —
-this should be structurally impossible given Phase 5's entry-point
-ordering, but guard it anyway), gets `canvas.getContext("webgpu")` from the
-`.wasm` `WindowHandle` selector, calls `context.configure({device, format,
-alphaMode})` (WebGPU JS surface configuration is synchronous), and picks
-the preferred canvas format via `navigator.gpu.getPreferredCanvasFormat()`.
+#### 2. `src/gpu/backend/webgpu_js/Context.zig` ✅
+Implemented as planned, plus one addition not in the original plan: picking
+the preferred canvas format needed reading a JS string back into Zig, so
+`Context.zig` has its own small `readJsStringUtf8` (same technique as the
+window backend's `bindings.zig`, duplicated rather than shared across
+modules — `gpu_backend`/`window_impl` aren't linked to each other and
+shouldn't need to be).
 
-#### 3. `src/gpu/backend/webgpu_js/{Buffer,Pipeline,BindGroup,Texture,Sampler,Frame,RenderPass}.zig`
-Thin wrappers mirroring the shape of `src/gpu/backend/wgpu/*.zig`'s
-equivalents, but each JS call routed through `zjb.Handle.call`/`.get`/`.set`/
-`.new` instead of the `wgpu-native` C API:
-- `Buffer`: `device.call("createBuffer", .{descriptorHandle}, zjb.Handle)`,
-  `writeBuffer` via `queue.call("writeBuffer", .{buffer, offset, zjb.u8ArrayView(bytes)}, void)`.
-- `ShaderModule`/`Pipeline`: `device.call("createShaderModule", .{.{code=wgslSourceHandle}}, zjb.Handle)`
-  then `createRenderPipelineAsync` vs sync `createRenderPipeline` — **use the
-  synchronous `createRenderPipeline`** to avoid a third async round trip
-  (accept the (rare, one-time, per-pipeline) main-thread compile stall
-  documented as a known tradeoff — call this out in code comments).
-- `Frame`/`RenderPass`: `device.call("createCommandEncoder", ...)`,
-  `encoder.call("beginRenderPass", ...)`, `pass.call("draw"/"setPipeline"/"setBindGroup"/"end", ...)`,
-  `queue.call("submit", .{ jsArrayOfCommandBuffers }, void)`. No explicit
-  `present()` call — the browser presents automatically at the end of the
-  frame's task, matching the existing `wgpu` backend's emscripten
-  short-circuit in `Surface.zig`'s `present()`.
-- Building JS descriptor objects: since `zjb` doesn't marshal Zig structs
-  into JS object literals automatically, each descriptor is built with
-  `zjb.global("Object").call("assign", ...)`-style calls or (simpler) a
-  small `zjb`-based object-builder helper (`obj.set("field", value)` calls
-  chained) — write this helper once and share it across the wrapper files
-  rather than duplicating boilerplate per descriptor.
+#### 3. `src/gpu/backend/webgpu_js/{js,Buffer,Pipeline,BindGroup,Texture,Sampler,Frame,RenderPass}.zig` ✅
+Implemented as planned. `js.zig` is the shared descriptor-building helper
+(`obj()`/`arr()`/`push()`) plus every `gpu.*` enum → WebGPU JS string/bitflag
+mapping (texture format, vertex format, blend factor/op, filter/address
+mode, texture-sample/sampler-binding type, and the `GPUBufferUsage`/
+`GPUTextureUsage`/`GPUShaderStage` bitflag constants, hardcoded from the
+spec since they never change). Two deliberate simplifications validated as
+correct, not just assumed (see verification below):
+- `Frame.begin()`/`waitForCompletion()` are no-ops: `GPUQueue.writeBuffer`/
+  `writeTexture` copy data into an internal staging buffer synchronously
+  per spec, and WebGPU's resource-lifetime model keeps resources referenced
+  by already-submitted command buffers valid even after `destroy()` — so
+  none of the native backend's `device.poll(true)` CPU/GPU sync calls have
+  an equivalent need here.
+- `Context.resize()` is a no-op: the canvas texture size tracks the
+  `<canvas>` element's own `width`/`height` attributes automatically
+  (already kept in sync by the wasm window backend's `applyCanvasSize`),
+  unlike native swapchains which need explicit reconfiguration.
+- `createRenderPipeline` (synchronous) is used instead of
+  `createRenderPipelineAsync`, avoiding a third async round trip at the
+  cost of a one-time, per-pipeline main-thread compile stall — acceptable
+  since knots only creates a small, fixed set of pipelines at startup.
 
-#### 4. `src/gpu/backend/root.zig` / `build.zig`
-Replace the Phase-1 placeholder module with the real one; wire
-`gpu_backend_mod.addImport("gpu_webgpu_js", ...)` with `zjb`'s module as an
-import.
+#### 4. `src/gpu/backend/root.zig` / `build.zig` ✅ — plus a real architectural gap found and fixed
+Replaced the Phase-1 placeholder module. While building an end-to-end
+validation harness (see below), discovered that `bootstrap.zig`'s
+module-level `resolved_adapter`/`resolved_device` state must be the *same
+compiled module instance* the wasm entry point and `Context.init` both
+read from — simply pointing a second `b.createModule` at the same file
+path (as I did for the throwaway Phase 2/3 scratch harnesses) creates a
+*second, independent* copy of that state, so a real entry point calling
+`requestDeviceAsync` that way would never actually hand off to `Context.init`.
+This isn't just a scratch-harness wrinkle — it's a real requirement for
+Phase 5. Fixed by capturing the `webgpu_js` backend module when created in
+`build.zig`'s per-backend loop and also wiring it onto the top-level
+`knots` module (`mod.addImport("gpu_webgpu_js", m)`), then re-exporting it
+from `src/root.zig` as `pub const gpu_webgpu_js = if (wasm32-freestanding) @import("gpu_webgpu_js") else struct {};` (comptime-gated so other
+targets never need to resolve it). This is the mechanism Phase 5's
+`main_wasm.zig` will use: `knots.gpu_webgpu_js.bootstrap.requestDeviceAsync(...)`.
 
 ### Success Criteria:
 
-- A unit-level (non-browser) sanity check is not meaningful here (this code
-  only runs in a wasm32-freestanding browser context), so success is
-  verified in Phase 6's manual browser pass. This phase's own bar is: the
-  wasm32-freestanding build **compiles** with `webgpu_js` selected as the
-  `gpu_backend`, with no `.wasm`/`webgpu_js` arms left as `@panic` stubs
-  outside the documented, intentional ones (e.g. clipboard read).
+- [x] Compiles with `webgpu_js` selected as the `gpu_backend` for
+  wasm32-freestanding, with no `.wasm`/`webgpu_js` arms left as placeholder
+  `@panic`s.
+
+**Verification exceeded the plan's own bar substantially.** The plan
+anticipated that only a compile check was meaningful before Phase 6's
+manual browser pass, but headless Chromium with real WebGPU support
+(`--enable-unsafe-webgpu --use-angle=metal`, already cached in this
+environment via Playwright) turned out to be available, so a full
+real-GPU runtime validation was done instead:
+- **Compile check**: a scratch harness depending on `knots` exactly like
+  `examples/triangle` will (`gpu_backends=&.{.webgpu_js}`,
+  wasm32-freestanding) compiled `App.init()`+`app.start()` successfully.
+- **Real end-to-end render test** (throwaway harness, deleted after use):
+  a wasm entry point that called the real `bootstrap.requestDeviceAsync`
+  → constructed a real `App` + `knots.debug.DevTools` → rendered a
+  `Canvas`-drawn filled triangle every frame, driven by the real RAF loop,
+  in headless Chromium with a real (software/ANGLE-backed) WebGPU device.
+  Result: **zero page errors**, console logs confirmed the full sequence
+  (device ready → `App.init` ok → `DevTools.init` ok → continuous frames at
+  ~127fps), and **screenshots confirm visually correct rendering**: a
+  correctly shaped/colored/positioned red triangle, and — after simulating
+  a mouse click on the DevTools toggle (proving Phase 2's input handling
+  works end-to-end too) — a fully legible DevTools metrics panel (text,
+  tab buttons, a live animated line graph) rendered via the `slug` text
+  shader, confirming the atlas/curve/band textures, their storage-buffer
+  bind group, and the primitives pipeline's instance path all work
+  correctly against a real WebGPU implementation, not just in theory.
+- Native `zig build test` still green throughout (default backends, and
+  with `webgpu_js` explicitly opted in — confirming `zjb`'s `extern "zjb"`
+  declarations don't break native compilation even though they'd only
+  resolve at link time for an actual wasm build).
 
 ---
 

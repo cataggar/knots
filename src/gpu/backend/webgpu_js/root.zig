@@ -1,9 +1,9 @@
 const std = @import("std");
 const gpu = @import("gpu");
+const Context = @import("Context.zig");
 
-// Placeholder for the zjb-based WebGPU backend (wasm32-freestanding).
-// Wires up the `GPUBackend.webgpu_js` enum tag and `build.zig` module graph
-// ahead of the real implementation (see thoughts/wasm-zjb-backend/plans/implementation-plan.md, Phase 4).
-pub fn init(_: std.mem.Allocator, _: gpu.Context.WindowHandle, _: gpu.Context.Config) !gpu.Context {
-    @panic("webgpu_js backend is not yet implemented (Phase 4 of thoughts/wasm-zjb-backend/plans/implementation-plan.md)");
+pub const bootstrap = @import("bootstrap.zig");
+
+pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle, cfg: gpu.Context.Config) !gpu.Context {
+    return Context.init(allocator, window_handle, cfg);
 }

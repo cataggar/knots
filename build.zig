@@ -46,6 +46,13 @@ pub fn build(b: *std.Build) void {
     gpu_backend_opts.addOption(SupportedBackends, "gpu_backends", se);
     gpu_backend_mod.addOptions("config", gpu_backend_opts);
 
+    // Captured so it can also be wired onto the top-level `knots` module
+    // below (as `gpu_webgpu_js`) -- the wasm entry point needs to reach the
+    // *same* compiled module instance `gpu.backend.webgpu_js.Context` uses
+    // internally, since `bootstrap.zig`'s adapter/device state is
+    // module-level (see Phase 4 in the implementation plan).
+    var webgpu_js_backend_mod: ?*std.Build.Module = null;
+
     for (gpu_backends) |gpu_backend| {
         const backend_mod = blk: switch (gpu_backend) {
             .wgpu => {
@@ -76,7 +83,7 @@ pub fn build(b: *std.Build) void {
             },
             .webgpu_js => {
                 const zjb = b.dependency("zjb", .{});
-                break :blk b.createModule(.{
+                const m = b.createModule(.{
                     .target = target,
                     .optimize = optimize,
                     .root_source_file = b.path("src/gpu/backend/webgpu_js/root.zig"),
@@ -85,6 +92,8 @@ pub fn build(b: *std.Build) void {
                         .{ .name = "gpu", .module = gpu_mod },
                     },
                 });
+                webgpu_js_backend_mod = m;
+                break :blk m;
             },
         };
         gpu_backend_mod.addImport(b.fmt("gpu_{s}", .{@tagName(gpu_backend)}), backend_mod);
@@ -314,6 +323,11 @@ pub fn build(b: *std.Build) void {
     control_mod.addImport("knots", mod);
     animation_mod.addImport("knots", mod);
     debug_mod.addImport("knots", mod);
+
+    // Exposes `gpu_webgpu_js` (the *same* compiled module `gpu_backend_mod`
+    // uses internally, not a duplicate) so wasm entry points can reach
+    // `webgpu_js`'s `bootstrap.requestDeviceAsync` -- see `root.zig`.
+    if (webgpu_js_backend_mod) |m| mod.addImport("gpu_webgpu_js", m);
 
     const mod_tests = b.addTest(.{ .root_module = mod });
     const layout_tests = b.addTest(.{ .root_module = layout_mod });
