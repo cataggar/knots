@@ -9,6 +9,14 @@ const Button = knots.component.Button;
 const Spacer = knots.component.Spacer;
 
 const is_emscripten = @import("builtin").os.tag == .emscripten;
+const is_wasm = @import("builtin").cpu.arch == .wasm32 and @import("builtin").os.tag == .freestanding;
+// Neither target can run real concurrent work: emscripten builds here have
+// no pthreads, and wasm32-freestanding is single-threaded with no `Io`
+// implementation that supports `concurrent`/`groupConcurrent` (see
+// src/window/backend/wasm/io.zig). `app.dispatch` would just return
+// `error.ConcurrencyUnavailable`, which -- unhandled -- would crash the
+// whole app, so both targets fall back to a synchronous counter bump.
+const dispatch_unavailable = is_emscripten or is_wasm;
 
 pub fn render(app: *knots.App) !void {
     try ui_helpers.panel(app, "Async dispatch", body);
@@ -50,8 +58,8 @@ fn body(app: *knots.App) !void {
     try app.e(Spacer{ .height = .fixed(16), .key = .src(@src()) });
 
     try app.e(Text{
-        .content = if (is_emscripten)
-            "on emscripten dispatch is synchronous; clicks just bump the counter."
+        .content = if (dispatch_unavailable)
+            "this target can't dispatch concurrent work; clicks just bump the counter."
         else
             "each task sleeps 0..10 seconds. Wakeups land back on the main loop without blocking the UI.",
         .size = .xs,
@@ -65,7 +73,7 @@ fn body(app: *knots.App) !void {
 fn sleep10(app: *knots.App) !void {
     const self: *Self = @fieldParentPtr("app", app);
 
-    if (is_emscripten) {
+    if (dispatch_unavailable) {
         for (0..50) |_| self.demo_state.counter += 1;
         return;
     }
