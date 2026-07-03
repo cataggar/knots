@@ -177,6 +177,20 @@ pub fn build(b: *std.Build) void {
         else => |os| std.debug.panic("windowing implementation for {s} is not yet implemented", .{@tagName(os)}),
     };
 
+    // Captured so it can also be wired onto the top-level `knots` module
+    // below (as `wasm_io`) -- wasm entry points need a `std.Io` to pass to
+    // `App.init` (see src/window/backend/wasm/io.zig; std.Io.Threaded can't
+    // compile for wasm32-freestanding at all).
+    var wasm_io_mod: ?*std.Build.Module = null;
+    if (target.result.os.tag == .freestanding and target.result.cpu.arch == .wasm32) {
+        wasm_io_mod = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/window/backend/wasm/io.zig"),
+            .imports = &.{.{ .name = "zjb", .module = b.dependency("zjb", .{}).module("zjb") }},
+        });
+    }
+
     const window_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -328,6 +342,9 @@ pub fn build(b: *std.Build) void {
     // uses internally, not a duplicate) so wasm entry points can reach
     // `webgpu_js`'s `bootstrap.requestDeviceAsync` -- see `root.zig`.
     if (webgpu_js_backend_mod) |m| mod.addImport("gpu_webgpu_js", m);
+
+    // Exposes `wasm_io` similarly, for constructing `App.init`'s `std.Io`.
+    if (wasm_io_mod) |m| mod.addImport("wasm_io", m);
 
     const mod_tests = b.addTest(.{ .root_module = mod });
     const layout_tests = b.addTest(.{ .root_module = layout_mod });

@@ -607,7 +607,7 @@ real-GPU runtime validation was done instead:
 
 ---
 
-## Phase 5: `examples/triangle` wasm target
+## Phase 5: `examples/triangle` wasm target — ✅ Complete
 
 ### Overview
 
@@ -617,56 +617,67 @@ and `main_web.zig`/`shell.html`.
 
 ### Changes Required:
 
-#### 1. `examples/triangle/src/main_wasm.zig`
-```zig
-export fn main() void {
-    gpu_webgpu_js.bootstrap.requestDeviceAsync(&onDeviceReady);
-}
+#### 1. `examples/triangle/src/main_wasm.zig` ✅
+Implemented essentially as planned, with two adjustments:
+- Uses `knots.wasm_io.io` (not `std.Io.Threaded`) — see Phase 4's build.zig
+  fix that exposes it, and Phase 2/3's finding that `std.Io.Threaded` can't
+  compile for this target at all.
+- A single `var ctx: Ctx = undefined;` (static, not a heap allocation) holds
+  `{app, devtools}` — simpler than threading an allocated pointer through
+  `onDeviceReady`/`frameCb`, and correct since exactly one `App` ever exists
+  per wasm module instance (one per page).
+- `pub const panic = zjb.panic;` (needed at the entry-point/root-module
+  level; routes panics to the browser console instead of needing
+  libc/OS panic-handling facilities that don't exist here).
 
-fn onDeviceReady(adapter: zjb.Handle, device: zjb.Handle) callconv(.c) void {
-    // construct App (Window created here or already created in main();
-    // Context.init() picks up the resolved adapter/device via bootstrap.zig).
-    const app = allocator.create(App) catch @panic("OOM");
-    app.* = App.init(io, allocator, .{ .window = .{ .width = 1280, .height = 720, .title = "Triangle", .canvas_selector = "#canvas" } }) catch @panic("init failed");
-    app.start(frameCb) catch @panic("start failed");
-}
-```
-Logging via `zjb.global("console")` instead of
-`std.os.emscripten.emscripten_log`; allocator via `std.heap.wasm_allocator`
-(no libc on freestanding) instead of `std.heap.c_allocator`; `std.Io` setup
-reuses the same `std.Io.Threaded.init_single_threaded` pattern
-`main_web.zig` already uses.
+#### 2. `examples/triangle/static/{index.html,script.js}` ✅
+Plain static files (not a `{{{SCRIPT}}}`-templated shell like emscripten's,
+since `zjb` has no such templating step) — `index.html` has the canvas +
+`<script src="zjb_extract.js">` + `<script src="script.js">`; `script.js`
+sets up the `env` import object (`memory`/`__stack_pointer`) and does
+`WebAssembly.instantiateStreaming(...).then(instance => { zjb.setInstance(...); instance.exports.main(); })`, matching zjb's own example pattern exactly.
 
-#### 2. `examples/triangle/src/shell.html` (or a new `static/` dir)
-Minimal HTML with a `<canvas id="canvas">`, paralleling
-`examples/playground/src/shell.html`, plus a `<script type="module">` that
-`fetch`es/instantiates the wasm module and wires in the `zjb`-generated
-`zjb_extract.js` (per `zjb`'s `example/build.zig` pattern:
-`new Zjb(); ... WebAssembly.instantiateStreaming(fetch('triangle.wasm'), zjb.imports)`).
+#### 3. `examples/triangle/build.zig` ✅
+Added `buildWasm`, dispatched from `build()` when `target.result.os.tag == .freestanding and target.result.cpu.arch == .wasm32` (computed once as `is_wasm`,
+also used to pick `gpu_backends = &.{.webgpu_js}` instead of
+`&.{.wgpu, .vulkan}`, mirroring `playground`'s per-target backend
+selection). Kept the `python3 -m http.server` approach for consistency with
+`playground`'s emscripten path rather than pulling in `zjb`'s
+`demo_webserver` helper. Left the pre-existing `.name = "playground"` typo
+on the native executable untouched (unrelated to this task).
 
-#### 3. `examples/triangle/build.zig`
-Add a `buildWasm` function (parallel to `playground`'s `buildEmscripten`):
-build the wasm32-freestanding executable (`entry = .disabled`,
-`rdynamic = true`), run `zjb`'s `generate_js` artifact over it to produce
-`zjb_extract.js`, install it alongside the wasm binary and the static HTML,
-and add a `run`/`serve` step (reuse the same `python3 -m http.server`
-pattern already used for the emscripten target, or `zjb`'s own
-`demo_webserver` helper if it's easy to depend on — otherwise keep the
-existing `http.server` approach for consistency with `playground`).
-Dispatch into it from `build()` when
-`target.result.cpu.arch == .wasm32 and target.result.os.tag == .freestanding`.
-
-#### 4. `examples/triangle/build.zig.zon`
-Add the `zjb` dependency (`zig fetch --save=zjb ...` from within
-`examples/triangle`, since it's a separate build graph from the root
-`knots` package).
+#### 4. `examples/triangle/build.zig.zon` ✅
+Added the `zjb` dependency via `zig fetch --save=zjb`.
 
 ### Success Criteria:
 
-- `zig build -Dtarget=wasm32-freestanding` (from `examples/triangle`)
+- [x] `zig build -Dtarget=wasm32-freestanding` (from `examples/triangle`)
   succeeds and produces `triangle.wasm`, `zjb_extract.js`, and an
   `index.html`.
-- `zig build serve` (or equivalent) serves the page locally.
+- [x] `zig build run` serves the page locally (reused the existing `run`
+  step name for the wasm target too, matching how `playground`'s
+  `buildEmscripten` reuses `run` for its serve step).
+
+**Verification exceeded the plan's own bar again** — rather than stopping
+at "it builds," the actual built `examples/triangle` output was served and
+driven with real headless-Chromium WebGPU (same setup as Phase 4):
+- Fresh build → serve → load: console shows the full real sequence
+  (`requesting GPU device...` → `ready`), zero page errors.
+- Screenshot: correctly rendered red triangle + DevTools toggle, matching
+  the native `examples/triangle` demo's visual output.
+- Resized the viewport (1280×720 → 800×500): triangle and DevTools toggle
+  correctly re-centered at the new size, no errors — confirms the
+  `ResizeObserver` (Phase 2) → `Context.resize()` no-op (Phase 4, since the
+  canvas already tracks its own size) chain works correctly end-to-end in
+  the shipped example, not just a scratch harness.
+- Clicked the DevTools toggle at its real on-screen position: panel opened
+  showing live FPS/frame-time metrics, tab buttons, and the animated graph,
+  all legible — confirms real mouse input (Phase 2) driving real UI
+  interaction (hit-testing, state) end-to-end in the shipped example.
+- Native `examples/triangle` and `examples/playground` still hit only the
+  pre-existing, unrelated vulkan-zig branch-quota compile error (Phase 1's
+  finding, reconfirmed identical here) — no new regressions from this
+  phase's `build.zig`/`root.zig` changes.
 
 ---
 

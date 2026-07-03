@@ -17,3 +17,12 @@ pub const gpu_webgpu_js = if (builtin.cpu.arch == .wasm32 and builtin.os.tag == 
     @import("gpu_webgpu_js")
 else
     struct {};
+
+/// Only meaningful for the wasm32-freestanding target: a `std.Io` the wasm
+/// entry point can pass to `App.init` (`std.Io.Threaded`, used by every
+/// other target's entry point, can't compile for this target at all -- see
+/// Phase 2/3 in the implementation plan).
+pub const wasm_io = if (builtin.cpu.arch == .wasm32 and builtin.os.tag == .freestanding)
+    @import("wasm_io")
+else
+    struct {};
