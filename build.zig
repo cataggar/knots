@@ -124,6 +124,15 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/window/backend/emscripten/root.zig"),
             .imports = &.{.{ .name = "gpu", .module = gpu_mod }},
         }),
+        .freestanding => if (target.result.cpu.arch == .wasm32) b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/window/backend/wasm/root.zig"),
+            .imports = &.{
+                .{ .name = "gpu", .module = gpu_mod },
+                .{ .name = "zjb", .module = b.dependency("zjb", .{}).module("zjb") },
+            },
+        }) else std.debug.panic("windowing implementation for freestanding target {s} is not yet implemented", .{@tagName(target.result.cpu.arch)}),
         .linux => {
             const scanner = WaylandScanner.create(b, .{});
             scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");

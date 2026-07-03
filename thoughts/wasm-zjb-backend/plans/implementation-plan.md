@@ -278,7 +278,7 @@ baseline still builds/tests clean before writing backend code.
 
 ---
 
-## Phase 2: Window backend — `src/window/backend/wasm/`
+## Phase 2: Window backend — `src/window/backend/wasm/` — ✅ Complete
 
 ### Overview
 
@@ -343,12 +343,44 @@ Add a new arm to the `window_impl_mod` `switch (target.result.os.tag)`:
 
 ### Success Criteria:
 
-- A minimal standalone wasm executable (temporary smoke test, can live under
+- [x] A minimal standalone wasm executable (temporary smoke test, can live under
   `examples/triangle` once Phase 5 lands, or a throwaway scratch build in
   this phase) that only creates a `Window` (no GPU) logs canvas creation,
   responds to `ResizeObserver` events, and forwards a keydown to
   `console.log` when manually loaded in a browser.
-- `zig build test` still green; native/emscripten targets unaffected.
+- [x] `zig build test` still green; native/emscripten targets unaffected.
+
+**Verification performed:** Built a throwaway scratch harness outside the
+repo (`/tmp/wasm-window-smoke`, deleted after use — not committed) whose
+`build.zig` imports `src/gpu/root.zig` and `src/window/{root,backend/wasm/root}.zig`
+directly by absolute path (bypassing the public `knots` package, since that
+would pull in `App`/`Renderer` and hit the still-unimplemented Phase 4
+`webgpu_js` backend). Drove the resulting wasm page with a **real headless
+Chromium** (Playwright, already cached in this environment) rather than
+relying only on a compile check:
+- Window/canvas init: correct logical/physical size + content scale logged.
+- `ResizeObserver`: fires on both initial `observe()` and on real viewport
+  resizes, with correct updated canvas dimensions each time.
+- Keyboard: `KeyA` down produced `key pressed: 65` (`Key.a`) and
+  `char: 97` ('a'), confirming `keymap.zig`'s JS `code`-string table and
+  `decodePrintableChar`'s UTF-8 decoding both work against real
+  `KeyboardEvent`s.
+- Mouse: left-button press/release and canvas-relative position
+  (`offsetX`/`offsetY`) all correct.
+- Wheel: `deltaY` correctly accumulated into `ScrollInput.pixel`.
+- Stability: 5 rapid resize+keypress cycles produced zero `pageerror`
+  events (no zjb handle-lifetime crashes, no observer/listener issues).
+
+**Finding relevant to Phase 3:** `std.Io.Threaded` (used by
+`main_web.zig`'s `.init_single_threaded`) **cannot compile for
+wasm32-freestanding** — it unconditionally requires `posix.system.getrandom`
+and `posix.IOV_MAX`, which don't exist for freestanding wasm32 (unlike
+`wasm32-emscripten`, which has a libc/posix emulation layer providing them).
+This smoke test sidestepped it (the window backend never dispatches through
+`io`), using `const io: std.Io = undefined;` — safe here, but **Phase 3/5
+will need a real, working `std.Io` implementation** for `App`'s frame timer
+(`Timer.tick` calls `std.Io.Timestamp.now(io, clock)`) and `CompletionQueue`.
+This needs to be resolved as part of Phase 3, not deferred further.
 
 **Implementation Note**: Pause here for manual browser confirmation
 (console output for resize/keyboard/mouse) before proceeding.
