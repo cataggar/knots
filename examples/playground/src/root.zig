@@ -1,5 +1,5 @@
 const std = @import("std");
-const knots = @import("knots");
+pub const knots = @import("knots");
 const code_viewer = @import("code_viewer.zig");
 const demos = @import("demos.zig");
 

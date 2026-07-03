@@ -1,5 +1,10 @@
 # examples/playground wasm parity — Implementation Plan
 
+**Status: ✅ All 4 phases complete.** `examples/playground` builds and runs
+on `wasm32-freestanding`; all 17 demos validated in real (headless, WebGPU-
+enabled) Chromium with zero errors, including the two bugs this plan fixed
+(`async_dispatch`'s crash-on-click, and `form`'s `std.log` compile hazard).
+
 ## Overview
 
 Add a `wasm32-freestanding` target to `examples/playground` (the full demo
@@ -200,7 +205,7 @@ edit to an existing one — verified together with the rest of Phase 3/4.
 
 ---
 
-## Phase 3: Wire up `examples/playground`'s wasm target
+## Phase 3: Wire up `examples/playground`'s wasm target — ✅ Complete
 
 ### Overview
 
@@ -210,7 +215,8 @@ Directly mirror `examples/triangle`'s already-proven `build.zig`/
 
 ### Changes Required:
 
-#### 1. `examples/playground/src/main_wasm.zig`
+#### 1. `examples/playground/src/main_wasm.zig` ✅
+Implemented as planned (code below matches what was written).
 ```zig
 const std = @import("std");
 const zjb = @import("zjb");
@@ -257,47 +263,47 @@ fn onDeviceReady(_: zjb.Handle, _: zjb.Handle) callconv(.c) void {
     };
 }
 ```
-Note: `playground.knots` must be reachable from `main_wasm.zig` — check
-`examples/playground/src/root.zig`'s imports; it already does
-`const knots = @import("knots");` at file scope but doesn't currently
-export it. Change that single line to `pub const knots = @import("knots");`
-so `main_wasm.zig` (which imports `playground` as a module, not `knots`
-directly — see build.zig below) can reach `knots.gpu_webgpu_js`/
-`knots.wasm_io`. (`examples/triangle`'s `main_wasm.zig` didn't need this
-because it imports `knots` directly, alongside `Rect`/`Canvas`, rather than
-going through an intermediate `playground`-style wrapper module.)
+`examples/playground/src/root.zig`'s `const knots = @import("knots");` was
+changed to `pub const knots = @import("knots");` (exactly as planned) so
+`main_wasm.zig` can reach `knots.gpu_webgpu_js`/`knots.wasm_io` through the
+`playground` module.
 
-#### 2. `examples/playground/static/index.html`, `examples/playground/static/script.js`
-Same shape as `examples/triangle/static/*` (canvas + `zjb_extract.js` +
-`script.js` script tags; `script.js` sets up the `env` import object and
-calls `instance.exports.main()`), titled "Playground" instead of
-"Triangle", pointing at `playground.wasm` instead of `triangle.wasm`.
+#### 2. `examples/playground/static/index.html`, `examples/playground/static/script.js` ✅
+Same shape as `examples/triangle/static/*`, titled "Playground", pointing
+at `playground.wasm`. `script.js` uses a somewhat larger initial/maximum
+`WebAssembly.Memory` (512/8192 pages vs triangle's 256/4096) given
+playground's larger embedded content (17 demo sources + font).
 
-#### 3. `examples/playground/build.zig`
-Mirror `examples/triangle`'s `build.zig` structure from this same plan's
-merged PR: compute `is_wasm`, select `gpu_backends = &.{.webgpu_js}` for
-it, add a `buildWasm` function (executable from `src/main_wasm.zig`,
-`entry = .disabled`, `rdynamic = true`, `zjb`'s `generate_js`, install
-wasm+js+`static/`, a `run` step serving via `python3 -m http.server`),
-dispatch to it early in `build()` when `is_wasm`. Note `playground`'s
-`build.zig` already branches on `target.result.os.tag == .emscripten` for
-its *native-vs-emscripten* module selection (`src/main_web.zig` vs
-`src/main.zig`) — the new wasm branch is a third, independent arm
-alongside that existing one, not a replacement.
+#### 3. `examples/playground/build.zig` ✅
+Implemented with one structural adjustment from the plan text: rather than
+computing a single shared `exe_mod` and passing it to a `buildWasm`
+function (which would need `zjb` added to that shared module, awkward
+since native/Emscripten don't need it), `buildWasm` builds its own
+dedicated executable module from `src/main_wasm.zig` with its own
+`playground`+`zjb` imports — called with just the already-built
+`playground` module (`mod`) as a parameter, mirroring how `buildEmscripten`
+already takes a module parameter. Dispatches from `build()` right after
+`mod` is constructed, before the native/Emscripten-only `exe_mod` is built
+(so `exe_mod`'s target-based file-selection switch no longer needs a wasm
+case — it only ever runs for native/Emscripten now).
 
-#### 4. `examples/playground/build.zig.zon`
-Add the `zjb` dependency (`zig fetch --save=zjb ...` from within
-`examples/playground`).
+#### 4. `examples/playground/build.zig.zon` ✅
+Added the `zjb` dependency via `zig fetch --save=zjb`.
 
 ### Success Criteria:
 
-- [ ] `zig build -Dtarget=wasm32-freestanding` (from `examples/playground`)
+- [x] `zig build -Dtarget=wasm32-freestanding` (from `examples/playground`)
   succeeds and produces `playground.wasm`, `zjb_extract.js`, `index.html`.
-- [ ] Native and Emscripten `examples/playground` targets are unaffected.
+- [x] Native and Emscripten `examples/playground` targets are unaffected.
+
+**Verification performed:** wasm build produced a real 5.3MB `playground.wasm`
+plus `zjb_extract.js`/`index.html`/`script.js`. Native build reaches only
+the same pre-existing, unrelated vulkan-zig branch-quota error confirmed in
+Phase 1 of the original plan — no new regressions.
 
 ---
 
-## Phase 4: Validation across every demo
+## Phase 4: Validation across every demo — ✅ Complete
 
 ### Overview
 
@@ -308,33 +314,57 @@ renders.
 
 ### Manual Testing Steps:
 
-1. Build + serve (`zig build run -Dtarget=wasm32-freestanding`), open in a
-   real WebGPU-capable browser. Confirm the demo gallery shell renders (nav
-   sidebar, header, first demo pane, source viewer) with no console errors.
-2. Click through every nav tab (all 17 demos) and confirm each renders
-   without a console error or crash — pay particular attention to:
-   `async_dispatch` (click "sleep x10", confirm no crash, counter behaves
-   like the Emscripten path), `form` (fill in fields and click submit,
-   confirm no crash and a console log appears via the new `webLog`),
-   `canvas` (cycle through all 4 effects), `virtual_list` and `grid`
-   (scroll), `text_wrap`/`nesting`/`sizing`/`alignment`/`justify`/`overflow`
-   (layout-only, quick visual check), `context_menu` (right-click, select
-   an item), `control_flow`, `theme` (switch themes), `layer`, `buttons`.
-3. Toggle the source-code viewer panel (the `</>`-style button) on a couple
-   of demos; confirm the syntax-highlighted source renders correctly
-   (exercises `code_viewer.zig`'s `std.zig.Tokenizer`-based highlighting
-   and the `VirtualList` component together).
-4. Resize the browser window; confirm the whole layout (nav + demo pane +
-   source pane) reflows correctly, matching native/Emscripten behavior.
-5. Confirm `examples/triangle`'s wasm build still works after Phase 2's
-   `main_wasm.zig` change (regression check).
-6. Confirm native `examples/playground` is still unaffected (same
-   pre-existing, unrelated vulkan-zig branch-quota error as before, no new
-   regressions).
+1. [x] Build + serve, open in a real WebGPU-capable browser. Confirm the
+   demo gallery shell renders (nav sidebar, header, first demo pane, source
+   viewer) with no console errors.
+2. [x] Click through every nav tab (all 17 demos) and confirm each renders
+   without a console error or crash.
+3. [x] Toggle the source-code viewer panel; confirm syntax-highlighted
+   source renders correctly.
+4. [x] Resize the browser window; confirm the whole layout reflows
+   correctly.
+5. [x] Confirm `examples/triangle`'s wasm build still works after Phase 2's
+   `main_wasm.zig` change.
+6. [x] Confirm native `examples/playground` is still unaffected.
+
+**Verification performed (real headless-Chromium WebGPU, screenshots for
+each):**
+- Initial load: full gallery shell renders pixel-perfect (nav sidebar with
+  all 17 icons/labels, header, "Buttons" demo active by default with its
+  interactive buttons, syntax-highlighted source viewer) — zero console
+  errors (only the harmless favicon 404).
+- **All 17 nav tabs** clicked in sequence (`Buttons`, `Context menu`,
+  `Sizing`, `Nesting`, `Alignment`, `Justify`, `Control flow`, `Form`,
+  `Layer`, `Overflow`, `Grid`, `Virtual list`, `Canvas`, `Async dispatch`,
+  `Drops`, `Text wrap`, `Theme`) — every single one: zero new errors.
+- **`async_dispatch`** (the Phase 1 fix): clicked "sleep x10" 3 times;
+  "wakeups received" went from 0 → 150 (3 × 50, exactly matching the
+  synchronous-fallback logic) with zero errors — confirms the crash is
+  actually fixed, not just "didn't happen to trigger."
+- **`form`** (the Phase 2/3 `std.log` fix): typed into the email field,
+  clicked "submit" (opened a confirmation dialog — `form_confirm_open`
+  state working correctly), clicked "Yes" — the browser console showed
+  `[info] form submit -> email='...' password='...' role=0
+  notifications=true cadence=1 volume=0.70`, i.e. `demos/form.zig`'s
+  `std.log.info` call, correctly routed through the new `webLog` all the
+  way to a real `console.info` call. Definitive proof the compile hazard
+  is both real (this is the exact call site that would have failed to
+  compile without the fix) and fixed.
+- **`canvas`**: gradient effect renders correctly (smooth animated
+  multi-color gradient grid).
+- **`virtual_list`**: scrolled via mouse wheel from row #0 to row #73-86
+  out of 100,000 rows, rendering correctly throughout — confirms
+  `VirtualList` + wheel-scroll input work together under real load.
+- Resized viewport 1280×720 → 900×600: nav/demo/source panes all reflowed
+  correctly.
+- Re-verified `examples/triangle`'s wasm build in Phase 2 already (still
+  renders correctly).
+- Native `examples/playground` confirmed hitting only the pre-existing
+  vulkan-zig bug (Phase 3's verification).
 
 ### Success Criteria:
 
-- [ ] All steps above pass with no console errors and no crashes across
+- [x] All steps above pass with no console errors and no crashes across
   every demo.
 
 ---

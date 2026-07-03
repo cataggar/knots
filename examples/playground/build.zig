@@ -5,8 +5,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
     const optimize = b.standardOptimizeOption(.{});
 
+    const is_wasm = target.result.os.tag == .freestanding and target.result.cpu.arch == .wasm32;
+
     const backends: []const GPUBackend = if (target.result.os.tag == .emscripten)
         &[_]GPUBackend{.wgpu}
+    else if (is_wasm)
+        &[_]GPUBackend{.webgpu_js}
     else
         &[_]GPUBackend{ .wgpu, .vulkan };
 
@@ -21,6 +25,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .imports = &.{.{ .name = "knots", .module = knots.module("knots") }},
     });
+
+    if (is_wasm) {
+        buildWasm(b, target, optimize, mod);
+        return;
+    }
 
     const exe_mod = b.createModule(.{
         .root_source_file = switch (target.result.os.tag) {
@@ -72,6 +81,45 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+}
+
+fn buildWasm(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, playground_mod: *std.Build.Module) void {
+    const zjb = b.dependency("zjb", .{});
+
+    const exe = b.addExecutable(.{
+        .name = "playground",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/main_wasm.zig"),
+            .imports = &.{
+                .{ .name = "playground", .module = playground_mod },
+                .{ .name = "zjb", .module = zjb.module("zjb") },
+            },
+        }),
+    });
+    exe.entry = .disabled;
+    exe.rdynamic = true;
+
+    const extract = b.addRunArtifact(zjb.artifact("generate_js"));
+    const extract_out = extract.addOutputFileArg("zjb_extract.js");
+    extract.addArg("Zjb");
+    extract.addArtifactArg(exe);
+
+    const dir: std.Build.InstallDir = .prefix;
+    b.getInstallStep().dependOn(&b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = dir } }).step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(extract_out, dir, "zjb_extract.js").step);
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("static"),
+        .install_dir = dir,
+        .install_subdir = "",
+    }).step);
+
+    const run_step = b.step("run", "Serve the playground wasm build on http://localhost:8000/");
+    const serve = b.addSystemCommand(&.{ "python3", "-m", "http.server", "8000", "--directory" });
+    serve.addArg(b.getInstallPath(dir, ""));
+    serve.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&serve.step);
 }
 
 fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, root_module: *std.Build.Module) void {
