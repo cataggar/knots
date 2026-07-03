@@ -387,7 +387,7 @@ This needs to be resolved as part of Phase 3, not deferred further.
 
 ---
 
-## Phase 3: `App.zig` requestAnimationFrame main loop
+## Phase 3: `App.zig` requestAnimationFrame main loop — ✅ Complete
 
 ### Overview
 
@@ -395,34 +395,109 @@ This needs to be resolved as part of Phase 3, not deferred further.
 non-blocking, browser-driven loop for the new target, analogous to
 Emscripten's `emscripten_set_main_loop_arg`.
 
+**Scope grew during implementation** (see "Io implementation" below): making
+this loop actually drive real frames requires a working `std.Io` for
+`App`'s frame `Timer`, which the Phase 2 write-up flagged but didn't scope.
+Resolved as part of this phase — see the dedicated write-up below.
+
 ### Changes Required:
 
-#### 1. `src/window/backend/wasm/root.zig`
-Add a `pub fn setMainLoop(self: *Self, cb: *const fn (?*anyopaque) callconv(.c) void, user_data: ?*anyopaque) void` that registers a
-`requestAnimationFrame` callback which calls `cb(user_data)` and then
-re-requests itself (`zjb.global("window").call("requestAnimationFrame", .{zjb.fnHandle("rafTick", &rafTick)}, void)` recursively) — the RAF-loop
-equivalent of `emscripten_set_main_loop_arg`.
+#### 1. `src/window/backend/wasm/root.zig` ✅
+Added `pub fn setMainLoop(self: *Self, cb: *const fn (?*anyopaque) callconv(.c) void, user_data: ?*anyopaque) void`, backed by module-level
+`raf_cb`/`raf_user_data` globals and a `requestNextFrame()` helper that calls
+`zjb.global("window").call("requestAnimationFrame", .{zjb.fnHandle("knots_wasm_rafTick", &rafTick)}, void)`; `rafTick` invokes `cb(user_data)` then
+re-requests itself — the RAF-loop equivalent of `emscripten_set_main_loop_arg`.
 
-#### 2. `src/App.zig:103`
+#### 2. `src/window/Window.zig` — not in the original plan, needed for layering
+Added `pub inline fn setMainLoop(self: *Window, cb, user_data) void` delegating
+to `self.backend.setMainLoop(...)`. Unlike the Emscripten branch (which calls
+`std.os.emscripten` directly from `App.zig`, since it's always-available std
+lib), `zjb` is a real dependency requiring explicit per-module import wiring
+— routing through `Window`/`Backend` (which already has `zjb` wired via
+`window_impl_mod`) avoids plumbing `zjb` into `App.zig`'s module too. Backends
+that don't implement `setMainLoop` are fine: Zig only analyzes a function
+body when it's actually called, and `Window.setMainLoop` is only called from
+`App.zig`'s `.freestanding` arm, itself only analyzed for that target.
+
+#### 3. `src/App.zig:103` ✅
 ```zig
 switch (builtin.os.tag) {
     inline .emscripten => std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(self), 0, 0),
     inline .freestanding => if (builtin.cpu.arch == .wasm32)
-        self.window.backend.setMainLoop(wasmMain, @ptrCast(self))
+        self.window.setMainLoop(wasmMain, @ptrCast(self))
     else
         std.debug.panic("no main-loop implementation for freestanding {s}", .{@tagName(builtin.cpu.arch)}),
     inline else => { /* existing blocking loop */ },
 }
 ```
-with a `wasmMain` mirroring `emscriptenMain`'s `stepFrame` + error-logging
-pattern (logging via `zjb.global("console").call("error", ...)` instead of
-`emscripten_log`).
+`wasmMain` mirrors `emscriptenMain`'s `stepFrame` pattern but `@panic`s on
+error instead of logging-and-continuing (simpler; no new `Window`/`Backend`
+API surface needed for this pass — logging-and-continuing is a nice-to-have
+left for later polish, not required for `triangle`).
+
+#### 4. `src/window/backend/wasm/io.zig` — new, not in the original plan
+**Finding:** `std.Io.Threaded` (what every other target's entry point uses)
+cannot compile for `wasm32-freestanding` (Phase 2's note). Investigated
+`lalinsky/zio` (a full `std.Io` implementation) and `chung-leong/zigar` per
+your suggestion — `zio` targets native OS async APIs (io_uring/kqueue/IOCP)
+with a heavy coroutine runtime, not applicable to a freestanding wasm
+target, and neither project has solved this exact case. However, reading
+`zio`'s source revealed the actual fix: **`std.Io` ships `std.Io.failing`**,
+a complete, ready-to-use `std.Io` constant that "simulates a system
+supporting no Io operations" (concurrency unavailable, empty/full
+filesystem, no entropy, `now`/`sleep` degrade gracefully) — built from
+~30 pre-written `noXxx`/`failingXxx`/`unreachableXxx` helper functions
+covering the *entire* 109-field `std.Io.VTable`. Since knots' core
+App/Renderer/Window/Text/UI code paths never touch filesystem/network/
+concurrency (confirmed: the only real `io` dispatch anywhere in `src/` is
+`Timer`'s `std.Io.Timestamp.now`/`CompletionQueue`'s queue+group ops, and
+`Group.await`/`cancel` short-circuit to a no-op whenever nothing was ever
+dispatched, which is always true for `triangle`), this reduces the "custom
+Io" task from writing ~109 stub functions down to **copying
+`std.Io.failing`'s vtable and overriding exactly one field, `now`**:
+```zig
+const vtable: std.Io.VTable = blk: {
+    var v = std.Io.failing.vtable.*;
+    v.now = &wasmNow;
+    break :blk v;
+};
+pub const io: std.Io = .{ .userdata = null, .vtable = &vtable };
+```
+`wasmNow` uses `Date.now()` for `Clock.real` (matches its documented
+wall-clock-since-epoch semantics) and `performance.now()` for every other
+`Clock` variant (monotonic, matches `.awake`/`.boot`). `app.dispatch(...)`
+(used by playground's async_dispatch demo and the fetch example, not by
+`triangle`) will gracefully return `error.ConcurrencyUnavailable` on this
+backend, matching `std.Io.Threaded`'s own single-threaded-build behavior —
+an intentional, acceptable degradation, not a bug. This file isn't
+publicly exposed from `root.zig` yet — deferred to Phase 5, when
+`examples/triangle`'s wasm entry point actually needs to construct one.
 
 ### Success Criteria:
 
-- The Phase 2 smoke test app now runs a real per-frame callback driven by
+- [x] The Phase 2 smoke test app now runs a real per-frame callback driven by
   `requestAnimationFrame` (verified via a frame counter logged every N
   frames), with no blocking loop and no busy CPU usage between frames.
+
+**Verification performed:**
+1. **Full-app compile check**: a throwaway scratch harness (`/tmp/wasm-app-smoke`,
+   deleted after use) depended on the modified `knots` package the same way
+   `examples/triangle` does (`b.dependency("knots", .{ .gpu_backends = &.{.webgpu_js} })`,
+   `target = wasm32-freestanding`) and called both `knots.App.init(...)` *and*
+   `app.start(frameCb)` — forcing full analysis of the new `.freestanding`
+   branch in `App.zig`, `Window.setMainLoop`, and the wasm `Backend.setMainLoop`.
+   Produced a real 2.7MB `app_smoke.wasm`. (This only proves compilation —
+   running it would immediately hit Phase 4's intentional placeholder panic
+   during `Renderer.init`, before `.start()`'s RAF branch ever executes, so
+   full runtime proof of the *complete* App loop is deferred to Phase 4/5.)
+2. **Real headless-browser runtime check of the RAF+Io pieces in isolation**
+   (`/tmp/wasm-raf-smoke`, deleted after use): a window-only harness (like
+   Phase 2's, but calling `win.setMainLoop(tick, null)` instead of
+   `setInterval`, and reading `std.Io.Timestamp.now(wasm_io.io, .real)` each
+   tick) confirmed, via real headless Chromium: the RAF loop runs
+   continuously (~120 ticks/sec, browser/display-paced, not a busy loop) and
+   `now()`'s wall-clock timestamps advance correctly in real ~1000ms
+   increments between logged samples.
 
 ---
 

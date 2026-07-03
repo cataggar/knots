@@ -102,6 +102,10 @@ pub fn start(self: *App, frameCb: Callback) !void {
 
     switch (builtin.os.tag) {
         inline .emscripten => std.os.emscripten.emscripten_set_main_loop_arg(emscriptenMain, @ptrCast(self), 0, 0),
+        inline .freestanding => if (builtin.cpu.arch == .wasm32)
+            self.window.setMainLoop(wasmMain, @ptrCast(self))
+        else
+            std.debug.panic("no main-loop implementation for freestanding {s}", .{@tagName(builtin.cpu.arch)}),
         inline else => {
             defer self.window.clearFrameHandler();
             while (self.window.isOpen()) {
@@ -155,6 +159,11 @@ fn emscriptenMain(ud: ?*anyopaque) callconv(.c) void {
     self.stepFrame() catch |err| {
         std.os.emscripten.emscripten_log(std.os.emscripten.LOG.ERROR, "error in presenting frame: %s", (@errorName(err)).ptr);
     };
+}
+
+fn wasmMain(ud: ?*anyopaque) callconv(.c) void {
+    const self: *App = @ptrCast(@alignCast(ud orelse return));
+    self.stepFrame() catch |err| @panic(@errorName(err));
 }
 
 fn stepFrame(self: *App) !void {

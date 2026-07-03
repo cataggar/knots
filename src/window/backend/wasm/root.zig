@@ -67,6 +67,16 @@ pub const Backend = struct {
     pub fn waitEvents(_: *const Self, _: std.Io) void {}
     pub fn postEmptyEvent(_: *const Self) void {}
 
+    /// Installs a `requestAnimationFrame`-driven main loop, the browser
+    /// equivalent of `emscripten_set_main_loop_arg`. `cb` is re-scheduled
+    /// from within itself, so the loop keeps running (capped to the
+    /// display refresh rate) until the page is torn down.
+    pub fn setMainLoop(_: *Self, cb: *const fn (?*anyopaque) callconv(.c) void, user_data: ?*anyopaque) void {
+        raf_cb = cb;
+        raf_user_data = user_data;
+        requestNextFrame();
+    }
+
     pub fn isOpen(_: *const Self) bool {
         return true;
     }
@@ -215,4 +225,16 @@ pub fn init(_: std.Io, allocator: std.mem.Allocator, cfg: window.Config) !Backen
         .content_scale = ev.content_scale,
         .pending_resize = ev,
     };
+}
+
+var raf_cb: ?*const fn (?*anyopaque) callconv(.c) void = null;
+var raf_user_data: ?*anyopaque = null;
+
+fn rafTick(_: f64) callconv(.c) void {
+    if (raf_cb) |cb| cb(raf_user_data);
+    requestNextFrame();
+}
+
+fn requestNextFrame() void {
+    zjb.global("window").call("requestAnimationFrame", .{zjb.fnHandle("knots_wasm_rafTick", &rafTick)}, void);
 }

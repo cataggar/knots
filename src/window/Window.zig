@@ -97,6 +97,15 @@ pub inline fn postEmptyEvent(self: *const Window) void {
     self.backend.postEmptyEvent();
 }
 
+/// Installs a browser-driven (requestAnimationFrame) main loop, calling
+/// `cb(user_data)` on every tick. Only implemented by backends that can't
+/// use a blocking `while (isOpen()) { stepFrame(); waitEvents(); }` loop
+/// (currently just `wasm`); only ever called by `App.start()` for those
+/// targets, so other backends don't need to implement it.
+pub inline fn setMainLoop(self: *Window, cb: *const fn (?*anyopaque) callconv(.c) void, user_data: ?*anyopaque) void {
+    self.backend.setMainLoop(cb, user_data);
+}
+
 pub inline fn setFrameHandler(self: *Window, handler: FrameHandler) void {
     self.frame_handler = handler;
 }
