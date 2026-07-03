@@ -139,7 +139,7 @@ errors introduced, confirming this file compiles cleanly.
 
 ---
 
-## Phase 2: Fix the `std.log` / `std.Io.Threaded` compile hazard
+## Phase 2: Fix the `std.log` / `std.Io.Threaded` compile hazard — ✅ Complete (triangle half)
 
 ### Overview
 
@@ -153,7 +153,7 @@ currently latent there).
 
 #### 1. `examples/playground/src/main_wasm.zig` (new, written in Phase 3 — this content included there)
 ```zig
-fn webLog(comptime level: std.log.Level, comptime scope: @Type(.enum_literal), comptime format: []const u8, args: anytype) void {
+fn webLog(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
     _ = scope;
     const msg = std.fmt.allocPrint(std.heap.wasm_allocator, format, args) catch return;
     defer std.heap.wasm_allocator.free(msg);
@@ -175,17 +175,28 @@ twice — called out as its own phase here because it's conceptually a
 distinct fix, verified independently in Phase 4 by actually triggering the
 form demo's submit button.)
 
-#### 2. `examples/triangle/src/main_wasm.zig`
-**Changes**: add the identical `webLog` function and `pub const std_options`
-declaration (triangle currently has neither). No behavior change for
-triangle today (nothing in its path calls `std.log`), purely defensive.
+#### 2. `examples/triangle/src/main_wasm.zig` ✅
+**Changes**: added the identical `webLog` function and
+`pub const std_options` declaration (triangle had neither). No behavior
+change for triangle today (nothing in its path calls `std.log`), purely
+defensive.
 
 ### Success Criteria:
 
-- [ ] `examples/triangle` (wasm target) still compiles and runs correctly
+- [x] `examples/triangle` (wasm target) still compiles and runs correctly
   after adding the unused-today `std_options` override (regression check —
   re-run the same headless-Chromium validation from the original plan's
   Phase 5/6).
+
+**Verification performed:** rebuilt `examples/triangle`'s wasm target
+(`zig build -Dtarget=wasm32-freestanding`) — compiles cleanly. Re-ran the
+same real-WebGPU headless-Chromium check used throughout the original
+plan: zero page errors, screenshot confirms the triangle still renders
+identically to before this change.
+
+The `examples/playground` half of this fix is written in Phase 3 (below),
+since it's part of that phase's new `main_wasm.zig` file rather than an
+edit to an existing one — verified together with the rest of Phase 3/4.
 
 ---
 
@@ -205,7 +216,7 @@ const std = @import("std");
 const zjb = @import("zjb");
 const playground = @import("playground");
 
-fn webLog(comptime level: std.log.Level, comptime scope: @Type(.enum_literal), comptime format: []const u8, args: anytype) void {
+fn webLog(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
     _ = scope;
     const msg = std.fmt.allocPrint(std.heap.wasm_allocator, format, args) catch return;
     defer std.heap.wasm_allocator.free(msg);
