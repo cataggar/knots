@@ -499,6 +499,7 @@ fn getInstanceExtensions(window_handle: gpu.Context.WindowHandle) [if (builtin.o
             .x11 => vk.extensions.khr_xlib_surface.name,
         },
         .emscripten => @panic("emscripten not supported with the vulkan backend"),
+        .wasm => @panic("wasm not supported with the vulkan backend"),
     };
 
     if (builtin.os.tag.isDarwin())
@@ -523,6 +524,7 @@ fn createSurface(vki: vk.InstanceWrapper, instance: vk.Instance, window_handle: 
             .x11 => |x11| vki.createXlibSurfaceKHR(instance, &.{ .dpy = @ptrCast(x11.display), .window = @intCast(x11.window) }, null),
         },
         .emscripten => @panic("emscripten not supported with the vulkan backend"),
+        .wasm => @panic("wasm not supported with the vulkan backend"),
     };
 }
 

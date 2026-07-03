@@ -28,7 +28,7 @@ pub fn processInputEarly(buf: *std.ArrayList(u8), app: *App, s: *State.TextInput
 
     const super_ctrl_held = switch (builtin.os.tag) {
         .macos => ui.input.super_held,
-        .emscripten => ui.input.ctrl_held or ui.input.super_held,
+        .emscripten, .freestanding => ui.input.ctrl_held or ui.input.super_held,
         else => ui.input.ctrl_held,
     };
 

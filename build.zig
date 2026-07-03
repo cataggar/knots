@@ -7,6 +7,7 @@ pub const GPUBackend = @import("src/gpu/backend/root.zig").Backend;
 const SupportedBackends = struct {
     wgpu: bool,
     vulkan: bool,
+    webgpu_js: bool,
 };
 
 pub fn build(b: *std.Build) void {
@@ -17,11 +18,12 @@ pub fn build(b: *std.Build) void {
         b.option([]const GPUBackend, "gpu_backends", "Which GPU backends to be available at runtime.") orelse
         &[_]GPUBackend{ .wgpu, .vulkan };
 
-    var se = SupportedBackends{ .vulkan = false, .wgpu = false };
+    var se = SupportedBackends{ .vulkan = false, .wgpu = false, .webgpu_js = false };
     for (gpu_backends) |be| {
         switch (be) {
             .vulkan => se.vulkan = true,
             .wgpu => se.wgpu = true,
+            .webgpu_js => se.webgpu_js = true,
         }
     }
 
@@ -68,6 +70,18 @@ pub fn build(b: *std.Build) void {
                     .root_source_file = b.path("src/gpu/backend/vulkan/root.zig"),
                     .imports = &.{
                         .{ .name = "vk", .module = vulkan.module("vulkan-zig") },
+                        .{ .name = "gpu", .module = gpu_mod },
+                    },
+                });
+            },
+            .webgpu_js => {
+                const zjb = b.dependency("zjb", .{});
+                break :blk b.createModule(.{
+                    .target = target,
+                    .optimize = optimize,
+                    .root_source_file = b.path("src/gpu/backend/webgpu_js/root.zig"),
+                    .imports = &.{
+                        .{ .name = "zjb", .module = zjb.module("zjb") },
                         .{ .name = "gpu", .module = gpu_mod },
                     },
                 });
@@ -183,11 +197,11 @@ pub fn build(b: *std.Build) void {
     });
 
     var render_shader_opts = b.addOptions();
-    render_shader_opts.addOption(bool, "has_wgpu_shaders", se.wgpu);
+    render_shader_opts.addOption(bool, "has_wgpu_shaders", se.wgpu or se.webgpu_js);
     render_shader_opts.addOption(bool, "has_vulkan_shaders", se.vulkan);
     render_mod.addOptions("shader_config", render_shader_opts);
 
-    if (se.wgpu) {
+    if (se.wgpu or se.webgpu_js) {
         render_mod.addAnonymousImport("primitives_wgsl", .{ .root_source_file = b.path("src/gpu/backend/wgpu/shaders/ui_primitives.wgsl") });
         render_mod.addAnonymousImport("slug_wgsl", .{ .root_source_file = b.path("src/gpu/backend/wgpu/shaders/slug.wgsl") });
     }

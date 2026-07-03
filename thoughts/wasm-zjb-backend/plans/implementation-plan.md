@@ -153,7 +153,7 @@ the existing native/emscripten example builds green.
 
 ---
 
-## Phase 1: Core plumbing (compiles, not yet functional)
+## Phase 1: Core plumbing (compiles, not yet functional) — ✅ Complete
 
 ### Overview
 
@@ -164,7 +164,7 @@ themselves. This keeps every subsequent phase's diff small and isolated.
 
 ### Changes Required:
 
-#### 1. Branch setup
+#### 1. Branch setup ✅
 ```
 git checkout zig16
 git checkout -b wasm-zjb-backend
@@ -173,7 +173,7 @@ zig fetch --save=zjb git+https://github.com/scottredig/zig-javascript-bridge
 Verify `build.zig.zon`'s `minimum_zig_version` stays `"0.16.0"` and a plain
 `zig build test` still passes before making any other changes.
 
-#### 2. `src/gpu/Context.zig`
+#### 2. `src/gpu/Context.zig` ✅
 **Changes**: add a `.wasm` variant to `WindowHandle` carrying the canvas
 selector, matching the existing `.emscripten` shape:
 ```zig
@@ -188,19 +188,19 @@ pub const WindowHandle = union(enum) {
 };
 ```
 
-#### 3. `src/gpu/backend/wgpu/Context.zig:31`
+#### 3. `src/gpu/backend/wgpu/Context.zig:31` ✅
 **Changes**: add an arm to the exhaustive `wgpu_handle` switch:
 ```zig
 .wasm => @panic("wasm target not supported by the native/emscripten wgpu backend; use the webgpu_js backend"),
 ```
 
-#### 4. `src/gpu/backend/vulkan/Context.zig:494,511`
+#### 4. `src/gpu/backend/vulkan/Context.zig:494,511` ✅
 **Changes**: add matching arms to `getInstanceExtensions` and `createSurface`:
 ```zig
 .wasm => @panic("wasm not supported with the vulkan backend"),
 ```
 
-#### 5. `src/gpu/backend/root.zig`
+#### 5. `src/gpu/backend/root.zig` ✅
 **Changes**:
 - Add `webgpu_js` to the `Backend` enum.
 - Add a `.freestanding` case to `preferred()`'s comptime switch, guarded by
@@ -212,7 +212,7 @@ pub const WindowHandle = union(enum) {
 ```
 - `Backend.init`'s `inline for` over enum fields + `module = switch(...) { .wgpu, .vulkan }` gets a `.webgpu_js => @import("gpu_webgpu_js")` arm (module doesn't exist yet until Phase 4 — stub it with a `@compileError`-free empty placeholder module exporting a matching `init` that `@panic`s, so the tree compiles before Phase 4 lands; replace in Phase 4).
 
-#### 6. `build.zig`
+#### 6. `build.zig` ✅
 **Changes**:
 - Extend `SupportedBackends` with `webgpu_js: bool`.
 - Extend the `for (gpu_backends) |be| { switch (be) { ... } }` availability
@@ -224,8 +224,13 @@ pub const WindowHandle = union(enum) {
   unchanged — `webgpu_js` must be opt-in per the consumer's `build.zig`
   (mirrors how `examples/playground/build.zig` already restricts backends
   per-target).
+- Also extended `has_wgpu_shaders`'s bool and the `primitives_wgsl`/`slug_wgsl`
+  anonymous-import gating to `se.wgpu or se.webgpu_js`, since `webgpu_js`
+  reuses the same embedded WGSL shaders (not called out explicitly in the
+  original plan text, but required — same file/option `wgpu`/`webgpu_js`
+  share).
 
-#### 7. `src/render/Renderer.zig:36-46`
+#### 7. `src/render/Renderer.zig:36-46` ✅
 **Changes**: add a `.freestanding` arm to `Config.validate`'s present-mode
 switch:
 ```zig
@@ -235,7 +240,7 @@ switch:
 },
 ```
 
-#### 8. `src/component/text_edit.zig:29-32`
+#### 8. `src/component/text_edit.zig:29-32` ✅
 **Changes**: extend `super_ctrl_held`:
 ```zig
 const super_ctrl_held = switch (builtin.os.tag) {
@@ -245,14 +250,28 @@ const super_ctrl_held = switch (builtin.os.tag) {
 };
 ```
 
+#### 9. `src/render/pipelines.zig:110,144` — found during verification, not in original plan ✅
+**Changes**: `primitivesDescForTarget`/`slugDescForTarget` each have an
+exhaustive `switch (backend: GPUBackend)` selecting shader source
+(`.wgpu => .{ .wgsl = ... }`, `.vulkan => .{ .spirv = ... }`) that the
+original research pass missed (found via `switch must handle all
+possibilities` compile errors when building `examples/triangle`). Added
+`.wgpu, .webgpu_js => .{ .wgsl = ... }` to both switches, since `webgpu_js`
+reuses the same WGSL sources as `wgpu`.
+
 ### Success Criteria:
 
-- `zig build test` passes on `wasm-zjb-backend` exactly as it did on `zig16`.
-- `examples/triangle` and `examples/playground` still build and run natively
-  on macOS/Windows/Linux with no behavior change.
-- The tree compiles with `-Dgpu_backends=webgpu_js` for a wasm32-freestanding
-  target, hitting only the intentional placeholder `@panic` in the stub
-  `gpu_webgpu_js` module (proves the plumbing is wired, not yet functional).
+- [x] `zig build test` passes on `wasm-zjb-backend` exactly as it did on `zig16` (verified: both default `-Dgpu_backends` and an explicit `-Dgpu_backends=wgpu,vulkan,webgpu_js` opt-in pass cleanly; a deliberate injected error in the `webgpu_js` placeholder confirmed it's actually compiled, not silently skipped, when opted in).
+- [x] `examples/triangle` and `examples/playground` still build and run natively on macOS with no behavior change **except for two pre-existing, unrelated issues confirmed present on an unmodified `zig16` checkout too** (see note below) — not introduced by this phase, out of scope to fix here.
+- [~] Adjusted: the plan's original wording ("tree compiles with `-Dgpu_backends=webgpu_js` for a wasm32-freestanding target, hitting only the intentional placeholder panic") isn't achievable until Phase 2 lands a window backend — `build.zig`'s `window_impl_mod` switch panics (during `zig build`'s own script execution, unconditionally, before any Zig compilation happens) for `target.result.os.tag == .freestanding` regardless of GPU backend selection, since window backend selection and GPU backend selection are independent switches in `build.zig`. Validated the GPU-side plumbing instead by opting `webgpu_js` into a **native macOS** build (see above) — this exercises the exact same `SupportedBackends`/`Backend` enum/`build.zig` module-wiring code paths that a wasm32-freestanding build would use, without requiring the (Phase 2) window backend to exist yet. Full wasm32-freestanding compilation will be validated at the end of Phase 2.
+
+**Pre-existing, unrelated issues found (confirmed present on a pristine `zig16` checkout, not caused by this phase):**
+1. `examples/triangle`/`examples/playground` native builds fail with `evaluation exceeded 1000 backwards branches` in the `vulkan-zig` dependency's generated `Dispatch` struct (`vk.zig:33322`), reached via `src/gpu/backend/vulkan/Context.zig:161`. Happens because the default `gpu_backends` list includes `.vulkan`, and `Backend.init`'s `inline for` unconditionally analyzes each available backend's `init` regardless of which one is selected at runtime.
+2. `examples/playground -Dtarget=wasm32-emscripten` fails to compile with a `std.Io.Threaded`/`std.os.emscripten` enum-mismatch error (`W.STOPSIG`/`EXITSTATUS`), apparently a Zig 0.16.0 stdlib / installed Emscripten SDK (5.0.7) incompatibility, unrelated to GPU backend selection.
+
+Neither blocks Phase 1's own success criteria (both reproduce identically on
+unmodified `zig16`); flagging here for visibility. Recommend raising as a
+separate issue if you want them fixed independent of this plan.
 
 **Implementation Note**: Pause here for manual confirmation that the
 baseline still builds/tests clean before writing backend code.

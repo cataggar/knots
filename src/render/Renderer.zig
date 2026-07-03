@@ -43,6 +43,11 @@ pub const Config = struct {
                 .fifo => {},
                 else => return error.UnsupportedPresentMode,
             },
+            .freestanding => switch (cfg.present_mode) {
+                // Presentation is implicit via requestAnimationFrame, same as emscripten.
+                .fifo => {},
+                else => return error.UnsupportedPresentMode,
+            },
             else => {},
         }
     }

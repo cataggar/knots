@@ -43,6 +43,7 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
             },
         },
         .emscripten => |em| .{ .emscripten = .{ .selector = em.selector } },
+        .wasm => @panic("wasm target not supported by the native/emscripten wgpu backend; use the webgpu_js backend"),
     };
 
     const instance = try wgpu.Instance.init();
