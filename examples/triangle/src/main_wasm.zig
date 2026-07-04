@@ -13,6 +13,31 @@ const triangle_height = 320;
 // them to the browser console (and throws, tearing down the wasm instance).
 pub const panic = zjb.panic;
 
+// `std.log`'s default `logFn` reaches `std.Options.debug_io`, which defaults
+// to `std.Io.Threaded.global_single_threaded` -- and `std.Io.Threaded` can't
+// compile at all for wasm32-freestanding (see
+// src/window/backend/wasm/io.zig's doc comment). Nothing in this example
+// currently calls `std.log.*`, but overriding `logFn` here is cheap
+// insurance against a hard-to-diagnose compile failure the moment something
+// (a future demo, a dependency) does. Mirrors `examples/playground/src/main_web.zig`'s
+// `webLog`, routed through `zjb`'s `console` instead of `emscripten_log`.
+fn webLog(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
+    _ = scope;
+    const msg = std.fmt.allocPrint(std.heap.wasm_allocator, format, args) catch return;
+    defer std.heap.wasm_allocator.free(msg);
+    const handle = zjb.string(msg);
+    defer handle.release();
+    const console = zjb.global("console");
+    switch (level) {
+        .err => console.call("error", .{handle}, void),
+        .warn => console.call("warn", .{handle}, void),
+        .info => console.call("info", .{handle}, void),
+        .debug => console.call("debug", .{handle}, void),
+    }
+}
+
+pub const std_options: std.Options = .{ .logFn = webLog };
+
 fn logStr(msg: zjb.ConstHandle) void {
     zjb.global("console").call("log", .{msg}, void);
 }

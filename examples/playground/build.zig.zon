@@ -5,6 +5,10 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .knots = .{ .path = "../../" },
+        .zjb = .{
+            .url = "git+https://github.com/scottredig/zig-javascript-bridge#eecd2de950c8b4c8c03a7f73671b0d1f7f177d66",
+            .hash = "javascript_bridge-0.0.0-E-FZAT6zAAD6ugrldRmlqy9brE4On02wj-oR-0qzijtr",
+        },
     },
     .paths = .{
         "build.zig",
