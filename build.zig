@@ -435,6 +435,7 @@ fn embedZigSpirV(b: *std.Build, optimize: std.builtin.OptimizeMode, mod: *std.Bu
             .optimize = optimize,
             .root_source_file = path,
         }),
+        .use_llvm = false,
     });
 
     mod.addAnonymousImport(name, .{ .root_source_file = spv.getEmittedBin() });
