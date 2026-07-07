@@ -28,8 +28,8 @@
             .hash = "TrueType-1.0.0-Ne-mWFx1AQAk8u43nEzx-W3oPUGaXnuLNFa2jTStHFjj",
         },
         .wayland = .{
-            .url = "git+https://codeberg.org/ifreund/zig-wayland.git#a8e10e87e5ebb49ce518ac3d2198909c87ee615a",
-            .hash = "wayland-0.7.0-dev-lQa1kjT8AQDBstL61Gy3WCMtGwVaMN1p6w5wGfdDvP15",
+            .url = "git+https://codeberg.org/ifreund/zig-wayland.git?ref=next-zig#25c9b18fad89b26ffdf2ee84ca53cc4358acd6ee",
+            .hash = "wayland-0.7.0-dev-lQa1ku38AQAmWVFZnu2lBo01EM1CE9DyNysqBk5qtqBt",
         },
         .js_bridge = .{ .path = "lib/js-bridge" },
     },
