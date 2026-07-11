@@ -6,3 +6,9 @@ pub const Usage = struct {
     copy_src: bool = false,
     storage: bool = false,
 };
+
+pub const Desc = struct {
+    size: usize,
+    usage: Usage,
+    label: []const u8 = "",
+};

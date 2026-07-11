@@ -8,6 +8,7 @@ const Pipeline = @import("Pipeline.zig");
 const BindGroup = @import("BindGroup.zig");
 const Texture = @import("Texture.zig");
 const Sampler = @import("Sampler.zig");
+const MemoryAllocator = @import("MemoryAllocator.zig");
 
 const Device = @This();
 const required_api_version = vk.API_VERSION_1_3;
@@ -21,6 +22,19 @@ const DescriptorPoolEntry = struct {
 const DescriptorAllocation = struct {
     set: vk.DescriptorSet,
     pool: vk.DescriptorPool,
+};
+
+const PendingUpload = struct {
+    image: vk.Image,
+    buffer_offset: vk.DeviceSize,
+    buffer_row_length: u32,
+    image_offset: vk.Offset3D,
+    image_extent: vk.Extent3D,
+};
+
+const PendingUploadImage = struct {
+    image: vk.Image,
+    old_layout: vk.ImageLayout,
 };
 
 const VulkanLoader = struct {
@@ -38,23 +52,45 @@ loader: VulkanLoader,
 vki: vk.InstanceWrapper,
 vkd: vk.DeviceWrapper,
 instance: vk.Instance,
+debug_messenger: vk.DebugUtilsMessengerEXT,
+debug_utils: bool,
 physical_device: vk.PhysicalDevice,
 device: vk.Device,
 queue_family: u32,
 graphics_queue: vk.Queue,
+pipeline_cache: vk.PipelineCache,
 surface_format: vk.Format,
 surface_color_space: vk.ColorSpaceKHR,
 surface_is_srgb: bool,
-transient_command_pool: vk.CommandPool,
+memory_allocator: MemoryAllocator,
 descriptor_pools: std.ArrayList(DescriptorPoolEntry),
+pending_upload_bytes: std.ArrayList(u8),
+pending_uploads: std.ArrayList(PendingUpload),
+pending_upload_images: std.ArrayList(PendingUploadImage),
+upload_barriers_before: std.ArrayList(vk.ImageMemoryBarrier2),
+upload_barriers_after: std.ArrayList(vk.ImageMemoryBarrier2),
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle) !Device {
     var loader = try loadVulkan();
     errdefer if (builtin.os.tag != .windows) loader.lib.close();
 
     const vkb = vk.BaseWrapper.load(loader.get_instance_proc_addr);
-    const instance_extensions = getInstanceExtensions(window_handle);
+    const required_instance_extensions = getInstanceExtensions(window_handle);
+    const available_instance_extensions = try vkb.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
+    defer allocator.free(available_instance_extensions);
+    const debug_utils = hasExtension(available_instance_extensions, vk.extensions.ext_debug_utils.name);
+    var instance_extensions: [4][*:0]const u8 = undefined;
+    for (required_instance_extensions, 0..) |extension, i| instance_extensions[i] = extension;
+    var instance_extension_count: u32 = @intCast(required_instance_extensions.len);
+    if (debug_utils) {
+        instance_extensions[instance_extension_count] = vk.extensions.ext_debug_utils.name;
+        instance_extension_count += 1;
+    }
+
     const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
+    const available_layers = try vkb.enumerateInstanceLayerPropertiesAlloc(allocator);
+    defer allocator.free(available_layers);
+    const validation = builtin.mode == .Debug and hasLayer(available_layers, validation_layers[0]);
     const instance = try vkb.createInstance(&.{
         .p_application_info = &.{
             .p_application_name = "knots",
@@ -63,26 +99,45 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
             .engine_version = 0,
             .api_version = required_api_version.toU32(),
         },
-        .enabled_extension_count = @intCast(instance_extensions.len),
+        .enabled_extension_count = instance_extension_count,
         .pp_enabled_extension_names = &instance_extensions,
-        .enabled_layer_count = if (builtin.mode == .Debug) 1 else 0,
-        .pp_enabled_layer_names = if (builtin.mode == .Debug) &validation_layers else undefined,
+        .enabled_layer_count = if (validation) 1 else 0,
+        .pp_enabled_layer_names = if (validation) &validation_layers else null,
         .flags = if (builtin.os.tag.isDarwin()) .{ .enumerate_portability_bit_khr = true } else .{},
     }, null);
 
     const vki = vk.InstanceWrapper.load(instance, vkb.dispatch.vkGetInstanceProcAddr.?);
     errdefer vki.destroyInstance(instance, null);
+    const debug_messenger = if (debug_utils and builtin.mode == .Debug)
+        try vki.createDebugUtilsMessengerEXT(instance, &.{
+            .message_severity = .{ .warning_ext = true, .error_ext = true },
+            .message_type = .{ .general_ext = true, .validation_ext = true, .performance_ext = true },
+            .pfn_user_callback = debugCallback,
+        }, null)
+    else
+        vk.DebugUtilsMessengerEXT.null_handle;
+    errdefer if (debug_messenger != .null_handle) vki.destroyDebugUtilsMessengerEXT(instance, debug_messenger, null);
     const surface = try createSurface(vki, instance, window_handle);
     defer vki.destroySurfaceKHR(instance, surface, null);
 
     const phys = try pickPhysicalDevice(vki, instance, surface);
     const chosen_format = try chooseSurfaceFormat(vki, phys.device, surface);
 
-    const portability_subset: [1][*:0]const u8 = .{"VK_KHR_portability_subset"};
-    const device_extensions: []const [*:0]const u8 = if (builtin.os.tag.isDarwin())
-        &(.{vk.extensions.khr_swapchain.name} ++ portability_subset)
-    else
-        &.{vk.extensions.khr_swapchain.name};
+    const available_device_extensions = try vki.enumerateDeviceExtensionPropertiesAlloc(phys.device, null, allocator);
+    defer allocator.free(available_device_extensions);
+    const memory_budget = hasExtension(available_device_extensions, vk.extensions.ext_memory_budget.name);
+    var device_extensions: [3][*:0]const u8 = undefined;
+    var device_extension_count: u32 = 0;
+    device_extensions[device_extension_count] = vk.extensions.khr_swapchain.name;
+    device_extension_count += 1;
+    if (builtin.os.tag.isDarwin()) {
+        device_extensions[device_extension_count] = "VK_KHR_portability_subset";
+        device_extension_count += 1;
+    }
+    if (memory_budget) {
+        device_extensions[device_extension_count] = vk.extensions.ext_memory_budget.name;
+        device_extension_count += 1;
+    }
 
     const queue_priority = [_]f32{1.0};
     var vk12_features = vk.PhysicalDeviceVulkan12Features{
@@ -104,51 +159,68 @@ pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandl
             .queue_count = 1,
             .p_queue_priorities = &queue_priority,
         }},
-        .enabled_extension_count = @intCast(device_extensions.len),
-        .pp_enabled_extension_names = @ptrCast(device_extensions.ptr),
+        .enabled_extension_count = device_extension_count,
+        .pp_enabled_extension_names = &device_extensions,
         .p_enabled_features = &enabled_features,
     }, null);
 
     const vkd = vk.DeviceWrapper.load(device, vki.dispatch.vkGetDeviceProcAddr.?);
     errdefer vkd.destroyDevice(device, null);
-    const transient_command_pool = try vkd.createCommandPool(device, &.{
-        .queue_family_index = phys.queue_family,
-        .flags = .{ .transient = true },
-    }, null);
-    errdefer vkd.destroyCommandPool(device, transient_command_pool, null);
+    const pipeline_cache = try vkd.createPipelineCache(device, &.{}, null);
+    errdefer vkd.destroyPipelineCache(device, pipeline_cache, null);
+    var memory_allocator = MemoryAllocator.init(allocator, vki, vkd, phys.device, device, memory_budget, debug_utils);
+    errdefer memory_allocator.deinit();
 
     var descriptor_pools = try createDescriptorPools(allocator, vkd, device);
     errdefer destroyDescriptorPools(allocator, vkd, device, &descriptor_pools);
 
-    return .{
+    var result = Device{
         .allocator = allocator,
         .loader = loader,
         .vki = vki,
         .vkd = vkd,
         .instance = instance,
+        .debug_messenger = debug_messenger,
+        .debug_utils = debug_utils,
         .physical_device = phys.device,
         .device = device,
         .queue_family = phys.queue_family,
         .graphics_queue = vkd.getDeviceQueue(device, phys.queue_family, 0),
+        .pipeline_cache = pipeline_cache,
         .surface_format = chosen_format.format,
         .surface_color_space = chosen_format.color_space,
         .surface_is_srgb = isSrgbFormat(chosen_format.format),
-        .transient_command_pool = transient_command_pool,
+        .memory_allocator = memory_allocator,
         .descriptor_pools = descriptor_pools,
+        .pending_upload_bytes = .empty,
+        .pending_uploads = .empty,
+        .pending_upload_images = .empty,
+        .upload_barriers_before = .empty,
+        .upload_barriers_after = .empty,
     };
+    result.setDebugName(.pipeline_cache, @intFromEnum(pipeline_cache), "pipeline_cache");
+    for (result.descriptor_pools.items) |entry| result.setDebugName(.descriptor_pool, @intFromEnum(entry.pool), "descriptor_pool");
+    return result;
 }
 
 pub fn deinit(self: *Device) void {
     self.vkd.deviceWaitIdle(self.device) catch {};
+    self.pending_upload_bytes.deinit(self.allocator);
+    self.pending_uploads.deinit(self.allocator);
+    self.pending_upload_images.deinit(self.allocator);
+    self.upload_barriers_before.deinit(self.allocator);
+    self.upload_barriers_after.deinit(self.allocator);
     destroyDescriptorPools(self.allocator, self.vkd, self.device, &self.descriptor_pools);
-    self.vkd.destroyCommandPool(self.device, self.transient_command_pool, null);
+    self.memory_allocator.deinit();
+    self.vkd.destroyPipelineCache(self.device, self.pipeline_cache, null);
     self.vkd.destroyDevice(self.device, null);
+    if (self.debug_messenger != .null_handle) self.vki.destroyDebugUtilsMessengerEXT(self.instance, self.debug_messenger, null);
     self.vki.destroyInstance(self.instance, null);
     if (builtin.os.tag != .windows) self.loader.lib.close();
 }
 
-pub fn createBuffer(self: *Device, size: usize, usage: gpu.Buffer.Usage) !Buffer {
-    return Buffer.create(self, size, usage);
+pub fn createBuffer(self: *Device, desc: gpu.Buffer.Desc) !Buffer {
+    return Buffer.create(self, desc);
 }
 
 pub fn createPipeline(self: *Device, desc: gpu.Pipeline.Desc) !Pipeline {
@@ -167,6 +239,144 @@ pub fn createSampler(self: *Device, desc: gpu.Sampler.Desc) !Sampler {
     return Sampler.create(self, desc);
 }
 
+pub fn queueTextureUpload(
+    self: *Device,
+    image: vk.Image,
+    old_layout: vk.ImageLayout,
+    data: []const u8,
+    bytes_per_pixel: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    bytes_per_row: ?u32,
+) !void {
+    std.debug.assert(bytes_per_pixel != 0);
+    std.debug.assert(width != 0 and height != 0);
+    const alignment: usize = @max(4, bytes_per_pixel);
+    const offset = std.mem.alignForward(usize, self.pending_upload_bytes.items.len, alignment);
+    const old_len = self.pending_upload_bytes.items.len;
+    try self.pending_upload_bytes.resize(self.allocator, offset + data.len);
+    @memset(self.pending_upload_bytes.items[old_len..offset], 0);
+    @memcpy(self.pending_upload_bytes.items[offset..][0..data.len], data);
+    errdefer self.pending_upload_bytes.shrinkRetainingCapacity(old_len);
+
+    try self.pending_uploads.append(self.allocator, .{
+        .image = image,
+        .buffer_offset = @intCast(offset),
+        .buffer_row_length = if (bytes_per_row) |stride| stride / bytes_per_pixel else 0,
+        .image_offset = .{ .x = @intCast(x), .y = @intCast(y), .z = 0 },
+        .image_extent = .{ .width = width, .height = height, .depth = 1 },
+    });
+    errdefer _ = self.pending_uploads.pop();
+
+    for (self.pending_upload_images.items) |pending| if (pending.image == image) return;
+    try self.pending_upload_images.append(self.allocator, .{ .image = image, .old_layout = old_layout });
+}
+
+pub fn cancelTextureUploads(self: *Device, image: vk.Image) void {
+    var i = self.pending_uploads.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (self.pending_uploads.items[i].image == image) _ = self.pending_uploads.orderedRemove(i);
+    }
+    for (self.pending_upload_images.items, 0..) |pending, index| {
+        if (pending.image == image) {
+            _ = self.pending_upload_images.orderedRemove(index);
+            break;
+        }
+    }
+    if (self.pending_uploads.items.len == 0) self.clearPendingUploads();
+}
+
+pub fn preparePendingUploads(self: *Device, upload_buffer: *?Buffer) !void {
+    if (self.pending_uploads.items.len == 0) return;
+    const required = self.pending_upload_bytes.items.len;
+    if (upload_buffer.*) |*buffer| {
+        if (buffer.size < required) try buffer.resize(required);
+        buffer.load(u8, self.pending_upload_bytes.items);
+    } else {
+        var buffer = try self.createBuffer(.{
+            .size = required,
+            .usage = .{ .copy_src = true },
+            .label = "frame_texture_uploads",
+        });
+        buffer.load(u8, self.pending_upload_bytes.items);
+        upload_buffer.* = buffer;
+    }
+
+    self.upload_barriers_before.clearRetainingCapacity();
+    self.upload_barriers_after.clearRetainingCapacity();
+    try self.upload_barriers_before.ensureTotalCapacity(self.allocator, self.pending_upload_images.items.len);
+    try self.upload_barriers_after.ensureTotalCapacity(self.allocator, self.pending_upload_images.items.len);
+    for (self.pending_upload_images.items) |pending| {
+        const range = vk.ImageSubresourceRange{
+            .aspect_mask = .{ .color = true },
+            .base_mip_level = 0,
+            .level_count = 1,
+            .base_array_layer = 0,
+            .layer_count = 1,
+        };
+        self.upload_barriers_before.appendAssumeCapacity(.{
+            .src_stage_mask = if (pending.old_layout == .undefined) .{} else .{ .fragment_shader = true },
+            .src_access_mask = if (pending.old_layout == .undefined) .{} else .{ .shader_sampled_read = true },
+            .dst_stage_mask = .{ .all_transfer = true },
+            .dst_access_mask = .{ .transfer_write = true },
+            .old_layout = pending.old_layout,
+            .new_layout = .transfer_dst_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = pending.image,
+            .subresource_range = range,
+        });
+        self.upload_barriers_after.appendAssumeCapacity(.{
+            .src_stage_mask = .{ .all_transfer = true },
+            .src_access_mask = .{ .transfer_write = true },
+            .dst_stage_mask = .{ .fragment_shader = true },
+            .dst_access_mask = .{ .shader_sampled_read = true },
+            .old_layout = .transfer_dst_optimal,
+            .new_layout = .shader_read_only_optimal,
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .image = pending.image,
+            .subresource_range = range,
+        });
+    }
+}
+
+pub fn recordPendingUploads(self: *Device, command_buffer: vk.CommandBuffer, upload_buffer: *const Buffer) void {
+    if (self.pending_uploads.items.len == 0) return;
+    self.vkd.cmdPipelineBarrier2(command_buffer, &.{
+        .image_memory_barrier_count = @intCast(self.upload_barriers_before.items.len),
+        .p_image_memory_barriers = self.upload_barriers_before.items.ptr,
+    });
+    for (self.pending_upload_images.items) |pending_image| {
+        for (self.pending_uploads.items) |upload| {
+            if (upload.image != pending_image.image) continue;
+            self.vkd.cmdCopyBufferToImage(command_buffer, upload_buffer.buffer, upload.image, .transfer_dst_optimal, &.{.{
+                .buffer_offset = upload.buffer_offset,
+                .buffer_row_length = upload.buffer_row_length,
+                .buffer_image_height = 0,
+                .image_subresource = .{ .aspect_mask = .{ .color = true }, .mip_level = 0, .base_array_layer = 0, .layer_count = 1 },
+                .image_offset = upload.image_offset,
+                .image_extent = upload.image_extent,
+            }});
+        }
+    }
+    self.vkd.cmdPipelineBarrier2(command_buffer, &.{
+        .image_memory_barrier_count = @intCast(self.upload_barriers_after.items.len),
+        .p_image_memory_barriers = self.upload_barriers_after.items.ptr,
+    });
+}
+
+pub fn clearPendingUploads(self: *Device) void {
+    self.pending_upload_bytes.clearRetainingCapacity();
+    self.pending_uploads.clearRetainingCapacity();
+    self.pending_upload_images.clearRetainingCapacity();
+    self.upload_barriers_before.clearRetainingCapacity();
+    self.upload_barriers_after.clearRetainingCapacity();
+}
+
 pub fn createSurfaceHandle(self: *const Device, window_handle: gpu.Context.WindowHandle) !vk.SurfaceKHR {
     return createSurface(self.vki, self.instance, window_handle);
 }
@@ -177,57 +387,6 @@ pub fn surfaceFormat(self: *const Device) gpu.Texture.Format {
 
 pub fn surfaceIsSrgb(self: *const Device) bool {
     return self.surface_is_srgb;
-}
-
-pub fn findMemoryType(self: *const Device, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {
-    const mem_props = self.vki.getPhysicalDeviceMemoryProperties(self.physical_device);
-    for (0..mem_props.memory_type_count) |i| {
-        if (type_filter & (@as(u32, 1) << @intCast(i)) != 0 and
-            mem_props.memory_types[i].property_flags.contains(properties))
-        {
-            return @intCast(i);
-        }
-    }
-    return error.NoSuitableMemoryType;
-}
-
-pub const SingleTimeSubmission = struct {
-    command_buffer: vk.CommandBuffer,
-    fence: vk.Fence,
-};
-
-pub fn beginSingleTimeCommands(self: *const Device) !vk.CommandBuffer {
-    var cmd: [1]vk.CommandBuffer = undefined;
-    try self.vkd.allocateCommandBuffers(self.device, &.{
-        .command_pool = self.transient_command_pool,
-        .level = .primary,
-        .command_buffer_count = 1,
-    }, &cmd);
-    try self.vkd.beginCommandBuffer(cmd[0], &.{
-        .flags = .{ .one_time_submit = true },
-    });
-    return cmd[0];
-}
-
-pub fn endSingleTimeCommands(self: *const Device, cmd: vk.CommandBuffer) !SingleTimeSubmission {
-    errdefer self.vkd.freeCommandBuffers(self.device, self.transient_command_pool, &.{cmd});
-    try self.vkd.endCommandBuffer(cmd);
-    const fence = try self.vkd.createFence(self.device, &.{ .flags = .{} }, null);
-    errdefer self.vkd.destroyFence(self.device, fence, null);
-    try self.vkd.queueSubmit2(self.graphics_queue, &.{.{
-        .command_buffer_info_count = 1,
-        .p_command_buffer_infos = &[_]vk.CommandBufferSubmitInfo{.{
-            .command_buffer = cmd,
-            .device_mask = 1,
-        }},
-    }}, fence);
-    return .{ .command_buffer = cmd, .fence = fence };
-}
-
-pub fn finishSingleTimeCommands(self: *const Device, submission: SingleTimeSubmission) !void {
-    _ = try self.vkd.waitForFences(self.device, &.{submission.fence}, .true, std.math.maxInt(u64));
-    self.vkd.destroyFence(self.device, submission.fence, null);
-    self.vkd.freeCommandBuffers(self.device, self.transient_command_pool, &.{submission.command_buffer});
 }
 
 pub fn allocateDescriptorSetWithPool(self: *Device, layout: vk.DescriptorSetLayout) !DescriptorAllocation {
@@ -242,6 +401,7 @@ pub fn allocateDescriptorSetWithPool(self: *Device, layout: vk.DescriptorSetLayo
     }
 
     const new_pool = try createDescriptorPool(self.vkd, self.device);
+    self.setDebugName(.descriptor_pool, @intFromEnum(new_pool), "descriptor_pool");
     try self.descriptor_pools.append(self.allocator, .{ .pool = new_pool });
     var set: [1]vk.DescriptorSet = undefined;
     try self.vkd.allocateDescriptorSets(self.device, &.{
@@ -311,6 +471,48 @@ fn createDescriptorPool(vkd: vk.DeviceWrapper, device: vk.Device) !vk.Descriptor
             .{ .type = .sampler, .descriptor_count = 64 },
         },
     }, null);
+}
+
+pub fn setDebugName(self: *const Device, object_type: vk.ObjectType, object_handle: u64, label: []const u8) void {
+    if (!self.debug_utils or label.len == 0) return;
+    var label_buffer: [256]u8 = undefined;
+    const label_z = std.fmt.bufPrintSentinel(&label_buffer, "{s}", .{label}, 0x00) catch return;
+    self.vkd.setDebugUtilsObjectNameEXT(self.device, &.{
+        .object_type = object_type,
+        .object_handle = object_handle,
+        .p_object_name = label_z,
+    }) catch {};
+}
+
+fn hasExtension(properties: []const vk.ExtensionProperties, name: [*:0]const u8) bool {
+    const expected = std.mem.span(name);
+    for (properties) |property| {
+        if (std.mem.eql(u8, std.mem.sliceTo(&property.extension_name, 0), expected)) return true;
+    }
+    return false;
+}
+
+fn hasLayer(properties: []const vk.LayerProperties, name: [*:0]const u8) bool {
+    const expected = std.mem.span(name);
+    for (properties) |property| {
+        if (std.mem.eql(u8, std.mem.sliceTo(&property.layer_name, 0), expected)) return true;
+    }
+    return false;
+}
+
+fn debugCallback(
+    severity: vk.DebugUtilsMessageSeverityFlagsEXT,
+    _: vk.DebugUtilsMessageTypeFlagsEXT,
+    callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
+    _: ?*anyopaque,
+) callconv(vk.vulkan_call_conv) vk.Bool32 {
+    const data = callback_data orelse return .false;
+    const message = if (data.p_message) |value| std.mem.span(value) else "Vulkan validation message";
+    if (severity.error_ext)
+        std.log.err("{s}", .{message})
+    else
+        std.log.warn("{s}", .{message});
+    return .false;
 }
 
 fn createDescriptorPools(allocator: std.mem.Allocator, vkd: vk.DeviceWrapper, device: vk.Device) !std.ArrayList(DescriptorPoolEntry) {

@@ -49,6 +49,7 @@ pub fn create(device: *Device, desc: Desc) !BindGroup {
     for (desc.entries, 0..) |e, i| {
         switch (e.resource) {
             .buffer => |b| {
+                try validateBufferBinding(b);
                 buf_info_buf[i] = .{
                     .buffer = b.buffer.buffer,
                     .offset = b.offset,
@@ -66,6 +67,7 @@ pub fn create(device: *Device, desc: Desc) !BindGroup {
                 };
             },
             .read_only_storage_buffer => |b| {
+                try validateBufferBinding(b);
                 buf_info_buf[i] = .{
                     .buffer = b.buffer.buffer,
                     .offset = b.offset,
@@ -120,12 +122,22 @@ pub fn create(device: *Device, desc: Desc) !BindGroup {
     }
 
     device.vkd.updateDescriptorSets(device.device, writes_buf[0..desc.entries.len], null);
+    device.setDebugName(.descriptor_set, @intFromEnum(alloc_result.set), desc.label);
 
     return .{
         .device = device,
         .descriptor_set = alloc_result.set,
         .descriptor_pool = alloc_result.pool,
     };
+}
+
+fn validateBufferBinding(binding: BufferBinding) !void {
+    const buffer_size: u64 = @intCast(binding.buffer.size);
+    if (binding.offset > buffer_size or
+        (binding.size != 0 and binding.size > buffer_size - binding.offset))
+    {
+        return error.InvalidBufferBinding;
+    }
 }
 
 pub fn deinit(self: *BindGroup) void {

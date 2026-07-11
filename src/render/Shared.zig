@@ -132,17 +132,19 @@ pub fn init(allocator: std.mem.Allocator, device: *gpu_impl.Device) !Shared {
         .height = 1,
         .format = .r8,
         .usage = .{ .texture_binding = true, .copy_dst = true },
+        .label = "atlas_texture",
     });
     errdefer atlas_texture.deinit();
 
     var atlas_sampler = try device.createSampler(.{
+        .label = "atlas_sampler",
         .mag_filter = .nearest,
         .min_filter = .nearest,
     });
     errdefer atlas_sampler.deinit();
 
     var linear_sampler: ?gpu_impl.Sampler = if (use_linear_target)
-        try device.createSampler(.{ .mag_filter = .nearest, .min_filter = .nearest })
+        try device.createSampler(.{ .mag_filter = .nearest, .min_filter = .nearest, .label = "linear_sampler" })
     else
         null;
     errdefer if (linear_sampler) |*s| s.deinit();
@@ -161,7 +163,7 @@ pub fn init(allocator: std.mem.Allocator, device: *gpu_impl.Device) !Shared {
     });
     errdefer atlas_texture_bg.deinit();
 
-    var unit_index_buf = try device.createBuffer(6 * @sizeOf(u32), .{ .index = true, .copy_dst = true });
+    var unit_index_buf = try device.createBuffer(.{ .size = 6 * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "unit_indices" });
     errdefer unit_index_buf.deinit();
     const unit_indices = [_]u32{ 0, 1, 2, 0, 2, 3 };
     unit_index_buf.load(u32, &unit_indices);
@@ -210,13 +212,15 @@ pub fn deinit(self: *Shared) void {
 }
 
 pub fn createTexture(self: *Shared, device: *gpu_impl.Device, width: u32, height: u32, format: gpu.Texture.Format) !TextureId {
-    var sampler = try device.createSampler(.{ .mag_filter = .linear, .min_filter = .linear });
+    if (width == 0 or height == 0) return error.InvalidTextureWrite;
+    var sampler = try device.createSampler(.{ .mag_filter = .linear, .min_filter = .linear, .label = "user_texture_sampler" });
     errdefer sampler.deinit();
     var texture = try device.createTexture(.{
         .width = width,
         .height = height,
         .format = format,
         .usage = .{ .texture_binding = true, .copy_dst = true },
+        .label = "user_texture",
     });
     errdefer texture.deinit();
 
@@ -371,7 +375,7 @@ pub fn requiredTextureBytes(width: u32, height: u32, bpp: usize, bytes_per_row: 
 
     if (bytes_per_row) |stride_u32| {
         const stride: usize = stride_u32;
-        if (stride < row_bytes) return error.InvalidTextureWrite;
+        if (stride < row_bytes or stride % bpp != 0) return error.InvalidTextureWrite;
 
         const prefix = std.math.mul(usize, @as(usize, height - 1), stride) catch
             return error.InvalidTextureWrite;

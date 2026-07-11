@@ -6,4 +6,5 @@ pub const Desc = struct {
     min_filter: FilterMode = .linear,
     address_mode_u: AddressMode = .clamp_to_edge,
     address_mode_v: AddressMode = .clamp_to_edge,
+    label: []const u8 = "",
 };

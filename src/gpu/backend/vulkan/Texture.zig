@@ -1,7 +1,9 @@
+const std = @import("std");
 const vk = @import("vk");
 const CommonTexture = @import("gpu").Texture;
 
 const Device = @import("Device.zig");
+const MemoryAllocator = @import("MemoryAllocator.zig");
 
 const NativeHandle = struct {
     image: vk.Image,
@@ -18,7 +20,7 @@ pub const Usage = CommonTexture.Usage;
 pub const Desc = CommonTexture.Desc;
 
 image: vk.Image,
-memory: vk.DeviceMemory,
+allocation: MemoryAllocator.Allocation,
 image_view: vk.ImageView,
 ready: bool,
 layout: vk.ImageLayout,
@@ -26,13 +28,10 @@ width: u32,
 height: u32,
 format: Format,
 device: *Device,
-staging_buffer: vk.Buffer = .null_handle,
-staging_memory: vk.DeviceMemory = .null_handle,
-staging_size: usize = 0,
-upload_submission: ?Device.SingleTimeSubmission = null,
 native_handle: NativeHandle,
 
 pub fn create(device: *Device, desc: Desc) !Texture {
+    std.debug.assert(desc.width != 0 and desc.height != 0);
     const vk_format = toVkFormat(desc.format);
 
     const image = try device.vkd.createImage(device.device, &.{
@@ -54,14 +53,23 @@ pub fn create(device: *Device, desc: Desc) !Texture {
     }, null);
     errdefer device.vkd.destroyImage(device.device, image, null);
 
-    const mem_reqs = device.vkd.getImageMemoryRequirements(device.device, image);
-    const memory = try device.vkd.allocateMemory(device.device, &.{
-        .allocation_size = mem_reqs.size,
-        .memory_type_index = try device.findMemoryType(mem_reqs.memory_type_bits, .{ .device_local = true }),
-    }, null);
-    errdefer device.vkd.freeMemory(device.device, memory, null);
+    var dedicated = vk.MemoryDedicatedRequirements{
+        .prefers_dedicated_allocation = undefined,
+        .requires_dedicated_allocation = undefined,
+    };
+    var requirements = vk.MemoryRequirements2{ .p_next = &dedicated, .memory_requirements = undefined };
+    device.vkd.getImageMemoryRequirements2(device.device, &.{ .image = image }, &requirements);
+    const allocation = try device.memory_allocator.allocate(
+        requirements.memory_requirements,
+        dedicated,
+        .{ .image = image },
+        .optimal,
+        .{ .device_local = true },
+        .{},
+    );
+    errdefer device.memory_allocator.free(allocation);
 
-    try device.vkd.bindImageMemory(device.device, image, memory, 0);
+    try device.vkd.bindImageMemory(device.device, image, allocation.memory, allocation.offset);
 
     const image_view = try device.vkd.createImageView(device.device, &.{
         .image = image,
@@ -71,10 +79,12 @@ pub fn create(device: *Device, desc: Desc) !Texture {
         .subresource_range = .{ .aspect_mask = .{ .color = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
     }, null);
     errdefer device.vkd.destroyImageView(device.device, image_view, null);
+    device.setDebugName(.image, @intFromEnum(image), desc.label);
+    device.setDebugName(.image_view, @intFromEnum(image_view), desc.label);
 
     return .{
         .image = image,
-        .memory = memory,
+        .allocation = allocation,
         .image_view = image_view,
         .ready = false,
         .layout = .undefined,
@@ -93,105 +103,37 @@ pub fn create(device: *Device, desc: Desc) !Texture {
 }
 
 pub fn deinit(self: *Texture) void {
-    self.finishUpload() catch {};
-    if (self.staging_size != 0) {
-        self.device.vkd.destroyBuffer(self.device.device, self.staging_buffer, null);
-        self.device.vkd.freeMemory(self.device.device, self.staging_memory, null);
-    }
+    self.device.cancelTextureUploads(self.image);
     self.device.vkd.destroyImageView(self.device.device, self.image_view, null);
     self.device.vkd.destroyImage(self.device.device, self.image, null);
-    self.device.vkd.freeMemory(self.device.device, self.memory, null);
-}
-
-fn ensureStaging(self: *Texture, len: usize) !void {
-    if (len <= self.staging_size) return;
-    const device = self.device;
-
-    const new_buffer = try device.vkd.createBuffer(device.device, &.{
-        .size = @intCast(len),
-        .usage = .{ .transfer_src = true },
-        .sharing_mode = .exclusive,
-    }, null);
-    errdefer device.vkd.destroyBuffer(device.device, new_buffer, null);
-
-    const mem_reqs = device.vkd.getBufferMemoryRequirements(device.device, new_buffer);
-    const new_memory = try device.vkd.allocateMemory(device.device, &.{
-        .allocation_size = mem_reqs.size,
-        .memory_type_index = try device.findMemoryType(mem_reqs.memory_type_bits, .{ .host_visible = true, .host_coherent = true }),
-    }, null);
-    errdefer device.vkd.freeMemory(device.device, new_memory, null);
-
-    try device.vkd.bindBufferMemory(device.device, new_buffer, new_memory, 0);
-
-    if (self.staging_size != 0) {
-        device.vkd.destroyBuffer(device.device, self.staging_buffer, null);
-        device.vkd.freeMemory(device.device, self.staging_memory, null);
-    }
-    self.staging_buffer = new_buffer;
-    self.staging_memory = new_memory;
-    self.staging_size = len;
-}
-
-fn finishUpload(self: *Texture) !void {
-    const submission = self.upload_submission orelse return;
-    try self.device.finishSingleTimeCommands(submission);
-    self.upload_submission = null;
+    self.device.memory_allocator.free(self.allocation);
 }
 
 pub fn write(self: *Texture, data: [*]const u8, len: usize, x: u32, y: u32, width: u32, height: u32, bytes_per_row: ?u32) !void {
-    const device = self.device;
+    std.debug.assert(width != 0 and height != 0);
+    std.debug.assert(x <= self.width and y <= self.height);
+    std.debug.assert(width <= self.width - x and height <= self.height - y);
+    const pixel_size = bytesPerPixel(self.format);
+    const packed_row = std.math.mul(u32, width, pixel_size) catch {
+        std.debug.assert(false);
+        unreachable;
+    };
+    const stride = bytes_per_row orelse packed_row;
+    std.debug.assert(stride >= packed_row and stride % pixel_size == 0);
+    const required = std.math.add(
+        usize,
+        std.math.mul(usize, @as(usize, height - 1), @as(usize, stride)) catch {
+            std.debug.assert(false);
+            unreachable;
+        },
+        @as(usize, packed_row),
+    ) catch {
+        std.debug.assert(false);
+        unreachable;
+    };
+    std.debug.assert(len >= required);
 
-    try self.finishUpload();
-    try self.ensureStaging(len);
-
-    const mapped: [*]u8 = @ptrCast(try device.vkd.mapMemory(device.device, self.staging_memory, 0, @intCast(len), .{}));
-    @memcpy(mapped[0..len], data[0..len]);
-    device.vkd.unmapMemory(device.device, self.staging_memory);
-
-    const cmd = try device.beginSingleTimeCommands();
-    device.vkd.cmdPipelineBarrier2(cmd, &.{
-        .image_memory_barrier_count = 1,
-        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
-            .src_stage_mask = if (self.layout == .undefined) .{} else .{ .fragment_shader = true },
-            .src_access_mask = if (self.layout == .undefined) .{} else .{ .shader_sampled_read = true },
-            .dst_stage_mask = .{ .all_transfer = true },
-            .dst_access_mask = .{ .transfer_write = true },
-            .old_layout = self.layout,
-            .new_layout = .transfer_dst_optimal,
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = self.image,
-            .subresource_range = .{ .aspect_mask = .{ .color = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
-        }},
-    });
-
-    const row_length: u32 = if (bytes_per_row) |bpr| bpr / bytesPerPixel(self.format) else 0;
-    device.vkd.cmdCopyBufferToImage(cmd, self.staging_buffer, self.image, .transfer_dst_optimal, &.{.{
-        .buffer_offset = 0,
-        .buffer_row_length = row_length,
-        .buffer_image_height = 0,
-        .image_subresource = .{ .aspect_mask = .{ .color = true }, .mip_level = 0, .base_array_layer = 0, .layer_count = 1 },
-        .image_offset = .{ .x = @intCast(x), .y = @intCast(y), .z = 0 },
-        .image_extent = .{ .width = width, .height = height, .depth = 1 },
-    }});
-
-    device.vkd.cmdPipelineBarrier2(cmd, &.{
-        .image_memory_barrier_count = 1,
-        .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
-            .src_stage_mask = .{ .all_transfer = true },
-            .src_access_mask = .{ .transfer_write = true },
-            .dst_stage_mask = .{ .fragment_shader = true },
-            .dst_access_mask = .{ .shader_sampled_read = true },
-            .old_layout = .transfer_dst_optimal,
-            .new_layout = .shader_read_only_optimal,
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .image = self.image,
-            .subresource_range = .{ .aspect_mask = .{ .color = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
-        }},
-    });
-
-    self.upload_submission = try device.endSingleTimeCommands(cmd);
+    try self.device.queueTextureUpload(self.image, self.layout, data[0..required], pixel_size, x, y, width, height, bytes_per_row);
     self.ready = true;
     self.layout = .shader_read_only_optimal;
 }

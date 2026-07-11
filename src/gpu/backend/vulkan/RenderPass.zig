@@ -13,6 +13,7 @@ command_buffer: vk.CommandBuffer,
 vkd: vk.DeviceWrapper,
 image: vk.Image,
 current_pipeline_layout: vk.PipelineLayout,
+debug_label: bool,
 
 pub const LoadOp = enum { clear, load };
 pub const StoreOp = enum { store, discard };
@@ -29,12 +30,18 @@ pub const Desc = struct {
     color_attachment: ColorAttachment = .{},
 };
 
-pub fn create(command_buffer: vk.CommandBuffer, device: *Device, surface: *Surface, image_index: u32, desc: Desc) !RenderPass {
+pub fn create(command_buffer: vk.CommandBuffer, device: *Device, surface: *Surface, image_index: u32, desc: Desc) RenderPass {
     const ca = desc.color_attachment;
-    if (ca.target != null) return error.UnsupportedRenderTarget;
-    if (ca.load_op != .clear or ca.store_op != .store) return error.UnsupportedRenderPassOperation;
 
     const image = surface.swapchain_images[image_index];
+    var debug_label = false;
+    if (device.debug_utils and desc.label.len != 0) {
+        var label_buffer: [256]u8 = undefined;
+        if (std.fmt.bufPrintSentinel(&label_buffer, "{s}", .{desc.label}, 0x00)) |label| {
+            device.vkd.cmdBeginDebugUtilsLabelEXT(command_buffer, &.{ .p_label_name = label, .color = .{ 0.2, 0.6, 1.0, 1.0 } });
+            debug_label = true;
+        } else |_| {}
+    }
     device.vkd.cmdPipelineBarrier2(command_buffer, &.{
         .image_memory_barrier_count = 1,
         .p_image_memory_barriers = &[_]vk.ImageMemoryBarrier2{.{
@@ -84,6 +91,7 @@ pub fn create(command_buffer: vk.CommandBuffer, device: *Device, surface: *Surfa
         .vkd = device.vkd,
         .image = image,
         .current_pipeline_layout = .null_handle,
+        .debug_label = debug_label,
     };
 }
 
@@ -102,6 +110,7 @@ pub fn end(self: *RenderPass) void {
             .subresource_range = .{ .aspect_mask = .{ .color = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
         }},
     });
+    if (self.debug_label) self.vkd.cmdEndDebugUtilsLabelEXT(self.command_buffer);
 }
 
 pub fn bindPipeline(self: *RenderPass, pipeline: *const Pipeline) void {

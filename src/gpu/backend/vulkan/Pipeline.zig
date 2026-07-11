@@ -47,6 +47,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
             .p_bindings = binding_buf[0..bgl.entries.len].ptr,
         }, null);
         dsls_created += 1;
+        device.setDebugName(.descriptor_set_layout, @intFromEnum(dsls[i]), desc.bind_group_layouts[i].label);
     }
 
     const pipeline_layout = try vkd.createPipelineLayout(vk_device, &.{
@@ -56,6 +57,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
         .p_push_constant_ranges = null,
     }, null);
     errdefer vkd.destroyPipelineLayout(vk_device, pipeline_layout, null);
+    device.setDebugName(.pipeline_layout, @intFromEnum(pipeline_layout), desc.label);
 
     const vert_module = try vkd.createShaderModule(vk_device, &.{
         .code_size = spirv.vs.len,
@@ -74,7 +76,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
     if (desc.vertex_buffers.len > vk_binding_buf.len) return error.TooManyVertexBuffers;
     var attr_total: usize = 0;
     for (desc.vertex_buffers, 0..) |vb, i| {
-        if (attr_total + vb.attributes.len > vk_attr_buf.len) return error.TooManyVertexAttributes;
+        if (vb.attributes.len > vk_attr_buf.len - attr_total) return error.TooManyVertexAttributes;
         vk_binding_buf[i] = .{
             .binding = @intCast(i),
             .stride = vb.stride,
@@ -134,7 +136,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
     };
 
     var vk_pipeline: [1]vk.Pipeline = undefined;
-    _ = try vkd.createGraphicsPipelines(vk_device, .null_handle, &.{.{
+    _ = try vkd.createGraphicsPipelines(vk_device, device.pipeline_cache, &.{.{
         .p_next = &rendering_info,
         .stage_count = 2,
         .p_stages = &[_]vk.PipelineShaderStageCreateInfo{
@@ -185,6 +187,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
         .subpass = 0,
         .base_pipeline_index = -1,
     }}, null, vk_pipeline[0..1]);
+    device.setDebugName(.pipeline, @intFromEnum(vk_pipeline[0]), desc.label);
 
     return .{
         .allocator = allocator,
@@ -204,6 +207,7 @@ pub fn deinit(self: *Pipeline) void {
 }
 
 pub fn descriptorSetLayout(self: *const Pipeline, index: u32) vk.DescriptorSetLayout {
+    std.debug.assert(@as(usize, index) < self.descriptor_set_layouts.len);
     return self.descriptor_set_layouts[index];
 }
 

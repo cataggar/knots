@@ -1,23 +1,27 @@
+const std = @import("std");
 const vk = @import("vk");
-const Usage = @import("gpu").Buffer.Usage;
+const CommonBuffer = @import("gpu").Buffer;
 const Device = @import("Device.zig");
+const MemoryAllocator = @import("MemoryAllocator.zig");
 
 const Buffer = @This();
 
 device: *Device,
 buffer: vk.Buffer,
-memory: vk.DeviceMemory,
+allocation: MemoryAllocator.Allocation,
 mapped: [*]u8,
 size: usize,
 usage: vk.BufferUsageFlags,
+label: []u8,
 
 const Allocation = struct {
     buffer: vk.Buffer,
-    memory: vk.DeviceMemory,
+    allocation: MemoryAllocator.Allocation,
     mapped: [*]u8,
 };
 
 fn allocate(device: *Device, size: usize, usage: vk.BufferUsageFlags) !Allocation {
+    std.debug.assert(size != 0);
     const buffer = try device.vkd.createBuffer(device.device, &.{
         .size = @intCast(size),
         .usage = usage,
@@ -25,41 +29,49 @@ fn allocate(device: *Device, size: usize, usage: vk.BufferUsageFlags) !Allocatio
     }, null);
     errdefer device.vkd.destroyBuffer(device.device, buffer, null);
 
-    const mem_reqs = device.vkd.getBufferMemoryRequirements(device.device, buffer);
-    const mem_type = try device.findMemoryType(mem_reqs.memory_type_bits, .{ .host_visible = true, .host_coherent = true });
-
-    const memory = try device.vkd.allocateMemory(device.device, &.{
-        .allocation_size = mem_reqs.size,
-        .memory_type_index = mem_type,
-    }, null);
-    errdefer device.vkd.freeMemory(device.device, memory, null);
-
-    try device.vkd.bindBufferMemory(device.device, buffer, memory, 0);
-
-    const mapped = try device.vkd.mapMemory(device.device, memory, 0, @intCast(size), .{});
-    return .{ .buffer = buffer, .memory = memory, .mapped = @ptrCast(mapped) };
+    var dedicated = vk.MemoryDedicatedRequirements{
+        .prefers_dedicated_allocation = undefined,
+        .requires_dedicated_allocation = undefined,
+    };
+    var requirements = vk.MemoryRequirements2{ .p_next = &dedicated, .memory_requirements = undefined };
+    device.vkd.getBufferMemoryRequirements2(device.device, &.{ .buffer = buffer }, &requirements);
+    const allocation = try device.memory_allocator.allocate(
+        requirements.memory_requirements,
+        dedicated,
+        .{ .buffer = buffer },
+        .linear,
+        .{ .host_visible = true, .host_coherent = true },
+        .{ .device_local = true },
+    );
+    errdefer device.memory_allocator.free(allocation);
+    try device.vkd.bindBufferMemory(device.device, buffer, allocation.memory, allocation.offset);
+    std.debug.assert(allocation.mapped != null);
+    return .{ .buffer = buffer, .allocation = allocation, .mapped = allocation.mapped.? };
 }
 
-pub fn create(device: *Device, size: usize, usage: Usage) !Buffer {
-    const vk_usage = toVkUsage(usage);
-    const a = try allocate(device, size, vk_usage);
+pub fn create(device: *Device, desc: CommonBuffer.Desc) !Buffer {
+    const label = try device.allocator.dupe(u8, desc.label);
+    errdefer device.allocator.free(label);
+    const vk_usage = toVkUsage(desc.usage);
+    const a = try allocate(device, desc.size, vk_usage);
     errdefer {
-        device.vkd.unmapMemory(device.device, a.memory);
         device.vkd.destroyBuffer(device.device, a.buffer, null);
-        device.vkd.freeMemory(device.device, a.memory, null);
+        device.memory_allocator.free(a.allocation);
     }
+    device.setDebugName(.buffer, @intFromEnum(a.buffer), label);
 
     return .{
         .device = device,
         .buffer = a.buffer,
-        .memory = a.memory,
+        .allocation = a.allocation,
         .mapped = a.mapped,
-        .size = size,
+        .size = desc.size,
         .usage = vk_usage,
+        .label = label,
     };
 }
 
-fn toVkUsage(usage: Usage) vk.BufferUsageFlags {
+fn toVkUsage(usage: CommonBuffer.Usage) vk.BufferUsageFlags {
     return vk.BufferUsageFlags{
         .vertex_buffer = usage.vertex,
         .index_buffer = usage.index,
@@ -71,12 +83,14 @@ fn toVkUsage(usage: Usage) vk.BufferUsageFlags {
 }
 
 pub fn deinit(self: *Buffer) void {
-    self.device.vkd.unmapMemory(self.device.device, self.memory);
     self.device.vkd.destroyBuffer(self.device.device, self.buffer, null);
-    self.device.vkd.freeMemory(self.device.device, self.memory, null);
+    self.device.memory_allocator.free(self.allocation);
+    self.device.allocator.free(self.label);
 }
 
 pub fn load(self: *Buffer, comptime T: type, data: []const T) void {
+    std.debug.assert(@sizeOf(T) != 0);
+    std.debug.assert(data.len <= self.size / @sizeOf(T));
     const bytes: [*]const u8 = @ptrCast(data.ptr);
     @memcpy(self.mapped[0 .. data.len * @sizeOf(T)], bytes[0 .. data.len * @sizeOf(T)]);
 }
@@ -86,14 +100,15 @@ pub fn getSize(self: *const Buffer) usize {
 }
 
 pub fn resize(self: *Buffer, new_size: usize) !void {
+    std.debug.assert(new_size != 0);
     const a = try allocate(self.device, new_size, self.usage);
+    self.device.setDebugName(.buffer, @intFromEnum(a.buffer), self.label);
 
-    self.device.vkd.unmapMemory(self.device.device, self.memory);
     self.device.vkd.destroyBuffer(self.device.device, self.buffer, null);
-    self.device.vkd.freeMemory(self.device.device, self.memory, null);
+    self.device.memory_allocator.free(self.allocation);
 
     self.buffer = a.buffer;
-    self.memory = a.memory;
+    self.allocation = a.allocation;
     self.mapped = a.mapped;
     self.size = new_size;
 }

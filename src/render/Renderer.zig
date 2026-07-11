@@ -82,6 +82,7 @@ pub fn init(allocator: std.mem.Allocator, group: *RendererGroup, window: *const 
         .height = INITIAL_TEX_HEIGHT,
         .format = .rgba32f,
         .usage = .{ .texture_binding = true, .copy_dst = true },
+        .label = "glyph_curves",
     });
     errdefer curve_texture.deinit();
 
@@ -90,6 +91,7 @@ pub fn init(allocator: std.mem.Allocator, group: *RendererGroup, window: *const 
         .height = INITIAL_TEX_HEIGHT,
         .format = .rgba32u,
         .usage = .{ .texture_binding = true, .copy_dst = true },
+        .label = "glyph_bands",
     });
     errdefer band_texture.deinit();
 
@@ -292,7 +294,7 @@ fn draw(self: *Renderer, device: *gpu_impl.Device, shared: *Shared, dl: *const D
 
     const has_work = !dl.isEmpty() and shared.atlas_texture.isReady();
     if (!has_work) {
-        var pass = try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+        var pass = try frame_ctx.beginRenderPass(.{ .label = "ui", .color_attachment = .{ .clear_color = self.cfg.clear_color } });
         pass.end();
         try self.submitFrame(&frame_ctx);
         return;
@@ -304,9 +306,9 @@ fn draw(self: *Renderer, device: *gpu_impl.Device, shared: *Shared, dl: *const D
     if (use_linear_target) try self.ensureLinearTarget(device, shared);
 
     var pass = if (use_linear_target)
-        try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color, .target = &self.linear_target.? } })
+        try frame_ctx.beginRenderPass(.{ .label = "ui_linear", .color_attachment = .{ .clear_color = self.cfg.clear_color, .target = &self.linear_target.? } })
     else
-        try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+        try frame_ctx.beginRenderPass(.{ .label = "ui", .color_attachment = .{ .clear_color = self.cfg.clear_color } });
 
     const target_size = self.target.size();
     const phys_w = target_size.width;
@@ -486,7 +488,7 @@ fn compositeLinearTarget(self: *Renderer, shared: *Shared, frame_ctx: *gpu_impl.
     };
     uploads.composite_instance_buf.load(gpu.Instance, &.{inst});
 
-    var pass = try frame_ctx.beginRenderPass(.{ .color_attachment = .{ .clear_color = self.cfg.clear_color } });
+    var pass = try frame_ctx.beginRenderPass(.{ .label = "ui_composite", .color_attachment = .{ .clear_color = self.cfg.clear_color } });
     pass.bindPipeline(&shared.instance_pipeline);
     pass.setBindGroup(0, &uploads.instance_uniform_bg);
     pass.setBindGroup(1, &self.linear_target_bg.?);
@@ -540,6 +542,7 @@ fn syncGlyphBuilder(self: *Renderer, device: *gpu_impl.Device, shared: *Shared, 
             .height = new_curve_h,
             .format = .rgba32f,
             .usage = .{ .texture_binding = true, .copy_dst = true },
+            .label = "glyph_curves",
         });
     }
     if (needed_band_h > self.band_tex_height) {
@@ -549,6 +552,7 @@ fn syncGlyphBuilder(self: *Renderer, device: *gpu_impl.Device, shared: *Shared, 
             .height = new_band_h,
             .format = .rgba32u,
             .usage = .{ .texture_binding = true, .copy_dst = true },
+            .label = "glyph_bands",
         });
     }
 

@@ -11,6 +11,7 @@ sampler: js.Value,
 pub fn create(device: js.Value, desc: Desc) !Sampler {
     var js_desc = try js.ObjectBuilder.init();
     defer js_desc.finish().release();
+    try js_desc.set("label", js.Arg.string(desc.label));
     try js_desc.set("magFilter", js.Arg.string(webgpu.filterName(desc.mag_filter)));
     try js_desc.set("minFilter", js.Arg.string(webgpu.filterName(desc.min_filter)));
     try js_desc.set("addressModeU", js.Arg.string(webgpu.addressModeName(desc.address_mode_u)));

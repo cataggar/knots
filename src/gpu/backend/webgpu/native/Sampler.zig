@@ -11,6 +11,7 @@ sampler: wgpu.Sampler,
 
 pub fn create(device: wgpu.Device, desc: Desc) !Sampler {
     const sampler = try device.createSampler(.{
+        .label = desc.label,
         .mag_filter = toWgpuFilter(desc.mag_filter),
         .min_filter = toWgpuFilter(desc.min_filter),
         .address_mode_u = toWgpuAddressMode(desc.address_mode_u),

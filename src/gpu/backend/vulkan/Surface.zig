@@ -146,7 +146,7 @@ fn createImageViews(allocator: std.mem.Allocator, device: *Device, images: []vk.
         allocator.free(views);
     }
 
-    for (images, views) |img, *view| {
+    for (images, views, 0..) |img, *view, i| {
         view.* = try device.vkd.createImageView(device.device, &.{
             .image = img,
             .view_type = .@"2d",
@@ -160,6 +160,10 @@ fn createImageViews(allocator: std.mem.Allocator, device: *Device, images: []vk.
                 .layer_count = 1,
             },
         }, null);
+        var label_buffer: [64]u8 = undefined;
+        if (std.fmt.bufPrint(&label_buffer, "swapchain_view_{d}", .{i})) |label|
+            device.setDebugName(.image_view, @intFromEnum(view.*), label)
+        else |_| {}
         created += 1;
     }
     return views;
@@ -214,6 +218,7 @@ fn createSwapchain(
         .clipped = .true,
         .old_swapchain = old_swapchain,
     }, null);
+    device.setDebugName(.swapchain_khr, @intFromEnum(swapchain), "swapchain");
     return .{
         .swapchain = swapchain,
         .format = cf.format,
@@ -256,7 +261,14 @@ fn getSwapchainImages(allocator: std.mem.Allocator, device: *Device, swapchain: 
     var count: u32 = 0;
     _ = try device.vkd.getSwapchainImagesKHR(device.device, swapchain, &count, null);
     const images = try allocator.alloc(vk.Image, count);
+    errdefer allocator.free(images);
     _ = try device.vkd.getSwapchainImagesKHR(device.device, swapchain, &count, images.ptr);
+    for (images, 0..) |image, i| {
+        var label_buffer: [64]u8 = undefined;
+        if (std.fmt.bufPrint(&label_buffer, "swapchain_image_{d}", .{i})) |label|
+            device.setDebugName(.image, @intFromEnum(image), label)
+        else |_| {}
+    }
     return images;
 }
 

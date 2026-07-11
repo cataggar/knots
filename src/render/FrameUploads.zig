@@ -36,13 +36,13 @@ pub fn init(
     instance_pipeline: *const gpu_impl.Pipeline,
     text_pipeline: *const gpu_impl.Pipeline,
 ) !FrameUploads {
-    var vertex_uniform_buf = try device.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
+    var vertex_uniform_buf = try device.createBuffer(.{ .size = @sizeOf(pipelines.ViewportUniform), .usage = .{ .uniform = true, .copy_dst = true }, .label = "vertex_viewport_uniform" });
     errdefer vertex_uniform_buf.deinit();
-    var instance_uniform_buf = try device.createBuffer(@sizeOf(pipelines.ViewportUniform), .{ .uniform = true, .copy_dst = true });
+    var instance_uniform_buf = try device.createBuffer(.{ .size = @sizeOf(pipelines.ViewportUniform), .usage = .{ .uniform = true, .copy_dst = true }, .label = "instance_viewport_uniform" });
     errdefer instance_uniform_buf.deinit();
-    var text_uniform_buf = try device.createBuffer(@sizeOf(pipelines.SlugUniforms), .{ .uniform = true, .copy_dst = true });
+    var text_uniform_buf = try device.createBuffer(.{ .size = @sizeOf(pipelines.SlugUniforms), .usage = .{ .uniform = true, .copy_dst = true }, .label = "text_uniforms" });
     errdefer text_uniform_buf.deinit();
-    var clip_node_buf = try device.createBuffer(INIT_CLIP_NODE_COUNT * @sizeOf(Clip.Node), .{ .storage = true, .copy_dst = true });
+    var clip_node_buf = try device.createBuffer(.{ .size = INIT_CLIP_NODE_COUNT * @sizeOf(Clip.Node), .usage = .{ .storage = true, .copy_dst = true }, .label = "clip_nodes" });
     errdefer clip_node_buf.deinit();
     clip_node_buf.load(Clip.Node, &.{Clip.Node.empty});
 
@@ -77,17 +77,17 @@ pub fn init(
     var text_clip_bg = try createClipBindGroup(device, text_pipeline, &clip_node_buf, "text_clip_bg");
     errdefer text_clip_bg.deinit();
 
-    var vertex_buf = try device.createBuffer(INIT_VERTEX_BYTES, .{ .vertex = true, .copy_dst = true });
+    var vertex_buf = try device.createBuffer(.{ .size = INIT_VERTEX_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "ui_vertices" });
     errdefer vertex_buf.deinit();
-    var instance_buf = try device.createBuffer(INIT_INSTANCE_BYTES, .{ .vertex = true, .copy_dst = true });
+    var instance_buf = try device.createBuffer(.{ .size = INIT_INSTANCE_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "ui_instances" });
     errdefer instance_buf.deinit();
-    var composite_instance_buf = try device.createBuffer(@sizeOf(gpu.Instance), .{ .vertex = true, .copy_dst = true });
+    var composite_instance_buf = try device.createBuffer(.{ .size = @sizeOf(gpu.Instance), .usage = .{ .vertex = true, .copy_dst = true }, .label = "composite_instance" });
     errdefer composite_instance_buf.deinit();
-    var text_vertex_buf = try device.createBuffer(INIT_TEXT_VERTEX_BYTES, .{ .vertex = true, .copy_dst = true });
+    var text_vertex_buf = try device.createBuffer(.{ .size = INIT_TEXT_VERTEX_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "text_vertices" });
     errdefer text_vertex_buf.deinit();
-    var index_buf = try device.createBuffer(INIT_INDEX_COUNT * @sizeOf(u32), .{ .index = true, .copy_dst = true });
+    var index_buf = try device.createBuffer(.{ .size = INIT_INDEX_COUNT * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "ui_indices" });
     errdefer index_buf.deinit();
-    var text_index_buf = try device.createBuffer(INIT_TEXT_INDEX_COUNT * @sizeOf(u32), .{ .index = true, .copy_dst = true });
+    var text_index_buf = try device.createBuffer(.{ .size = INIT_TEXT_INDEX_COUNT * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "text_indices" });
     errdefer text_index_buf.deinit();
 
     return .{
@@ -142,7 +142,7 @@ pub fn ensureClipNodeCapacity(
     const current_size = self.clip_node_buf.getSize();
     const new_size = @max(required, current_size + current_size / 2);
 
-    var clip_node_buf = try device.createBuffer(new_size, .{ .storage = true, .copy_dst = true });
+    var clip_node_buf = try device.createBuffer(.{ .size = new_size, .usage = .{ .storage = true, .copy_dst = true }, .label = "clip_nodes" });
     errdefer clip_node_buf.deinit();
     clip_node_buf.load(Clip.Node, &.{Clip.Node.empty});
 

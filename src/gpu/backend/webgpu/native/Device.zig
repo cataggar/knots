@@ -57,8 +57,8 @@ pub fn deinit(self: *Device) void {
     self.instance.deinit();
 }
 
-pub fn createBuffer(self: *Device, size: usize, usage: gpu.Buffer.Usage) !Buffer {
-    return Buffer.create(self.device, self.queue, size, usage);
+pub fn createBuffer(self: *Device, desc: gpu.Buffer.Desc) !Buffer {
+    return Buffer.create(self.allocator, self.device, self.queue, desc);
 }
 
 pub fn createPipeline(self: *Device, desc: gpu.Pipeline.Desc) !Pipeline {

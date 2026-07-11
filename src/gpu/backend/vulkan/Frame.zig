@@ -11,6 +11,7 @@ const FrameData = struct {
     image_available: vk.Semaphore,
     render_finished: vk.Semaphore,
     in_flight: vk.Fence,
+    upload_buffer: ?Buffer,
 };
 
 const Frame = @This();
@@ -45,6 +46,7 @@ pub fn create(surface: *Surface) !Frame {
     const allocator = surface.allocator;
     const device = surface.device;
     const frame_count = surface.swapchain_images.len;
+    std.debug.assert(frame_count != 0);
     const command_pools = try createCommandPools(allocator, device, frame_count);
     errdefer destroyCommandPools(allocator, device, command_pools);
 
@@ -52,16 +54,17 @@ pub fn create(surface: *Surface) !Frame {
     var created: usize = 0;
 
     errdefer {
-        for (frames[0..created], command_pools[0..created]) |f, pool| {
+        for (frames[0..created], command_pools[0..created]) |*f, pool| {
             device.vkd.freeCommandBuffers(device.device, pool, &.{f.command_buffer});
             device.vkd.destroySemaphore(device.device, f.image_available, null);
             device.vkd.destroySemaphore(device.device, f.render_finished, null);
             device.vkd.destroyFence(device.device, f.in_flight, null);
+            if (f.upload_buffer) |*buffer| buffer.deinit();
         }
         allocator.free(frames);
     }
 
-    for (frames, command_pools) |*f, pool| {
+    for (frames, command_pools, 0..) |*f, pool, frame_index| {
         var cmd: [1]vk.CommandBuffer = undefined;
         var committed = false;
         var command_buffer_allocated = false;
@@ -85,12 +88,26 @@ pub fn create(surface: *Surface) !Frame {
         image_available = try device.vkd.createSemaphore(device.device, &.{}, null);
         render_finished = try device.vkd.createSemaphore(device.device, &.{}, null);
         in_flight = try device.vkd.createFence(device.device, &.{ .flags = .{ .signaled = true } }, null);
+        var label_buffer: [64]u8 = undefined;
+        if (std.fmt.bufPrint(&label_buffer, "frame_{d}_commands", .{frame_index})) |label|
+            device.setDebugName(.command_buffer, @intFromEnum(cmd[0]), label)
+        else |_| {}
+        if (std.fmt.bufPrint(&label_buffer, "frame_{d}_image_available", .{frame_index})) |label|
+            device.setDebugName(.semaphore, @intFromEnum(image_available), label)
+        else |_| {}
+        if (std.fmt.bufPrint(&label_buffer, "frame_{d}_render_finished", .{frame_index})) |label|
+            device.setDebugName(.semaphore, @intFromEnum(render_finished), label)
+        else |_| {}
+        if (std.fmt.bufPrint(&label_buffer, "frame_{d}_in_flight", .{frame_index})) |label|
+            device.setDebugName(.fence, @intFromEnum(in_flight), label)
+        else |_| {}
 
         f.* = .{
             .command_buffer = cmd[0],
             .image_available = image_available,
             .render_finished = render_finished,
             .in_flight = in_flight,
+            .upload_buffer = null,
         };
         committed = true;
         created += 1;
@@ -109,11 +126,12 @@ pub fn create(surface: *Surface) !Frame {
 pub fn deinit(self: *Frame) void {
     const device = self.surface.device;
     waitForPresentQueue(device) catch {};
-    for (self.frames, self.command_pools) |f, pool| {
+    for (self.frames, self.command_pools) |*f, pool| {
         device.vkd.freeCommandBuffers(device.device, pool, &.{f.command_buffer});
         device.vkd.destroySemaphore(device.device, f.image_available, null);
         device.vkd.destroySemaphore(device.device, f.render_finished, null);
         device.vkd.destroyFence(device.device, f.in_flight, null);
+        if (f.upload_buffer) |*buffer| buffer.deinit();
     }
     self.allocator.free(self.frames);
     destroyCommandPools(self.allocator, device, self.command_pools);
@@ -122,6 +140,7 @@ pub fn deinit(self: *Frame) void {
 pub fn begin(self: *Frame) !ContextHandle {
     const f = &self.frames[self.current];
     const device = self.surface.device;
+    std.debug.assert(f.in_flight != .null_handle);
     _ = try device.vkd.waitForFences(device.device, &.{f.in_flight}, .true, std.math.maxInt(u64));
     return .{ .frame = self, .upload_slot = self.current };
 }
@@ -140,9 +159,16 @@ fn acquireImage(device: *Device, surface: *Surface, semaphore: vk.Semaphore) !u3
 }
 
 fn beginRenderPass(self: *Frame, desc: RenderPass.Desc) !RenderPass {
+    const color_attachment = desc.color_attachment;
+    if (color_attachment.target != null) return error.UnsupportedRenderTarget;
+    if (color_attachment.load_op != .clear or color_attachment.store_op != .store) {
+        return error.UnsupportedRenderPassOperation;
+    }
     const surface = self.surface;
     const device = surface.device;
     const f = &self.frames[self.current];
+
+    try device.preparePendingUploads(&f.upload_buffer);
 
     const image_index = acquireImage(device, surface, f.image_available) catch |err| blk: {
         if (err != error.OutOfDateKHR) return err;
@@ -151,12 +177,11 @@ fn beginRenderPass(self: *Frame, desc: RenderPass.Desc) !RenderPass {
         break :blk try acquireImage(device, surface, f.image_available);
     };
 
-    try device.vkd.resetFences(device.device, &.{f.in_flight});
-
     self.image_index = image_index;
 
     try device.vkd.resetCommandPool(device.device, self.command_pools[self.current], .{});
     try device.vkd.beginCommandBuffer(f.command_buffer, &.{ .flags = .{ .one_time_submit = true } });
+    if (f.upload_buffer) |*buffer| device.recordPendingUploads(f.command_buffer, buffer);
 
     return RenderPass.create(f.command_buffer, device, surface, image_index, desc);
 }
@@ -171,6 +196,12 @@ fn submitCommands(self: *Frame) !void {
     const f = &self.frames[self.current];
 
     try device.vkd.endCommandBuffer(f.command_buffer);
+
+    try device.vkd.resetFences(device.device, &.{f.in_flight});
+    errdefer {
+        device.vkd.destroyFence(device.device, f.in_flight, null);
+        f.in_flight = device.vkd.createFence(device.device, &.{ .flags = .{ .signaled = true } }, null) catch .null_handle;
+    }
 
     try device.vkd.queueSubmit2(device.graphics_queue, &.{.{
         .wait_semaphore_info_count = 1,
@@ -193,6 +224,7 @@ fn submitCommands(self: *Frame) !void {
             .device_index = 0,
         }},
     }}, f.in_flight);
+    device.clearPendingUploads();
 }
 
 fn present(self: *Frame) !void {
@@ -238,7 +270,7 @@ fn submitReadback(self: *Frame, allocator: std.mem.Allocator) !gpu.SurfaceReadba
     const format = surface.getFormat();
     const row_bytes = try readbackRowBytes(width, format);
     const readback_size = try readbackByteSize(width, height, format);
-    var readback = try Buffer.create(device, readback_size, .{ .copy_dst = true });
+    var readback = try Buffer.create(device, .{ .size = readback_size, .usage = .{ .copy_dst = true }, .label = "surface_readback" });
     defer readback.deinit();
 
     const submitted_frame = self.current;
@@ -347,11 +379,15 @@ fn createCommandPools(allocator: std.mem.Allocator, device: *Device, count: usiz
         allocator.free(command_pools);
     }
 
-    for (command_pools) |*pool| {
+    for (command_pools, 0..) |*pool, i| {
         pool.* = try device.vkd.createCommandPool(device.device, &.{
             .queue_family_index = device.queue_family,
             .flags = .{ .reset_command_buffer = true },
         }, null);
+        var label_buffer: [64]u8 = undefined;
+        if (std.fmt.bufPrint(&label_buffer, "frame_{d}_command_pool", .{i})) |label|
+            device.setDebugName(.command_pool, @intFromEnum(pool.*), label)
+        else |_| {}
         pools_created += 1;
     }
     return command_pools;
