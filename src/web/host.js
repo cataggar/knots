@@ -1,5 +1,8 @@
 import { createBridgeImports } from "./js-bridge.js";
 
+const WASM_MEMORY_INITIAL_PAGES = 256;
+const WASM_MEMORY_MAX_PAGES = 32768;
+
 function isCanvas(value) {
   return typeof HTMLCanvasElement !== "undefined" && value instanceof HTMLCanvasElement;
 }
@@ -162,6 +165,44 @@ class KnotsBrowserHost {
       document.addEventListener(event, this.serviceFullscreen, true);
     }
     this.ready = this.initGpu();
+    this.workerPool = null;
+    this.frameCallback = null;
+    this.frameRequest = null;
+  }
+
+  setWorkerPool(workerPool) {
+    this.workerPool = workerPool;
+  }
+
+  spawnConcurrent(task, group, start, context) {
+    return this.workerPool?.dispatch(task, group, start, context) ? 1 : 0;
+  }
+
+  forgetConcurrentGroup(group) {
+    this.workerPool?.forgetGroup(group);
+  }
+
+  setFrameCallback(callback) {
+    this.frameCallback = callback;
+  }
+
+  clearFrameCallback() {
+    this.cancelFrame();
+    this.frameCallback = null;
+  }
+
+  requestFrame() {
+    if (!this.frameCallback || this.frameRequest !== null) return;
+    this.frameRequest = requestAnimationFrame((timestamp) => {
+      this.frameRequest = null;
+      this.frameCallback?.(timestamp);
+    });
+  }
+
+  cancelFrame() {
+    if (this.frameRequest === null) return;
+    cancelAnimationFrame(this.frameRequest);
+    this.frameRequest = null;
   }
 
   async initGpu() {
@@ -402,19 +443,6 @@ export function createKnotsImports(options) {
   };
 }
 
-async function instantiateWasm(wasmUrl, imports) {
-  if (WebAssembly.instantiateStreaming) {
-    try {
-      return await WebAssembly.instantiateStreaming(fetch(wasmUrl), imports);
-    } catch (err) {
-      if (!(err instanceof TypeError || err instanceof WebAssembly.CompileError)) throw err;
-    }
-  }
-  const response = await fetch(wasmUrl);
-  const bytes = await response.arrayBuffer();
-  return WebAssembly.instantiate(bytes, imports);
-}
-
 function errorMessage(err) {
   return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }
@@ -465,8 +493,11 @@ function readExportedString(exports, symbols) {
       exports[copyName](ptrRaw, lenArg),
       "exported string copied length",
     );
-    const bytes = new Uint8Array(exports.memory.buffer, ptr, Math.min(copied, len));
-    return new TextDecoder("utf-8").decode(bytes);
+
+    const byteLength = Math.min(copied, len);
+    return new TextDecoder("utf-8").decode(
+      Uint8Array.from(new Uint8Array(exports.memory.buffer, ptr, byteLength)),
+    );
   } finally {
     exports[symbols.free](ptrRaw, lenArg);
   }
@@ -516,6 +547,14 @@ export async function startKnots({
   log,
   onError,
 }) {
+  const module = wasmExports ? null : await compileWasm(wasmUrl);
+  const threaded =
+    module !== null &&
+    WebAssembly.Module.exports(module).some(({ name }) => name === "knots_worker_run");
+  if (threaded && !globalThis.crossOriginIsolated)
+    throw new Error(
+      "Knots worker dispatch requires cross-origin isolation (COOP and COEP headers)",
+    );
   const exports = wasmExports;
   const resolvedSymbols = normalizeSymbols({
     ...symbols,
@@ -530,9 +569,16 @@ export async function startKnots({
   });
   await imports.ready;
   requireBridgeImports(imports.imports);
-  const result = exports
-    ? { instance: { exports }, module: null }
-    : await instantiateWasm(wasmUrl, imports.imports);
+  const instantiated = exports
+    ? { instance: { exports }, memory: null, pointerSize: null }
+    : threaded
+      ? await instantiateThreadedWasm(module, imports.imports)
+      : {
+          instance: await WebAssembly.instantiate(module, imports.imports),
+          memory: null,
+          pointerSize: null,
+        };
+  const result = { instance: instantiated.instance, module };
   requireKnotsExports(result.instance.exports, {
     start: resolvedSymbols.start,
     alloc: resolvedSymbols.alloc,
@@ -540,7 +586,35 @@ export async function startKnots({
     dispatch: resolvedSymbols.dispatch,
     pointerSize: resolvedSymbols.pointerSize,
   });
+  if (threaded)
+    requireKnotsExports(result.instance.exports, {
+      run: "knots_worker_run",
+      complete: "knots_worker_complete",
+      release: "knots_worker_release",
+      abort: "knots_worker_abort",
+      stackAlloc: "knots_worker_stack_alloc",
+      stackFree: "knots_worker_stack_free",
+    });
   imports.setWasmExports(result.instance.exports);
+  if (
+    threaded &&
+    pointerSizeOf(result.instance.exports, resolvedSymbols) !== instantiated.pointerSize
+  )
+    throw new Error("Knots worker runtime pointer size does not match the WebAssembly module");
+  let workerPool = null;
+  if (threaded) {
+    const { WorkerPool } = await import("./knots-worker-pool.js");
+    workerPool = new WorkerPool({
+      module,
+      memory: instantiated.memory,
+      exports: result.instance.exports,
+      pointerSize: instantiated.pointerSize,
+      onComplete: () => imports.host.requestFrame(),
+      onError: (error) => imports.host.fatalError(errorMessage(error)),
+    });
+    await workerPool.init();
+    imports.host.setWorkerPool(workerPool);
+  }
   const start = result.instance.exports[resolvedSymbols.start];
   const rc = start();
   if (rc !== 0) {
@@ -553,4 +627,54 @@ export async function startKnots({
     host: imports.host,
     bridge: imports.bridge,
   };
+}
+
+async function compileWasm(wasmUrl) {
+  if (WebAssembly.compileStreaming) {
+    try {
+      return await WebAssembly.compileStreaming(fetch(wasmUrl));
+    } catch (err) {
+      if (!(err instanceof TypeError || err instanceof WebAssembly.CompileError)) throw err;
+    }
+  }
+  const response = await fetch(wasmUrl);
+  return WebAssembly.compile(await response.arrayBuffer());
+}
+
+async function instantiateThreadedWasm(module, imports) {
+  let wasm32Error;
+  try {
+    return await instantiateThreadedWasmWithPointerSize(module, imports, 4);
+  } catch (error) {
+    if (!(error instanceof WebAssembly.LinkError)) throw error;
+    wasm32Error = error;
+  }
+
+  try {
+    return await instantiateThreadedWasmWithPointerSize(module, imports, 8);
+  } catch (error) {
+    if (error instanceof WebAssembly.LinkError) throw wasm32Error;
+    throw error;
+  }
+}
+
+async function instantiateThreadedWasmWithPointerSize(module, imports, pointerSize) {
+  const initial = pointerSize === 8 ? BigInt(WASM_MEMORY_INITIAL_PAGES) : WASM_MEMORY_INITIAL_PAGES;
+  const maximum = pointerSize === 8 ? BigInt(WASM_MEMORY_MAX_PAGES) : WASM_MEMORY_MAX_PAGES;
+  const memory = new WebAssembly.Memory({
+    initial,
+    maximum,
+    shared: true,
+    ...(pointerSize === 8 ? { address: "i64" } : {}),
+  });
+  const pointerType = pointerSize === 8 ? "i64" : "i32";
+  const workerTask = new WebAssembly.Global(
+    { value: pointerType, mutable: true },
+    pointerSize === 8 ? 0n : 0,
+  );
+  const instance = await WebAssembly.instantiate(module, {
+    ...imports,
+    env: { ...imports.env, memory, knots_worker_task: workerTask },
+  });
+  return { instance, memory, pointerSize };
 }

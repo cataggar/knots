@@ -20,9 +20,10 @@ comptime {
     if (knots.platform.is_browser_wasm) {
         @export(&struct {
             fn webMain() callconv(.{ .wasm_mvp = .{} }) i32 {
-                const allocator = std.heap.wasm_allocator;
+                const allocator = knots.web.allocator;
+                const io = knots.web.io;
                 const ptr = allocator.create(playground) catch |err| return knots.web.fail(err);
-                ptr.* = playground.init(knots.web.io, allocator) catch |err| {
+                ptr.* = playground.init(io, allocator) catch |err| {
                     allocator.destroy(ptr);
                     return knots.web.fail(err);
                 };

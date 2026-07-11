@@ -13,6 +13,19 @@ pub const web_bridge_export_symbol_names = [_][]const u8{
     "knots_last_error_copy",
 };
 
+const web_thread_export_symbol_names = [_][]const u8{
+    "knots_worker_run",
+    "knots_worker_complete",
+    "knots_worker_release",
+    "knots_worker_abort",
+    "knots_worker_stack_alloc",
+    "knots_worker_stack_free",
+    "__stack_pointer",
+};
+
+const web_memory_initial = 16 * 1024 * 1024;
+const web_memory_max = 2 * 1024 * 1024 * 1024;
+
 pub const WebInstallOptions = struct {
     dir: []const u8 = "web",
     start_symbol: []const u8 = "main",
@@ -25,7 +38,8 @@ pub const WebInstallOptions = struct {
 };
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    var target = b.standardTargetOptions(.{});
+    configureWebTarget(&target);
     const optimize = b.standardOptimizeOption(.{});
     const browser_wasm = isBrowserWasmTarget(target.result);
 
@@ -43,6 +57,8 @@ pub fn build(b: *std.Build) void {
     if (browser_wasm) {
         b.addNamedLazyPath("web-host-js", b.path("src/web/host.js"));
         b.addNamedLazyPath("web-bridge-js", b.path("lib/js-bridge/src/runtime.js"));
+        b.addNamedLazyPath("web-worker-pool-js", b.path("src/web/worker-pool.js"));
+        b.addNamedLazyPath("web-worker-js", b.path("src/web/worker.js"));
     }
 
     const browser_exports_mod = if (browser_wasm)
@@ -376,9 +392,21 @@ pub fn installWeb(
     exe: *std.Build.Step.Compile,
     options: WebInstallOptions,
 ) void {
-    const names = b.allocator.alloc([]const u8, 1 + web_bridge_export_symbol_names.len + options.extra_export_symbol_names.len) catch @panic("OOM");
+    configureWebTarget(&root_module.resolved_target.?);
+    configureWebTarget(&exe.root_module.resolved_target.?);
+    exe.import_memory = true;
+    exe.export_memory = true;
+    exe.export_table = true;
+    exe.shared_memory = true;
+    exe.initial_memory = web_memory_initial;
+    exe.max_memory = web_memory_max;
+
+    const names = b.allocator.alloc([]const u8, 1 + web_bridge_export_symbol_names.len + web_thread_export_symbol_names.len + options.extra_export_symbol_names.len) catch @panic("OOM");
     names[0] = options.start_symbol;
     for (web_bridge_export_symbol_names, 0..) |name, i| names[i + 1] = name;
+    for (web_thread_export_symbol_names, 0..) |name, i| names[i + 1 + web_bridge_export_symbol_names.len] = name;
+    const extra_start = 1 + web_bridge_export_symbol_names.len + web_thread_export_symbol_names.len;
+    for (options.extra_export_symbol_names, 0..) |name, i| names[extra_start + i] = name;
     root_module.export_symbol_names = names;
     if (options.index_html) |index_html| {
         const install_index = b.addInstallFileWithDir(index_html, .{ .custom = options.dir }, options.index_name);
@@ -392,6 +420,23 @@ pub fn installWeb(
     b.getInstallStep().dependOn(&install_host_js.step);
     b.getInstallStep().dependOn(&install_bridge_js.step);
     b.getInstallStep().dependOn(&install_wasm.step);
+    const install_worker_pool_js = b.addInstallFileWithDir(knots.namedLazyPath("web-worker-pool-js"), .{ .custom = options.dir }, "knots-worker-pool.js");
+    const install_worker_js = b.addInstallFileWithDir(knots.namedLazyPath("web-worker-js"), .{ .custom = options.dir }, "knots-worker.js");
+    b.getInstallStep().dependOn(&install_worker_pool_js.step);
+    b.getInstallStep().dependOn(&install_worker_js.step);
+}
+
+fn configureWebTarget(target: *std.Build.ResolvedTarget) void {
+    if (!isBrowserWasmTarget(target.result)) return;
+    inline for (.{
+        std.Target.wasm.Feature.atomics,
+        std.Target.wasm.Feature.bulk_memory,
+        std.Target.wasm.Feature.bulk_memory_opt,
+    }) |feature| {
+        target.query.cpu_features_sub.removeFeature(@intFromEnum(feature));
+        target.query.cpu_features_add.addFeature(@intFromEnum(feature));
+        target.result.cpu.features.addFeature(@intFromEnum(feature));
+    }
 }
 
 fn defaultGpuBackend(target: std.Target) GPUBackend {
@@ -404,11 +449,7 @@ fn defaultGpuBackend(target: std.Target) GPUBackend {
 }
 
 fn isBrowserWasmTarget(target: std.Target) bool {
-    const is_wasm = switch (target.cpu.arch) {
-        .wasm32, .wasm64 => true,
-        else => false,
-    };
-    return is_wasm and target.os.tag == .freestanding;
+    return target.cpu.arch.isWasm() and target.os.tag == .freestanding;
 }
 
 fn embedSpirV(b: *std.Build, optimize: std.builtin.OptimizeMode, mod: *std.Build.Module, name: []const u8, path: std.Build.LazyPath) void {

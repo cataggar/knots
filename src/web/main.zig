@@ -1,5 +1,6 @@
 const std = @import("std");
 const js = @import("js-bridge");
+const Runtime = @import("WorkerRuntime.zig");
 
 const error_buffer_len = 2048;
 
@@ -10,10 +11,17 @@ const vtable: std.Io.VTable = blk: {
     var table = std.Io.failing.vtable.*;
     table.now = now;
     table.clockResolution = clockResolution;
+    table.groupAsync = groupAsync;
     table.groupConcurrent = groupConcurrent;
     table.recancel = recancel;
     table.swapCancelProtection = swapCancelProtection;
     table.checkCancel = checkCancel;
+    table.sleep = sleep;
+    table.groupAwait = groupAwait;
+    table.groupCancel = groupCancel;
+    table.futexWait = futexWait;
+    table.futexWaitUncancelable = futexWaitUncancelable;
+    table.futexWake = futexWake;
     table.random = random;
     table.randomSecure = randomSecure;
     break :blk table;
@@ -23,6 +31,8 @@ pub const io: std.Io = .{
     .userdata = null,
     .vtable = &vtable,
 };
+
+pub const allocator = Runtime.allocator;
 
 fn now(_: ?*anyopaque, clock: std.Io.Clock) std.Io.Timestamp {
     switch (clock) {
@@ -49,22 +59,88 @@ fn clockResolution(_: ?*anyopaque, clock: std.Io.Clock) std.Io.Clock.ResolutionE
 
 fn groupConcurrent(
     _: ?*anyopaque,
-    _: *std.Io.Group,
+    group: *std.Io.Group,
     context: []const u8,
-    _: std.mem.Alignment,
+    context_alignment: std.mem.Alignment,
     start: *const fn (context: *const anyopaque) void,
 ) std.Io.ConcurrentError!void {
-    // Browser dispatch is cooperative: work runs immediately on the main thread.
-    start(context.ptr);
+    try Runtime.concurrent(group, context, context_alignment, start);
 }
 
-fn recancel(_: ?*anyopaque) void {}
-
-fn swapCancelProtection(_: ?*anyopaque, _: std.Io.CancelProtection) std.Io.CancelProtection {
-    return .unblocked;
+fn groupAsync(
+    userdata: ?*anyopaque,
+    group: *std.Io.Group,
+    context: []const u8,
+    context_alignment: std.mem.Alignment,
+    start: *const fn (context: *const anyopaque) void,
+) void {
+    groupConcurrent(userdata, group, context, context_alignment, start) catch start(context.ptr);
 }
 
-fn checkCancel(_: ?*anyopaque) std.Io.Cancelable!void {}
+fn groupAwait(_: ?*anyopaque, group: *std.Io.Group, token: *anyopaque) std.Io.Cancelable!void {
+    try Runtime.await(group, token);
+}
+
+fn groupCancel(_: ?*anyopaque, group: *std.Io.Group, token: *anyopaque) void {
+    Runtime.cancel(group, token);
+}
+
+fn recancel(_: ?*anyopaque) void {
+    Runtime.recancel();
+}
+
+fn swapCancelProtection(_: ?*anyopaque, new: std.Io.CancelProtection) std.Io.CancelProtection {
+    return Runtime.swapCancelProtection(new);
+}
+
+fn checkCancel(_: ?*anyopaque) std.Io.Cancelable!void {
+    if (Runtime.isCanceled()) return error.Canceled;
+}
+
+fn sleep(_: ?*anyopaque, timeout: std.Io.Timeout) std.Io.Cancelable!void {
+    const deadline = timeout.toDeadline(io);
+    const cancel_ptr = Runtime.cancelAddress() orelse return error.Canceled;
+    while (true) {
+        try checkCancel(null);
+        const timeout_ns: i64 = if (deadline.toDurationFromNow(io)) |duration|
+            if (duration.raw.nanoseconds <= 0)
+                return
+            else if (duration.raw.nanoseconds >= std.math.maxInt(i64))
+                std.math.maxInt(i64)
+            else
+                @intCast(duration.raw.nanoseconds)
+        else
+            -1;
+        if (Runtime.atomicWait(cancel_ptr, 0, timeout_ns) == 2) return;
+    }
+}
+
+fn futexWait(_: ?*anyopaque, ptr: *const u32, expected: u32, timeout: std.Io.Timeout) std.Io.Cancelable!void {
+    try checkCancel(null);
+    Runtime.beginWait(ptr);
+    defer Runtime.endWait();
+    try checkCancel(null);
+    const duration = timeout.toDurationFromNow(io);
+    const timeout_ns: i64 = if (duration) |value|
+        if (value.raw.nanoseconds <= 0)
+            0
+        else if (value.raw.nanoseconds >= std.math.maxInt(i64))
+            std.math.maxInt(i64)
+        else
+            @intCast(value.raw.nanoseconds)
+    else
+        -1;
+    _ = Runtime.atomicWait(ptr, expected, timeout_ns);
+    try checkCancel(null);
+}
+
+fn futexWaitUncancelable(_: ?*anyopaque, ptr: *const u32, expected: u32) void {
+    _ = Runtime.atomicWait(ptr, expected, -1);
+}
+
+fn futexWake(_: ?*anyopaque, ptr: *const u32, max_waiters: u32) void {
+    Runtime.atomicNotify(ptr, max_waiters);
+}
 
 fn random(_: ?*anyopaque, buffer: []u8) void {
     randomSecure(null, buffer) catch @memset(buffer, 0);
@@ -94,13 +170,18 @@ pub fn logFn(comptime level: std.log.Level, comptime _: @TypeOf(.enum_literal), 
 }
 
 pub fn alloc(len: usize) usize {
-    const ptr = js.alloc(len);
-    if (ptr == 0 and len != 0) _ = fail(error.OutOfMemory);
-    return ptr;
+    if (len == 0) return 0;
+    const bytes = allocator.alloc(u8, len) catch {
+        _ = fail(error.OutOfMemory);
+        return 0;
+    };
+    return @intFromPtr(bytes.ptr);
 }
 
 pub fn free(ptr: usize, len: usize) void {
-    js.free(ptr, len);
+    if (ptr == 0 or len == 0) return;
+    const bytes: [*]u8 = @ptrFromInt(ptr);
+    allocator.free(bytes[0..len]);
 }
 
 pub fn dispatch(id: u32, args_handle: js.Handle, args_len: u32) void {
@@ -142,11 +223,11 @@ pub fn lastErrorCopy(ptr: usize, len: usize) usize {
 
 fn setLastErrorFromError(err: anyerror) void {
     if (err == error.JavaScriptException) {
-        const msg = js.lastError(std.heap.wasm_allocator) catch {
+        const msg = js.lastError(allocator) catch {
             setLastError(@errorName(err));
             return;
         };
-        defer std.heap.wasm_allocator.free(msg);
+        defer allocator.free(msg);
         if (msg.len > 0) {
             setLastError(msg);
             return;
@@ -178,4 +259,38 @@ export fn knots_last_error_len() callconv(.{ .wasm_mvp = .{} }) usize {
 
 export fn knots_last_error_copy(ptr: usize, len: usize) callconv(.{ .wasm_mvp = .{} }) usize {
     return lastErrorCopy(ptr, len);
+}
+
+comptime {
+    const exports = struct {
+        fn run(start: usize, context: usize, task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.run(start, context, task);
+        }
+
+        fn complete(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.complete(task);
+        }
+
+        fn release(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.release(task);
+        }
+
+        fn abort(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.abort(task);
+        }
+
+        fn stackAlloc() callconv(.{ .wasm_mvp = .{} }) usize {
+            return Runtime.allocateStack();
+        }
+
+        fn stackFree(stack_top: usize) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.freeStack(stack_top);
+        }
+    };
+    @export(&exports.run, .{ .name = "knots_worker_run" });
+    @export(&exports.complete, .{ .name = "knots_worker_complete" });
+    @export(&exports.release, .{ .name = "knots_worker_release" });
+    @export(&exports.abort, .{ .name = "knots_worker_abort" });
+    @export(&exports.stackAlloc, .{ .name = "knots_worker_stack_alloc" });
+    @export(&exports.stackFree, .{ .name = "knots_worker_stack_free" });
 }

@@ -17,8 +17,6 @@ pub const Backend = struct {
     cursor_visible: bool = true,
     cursor_shape: window.CursorShape = .default,
     owner_addr: usize = 0,
-    pending_animation_frame: bool = false,
-    frame_request: ?u32 = null,
     capture: ?Capture = null,
     clipboard_text: std.ArrayList(u8) = .empty,
     clipboard_valid: bool = false,
@@ -26,7 +24,6 @@ pub const Backend = struct {
     const Self = @This();
 
     pub fn deinit(self: *Self) void {
-        self.cancelFrame();
         self.stopCapture();
         self.canvas.release();
         self.clipboard_text.deinit(self.allocator);
@@ -54,15 +51,10 @@ pub const Backend = struct {
     pub fn postEmptyEvent(_: *Self) void {}
 
     pub fn requestFrame(self: *Self, owner: *window.Window) void {
-        if (self.pending_animation_frame or self.owner_addr == 0) return;
-        if (!owner.isOpen()) return;
-        const capture = if (self.capture) |*value| value else return;
-        const win = js.global("window") catch return;
-        defer win.release();
-        const frame = win.call("requestAnimationFrame", &.{js.Arg.value(capture.frame.function)}) catch return;
-        defer frame.release();
-        self.frame_request = frame.tryU32() catch return;
-        self.pending_animation_frame = true;
+        if (self.owner_addr == 0 or self.capture == null or !owner.isOpen()) return;
+        const host = webHost() catch return;
+        defer host.release();
+        host.callVoid("requestFrame", &.{}) catch {};
     }
 
     pub fn isOpen(_: *const Self) bool {
@@ -199,19 +191,10 @@ pub const Backend = struct {
     }
 
     fn cancelFrame(self: *Self) void {
-        const id = self.frame_request orelse {
-            self.pending_animation_frame = false;
-            return;
-        };
-        const win = js.global("window") catch {
-            self.frame_request = null;
-            self.pending_animation_frame = false;
-            return;
-        };
-        defer win.release();
-        win.callVoid("cancelAnimationFrame", &.{js.Arg.u32(id)}) catch {};
-        self.frame_request = null;
-        self.pending_animation_frame = false;
+        if (self.capture == null) return;
+        const host = webHost() catch return;
+        defer host.release();
+        host.callVoid("cancelFrame", &.{}) catch {};
     }
 
     fn requestFullscreen(self: *Self) bool {
@@ -324,10 +307,19 @@ const Capture = struct {
         try addWheelListener(backend.canvas, capture.wheel);
         try addListener(backend.canvas, "contextmenu", capture.contextmenu, false);
 
+        const host = try webHost();
+        defer host.release();
+        try host.callVoid("setFrameCallback", &.{js.Arg.value(capture.frame.function)});
+
         return capture;
     }
 
     fn deinit(self: *Capture, backend: *Backend) void {
+        const host: ?js.Value = webHost() catch null;
+        if (host) |value| {
+            defer value.release();
+            value.callVoid("clearFrameCallback", &.{}) catch {};
+        }
         const win: ?js.Value = js.global("window") catch null;
         defer {
             if (win) |value| value.release();
@@ -583,8 +575,6 @@ fn eventBool(event: js.Value, name: []const u8) bool {
 
 fn onAnimationFrame(context: ?*anyopaque, _: js.Value, _: u32) void {
     const backend = backendFromContext(context) orelse return;
-    backend.pending_animation_frame = false;
-    backend.frame_request = null;
     const owner = ownerFromBackend(backend) orelse return;
     if (owner.isOpen()) owner.stepFrame();
 }

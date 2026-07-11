@@ -18,7 +18,7 @@ fn nativeMain(init: std.process.Init) !void {
 comptime {
     if (knots.platform.is_browser_wasm) @export(&struct {
         fn webMain() callconv(.{ .wasm_mvp = .{} }) i32 {
-            const allocator = std.heap.wasm_allocator;
+            const allocator = knots.web.allocator;
             const ptr = allocator.create(triangle) catch |err| return knots.web.fail(err);
             ptr.* = triangle.init(knots.web.io, allocator) catch |err| {
                 allocator.destroy(ptr);
