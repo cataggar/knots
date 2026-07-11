@@ -33,7 +33,7 @@ pub const Input = union(enum) {
     radius: Radius,
     corners: [4]Corner,
 
-    pub inline fn resolve(self: Input, theme: *const Theme) Radius {
+    pub fn resolve(self: Input, theme: *const Theme) Radius {
         return switch (self) {
             .none => .zero,
             .xs => theme.radius.scale(0.25),
@@ -59,15 +59,15 @@ const Radius = @This();
 
 pub const zero: Radius = .{ .value = .{ 0, 0, 0, 0 } };
 
-pub inline fn all(v: f32) Radius {
+pub fn all(v: f32) Radius {
     return .{ .value = .{ v, v, v, v } };
 }
 
-pub inline fn corners(tl: f32, tr: f32, br: f32, bl: f32) Radius {
+pub fn corners(tl: f32, tr: f32, br: f32, bl: f32) Radius {
     return .{ .value = .{ tl, tr, br, bl } };
 }
 
-pub inline fn scale(self: Radius, factor: f32) Radius {
+pub fn scale(self: Radius, factor: f32) Radius {
     return .{ .value = .{
         self.value[0] * factor,
         self.value[1] * factor,
@@ -76,7 +76,7 @@ pub inline fn scale(self: Radius, factor: f32) Radius {
     } };
 }
 
-pub inline fn shrink(self: Radius, amount: f32) Radius {
+pub fn shrink(self: Radius, amount: f32) Radius {
     return .{ .value = .{
         @max(0, self.value[0] - amount),
         @max(0, self.value[1] - amount),
@@ -85,7 +85,7 @@ pub inline fn shrink(self: Radius, amount: f32) Radius {
     } };
 }
 
-pub inline fn lerp(a: Radius, b: Radius, t: f32) Radius {
+pub fn lerp(a: Radius, b: Radius, t: f32) Radius {
     return .{ .value = .{
         a.value[0] + (b.value[0] - a.value[0]) * t,
         a.value[1] + (b.value[1] - a.value[1]) * t,
@@ -94,6 +94,6 @@ pub inline fn lerp(a: Radius, b: Radius, t: f32) Radius {
     } };
 }
 
-pub inline fn isZero(self: Radius) bool {
+pub fn isZero(self: Radius) bool {
     return self.value[0] == 0 and self.value[1] == 0 and self.value[2] == 0 and self.value[3] == 0;
 }

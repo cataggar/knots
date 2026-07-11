@@ -69,7 +69,7 @@ pub fn containsKey(self: *const Input, key: window.Key) bool {
     return self.keyPressed(key) or self.keyRepeated(key);
 }
 
-pub inline fn mouseButton(self: *const Input, button: window.MouseButton) *const window.MouseButtonState {
+pub fn mouseButton(self: *const Input, button: window.MouseButton) *const window.MouseButtonState {
     return &self.mouse[@intFromEnum(button)];
 }
 

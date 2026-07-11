@@ -74,33 +74,33 @@ fn initWithPrimary(primary: ?*const Window, io: std.Io, allocator: std.mem.Alloc
     };
 }
 
-pub inline fn deinit(self: *Window) void {
+pub fn deinit(self: *Window) void {
     self.backend.deinit();
     self.char_buf.deinit(self.allocator);
     self.key_events.deinit(self.allocator);
 }
 
-pub inline fn startCapture(self: *Window) void {
+pub fn startCapture(self: *Window) void {
     self.backend.startCapture(self);
 }
 
-pub inline fn pollEvents(self: *const Window, io: std.Io) void {
+pub fn pollEvents(self: *const Window, io: std.Io) void {
     self.backend.pollEvents(io);
 }
 
-pub inline fn waitEvents(self: *const Window, io: std.Io) void {
+pub fn waitEvents(self: *const Window, io: std.Io) void {
     self.backend.waitEvents(io);
 }
 
-pub inline fn postEmptyEvent(self: *Window) void {
+pub fn postEmptyEvent(self: *Window) void {
     self.backend.postEmptyEvent();
 }
 
-pub inline fn setFrameHandler(self: *Window, handler: FrameHandler) void {
+pub fn setFrameHandler(self: *Window, handler: FrameHandler) void {
     self.frame_handler = handler;
 }
 
-pub inline fn clearFrameHandler(self: *Window) void {
+pub fn clearFrameHandler(self: *Window) void {
     self.frame_handler = null;
 }
 
@@ -126,19 +126,19 @@ pub fn close(self: *Window) void {
     self.backend.postEmptyEvent();
 }
 
-pub inline fn getSize(self: *const Window) Size {
+pub fn getSize(self: *const Window) Size {
     return self.backend.getSize();
 }
 
-pub inline fn getFramebufferSize(self: *const Window) Size {
+pub fn getFramebufferSize(self: *const Window) Size {
     return self.backend.getFramebufferSize();
 }
 
-pub inline fn getContentScale(self: *const Window) f32 {
+pub fn getContentScale(self: *const Window) f32 {
     return self.content_scale;
 }
 
-pub inline fn getWindowHandle(self: *const Window) gpu.Context.WindowHandle {
+pub fn getWindowHandle(self: *const Window) gpu.Context.WindowHandle {
     return self.backend.getNativeHandle(self.canvas_selector);
 }
 
@@ -146,11 +146,11 @@ pub fn setDisplayMode(self: *Window, mode: DisplayMode) bool {
     return self.backend.setDisplayMode(mode);
 }
 
-pub inline fn getDisplayMode(self: *const Window) DisplayMode {
+pub fn getDisplayMode(self: *const Window) DisplayMode {
     return self.backend.getDisplayMode();
 }
 
-pub inline fn isFocused(self: *const Window) bool {
+pub fn isFocused(self: *const Window) bool {
     return self.focused;
 }
 
@@ -159,7 +159,7 @@ pub fn setTitle(self: *Window, title: []const u8) !void {
     try self.backend.setTitle(title);
 }
 
-pub inline fn setCursorVisible(self: *Window, visible: bool) void {
+pub fn setCursorVisible(self: *Window, visible: bool) void {
     self.backend.setCursorVisible(visible);
 }
 

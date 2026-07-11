@@ -112,7 +112,7 @@ pub fn consume(self: *CompletionQueue, app: *App, io: std.Io) !void {
     }
 }
 
-pub inline fn inFlight(self: *const CompletionQueue) usize {
+pub fn inFlight(self: *const CompletionQueue) usize {
     return self.in_flight.load(.monotonic);
 }
 

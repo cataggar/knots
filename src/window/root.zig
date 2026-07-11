@@ -186,7 +186,7 @@ pub const Input = struct {
     alt_held: bool = false,
     super_held: bool = false,
 
-    pub inline fn mouseButton(self: *const Input, button: MouseButton) *const MouseButtonState {
+    pub fn mouseButton(self: *const Input, button: MouseButton) *const MouseButtonState {
         return &self.mouse[@intFromEnum(button)];
     }
 

@@ -11,7 +11,7 @@ index: usize,
 
 const Key = @This();
 
-pub inline fn src(comptime src_: std.builtin.SourceLocation) Key {
+pub fn src(comptime src_: std.builtin.SourceLocation) Key {
     const seed = comptime blk: {
         var h = std.hash.Wyhash.init(0);
         h.update(src_.file);
@@ -25,14 +25,14 @@ pub inline fn src(comptime src_: std.builtin.SourceLocation) Key {
     };
 }
 
-pub inline fn str(key: []const u8) Key {
+pub fn str(key: []const u8) Key {
     return Key{
         .key = .{ .str = key },
         .index = 0,
     };
 }
 
-pub inline fn indexed(self: Key, index: usize) Key {
+pub fn indexed(self: Key, index: usize) Key {
     return Key{
         .key = self.key,
         .index = chainIndex(self.index, index),
@@ -64,14 +64,14 @@ pub fn hash(self: Key) Element.Id {
 }
 
 /// Wyhash-style finalizer applied to (seed, index). Cheap, well-distributed.
-inline fn mixIndex(seed: u64, index: usize) u64 {
+fn mixIndex(seed: u64, index: usize) u64 {
     var x: u64 = seed ^ @as(u64, index);
     x = (x ^ (x >> 32)) *% 0x9E3779B97F4A7C15;
     x = (x ^ (x >> 32)) *% 0xBF58476D1CE4E5B9;
     return x ^ (x >> 32);
 }
 
-inline fn chainIndex(parent: usize, child: usize) usize {
+fn chainIndex(parent: usize, child: usize) usize {
     var h = std.hash.Wyhash.init(0x7ac4_71f4_6d77_1a33);
     h.update(std.mem.asBytes(&parent));
     h.update(std.mem.asBytes(&child));

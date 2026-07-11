@@ -354,19 +354,19 @@ fn reportFrameHookError(self: *App, err: anyerror) void {
 }
 
 /// Request another frame for the currently rendering viewport.
-pub inline fn requestFrame(self: *App) void {
+pub  fn requestFrame(self: *App) void {
     self.viewport.window.requestFrame();
 }
 
 /// Returns an arena allocator that is safe to use during the frame callback.
 /// The arena is freed at the end of the frame.
-pub inline fn arena(self: *App) std.mem.Allocator {
+pub  fn arena(self: *App) std.mem.Allocator {
     return self.frame_arena.allocator();
 }
 
 /// Dispatch a function to be executed using the `Io` implementation provided in init.
 /// `onComplete` will be called when the function is complete with the return type of `func`.
-pub inline fn dispatch(self: *App, func: anytype, args: anytype, onComplete: CompletionQueue.Callback(ReturnType(func))) !void {
+pub  fn dispatch(self: *App, func: anytype, args: anytype, onComplete: CompletionQueue.Callback(ReturnType(func))) !void {
     try self.completion_queue.dispatch(self.io, self.allocator, func, args, onComplete);
 }
 

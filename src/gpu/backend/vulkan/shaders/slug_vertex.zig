@@ -33,7 +33,7 @@ const out_clip_node = output(f32, "out_clip_node", .{ .location = 5 });
 
 extern var position: Vec4f addrspace(.output);
 
-inline fn dot(a: anytype, b: anytype) f32 {
+fn dot(a: anytype, b: anytype) f32 {
     return @reduce(.Add, a * b);
 }
 

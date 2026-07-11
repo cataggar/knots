@@ -224,7 +224,7 @@ pub const Storage = struct {
 
     pools: StoragePools = .{},
 
-    inline fn poolFor(self: *Storage, comptime name: std.meta.FieldEnum(StoragePools)) *@FieldType(StoragePools, @tagName(name)) {
+    fn poolFor(self: *Storage, comptime name: std.meta.FieldEnum(StoragePools)) *@FieldType(StoragePools, @tagName(name)) {
         return &@field(self.pools, @tagName(name));
     }
 
