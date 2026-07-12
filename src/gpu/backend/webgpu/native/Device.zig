@@ -21,7 +21,7 @@ surface_format: wgpu.Texture.Format,
 surface_is_srgb: bool,
 
 pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle) !Device {
-    const instance = try wgpu.Instance.init();
+    const instance = try wgpu.Instance.init(null);
     errdefer instance.deinit();
 
     var surface = try createSurface(instance, window_handle);

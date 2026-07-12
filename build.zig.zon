@@ -4,8 +4,8 @@
     .minimum_zig_version = "0.17.0-dev.1267+300116b02",
     .dependencies = .{
         .wgpu = .{
-            .url = "git+https://codeberg.org/shahwali/wgpu-bindings.git#c56a63b58b73abfe21dfe3c441a24eb89b670996",
-            .hash = "wgpu-0.0.2-Z1CB1tZzAQCeLiHR9GrD3Zal_qs6AxvaXCl2fKuChh6-",
+            .url = "git+https://codeberg.org/shahwali/wgpu-zig.git#b61e7d3ab52001cb4a596532973bd0755bdbe0a3",
+            .hash = "wgpu-0.0.3-Z1CB1nh2AQCkwNLkZ6DWaoFvK6imy-TmN_-GsMXQfHV0",
         },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig#cea0568d1a5bab102ad0b538d11f2fc734949a1e",

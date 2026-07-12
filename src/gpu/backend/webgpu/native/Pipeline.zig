@@ -26,6 +26,8 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
     var bgls_created: usize = 0;
     errdefer for (bgls[0..bgls_created]) |bgl| bgl.deinit();
 
+    var pipeline_bgls: [8]?wgpu.BindGroupLayout = undefined;
+    if (desc.bind_group_layouts.len > pipeline_bgls.len) return error.TooManyBindGroupLayouts;
     var entry_buf: [16]wgpu.BindGroupLayout.Entry = undefined;
 
     for (desc.bind_group_layouts, 0..) |bgl_desc, bgl_i| {
@@ -37,10 +39,11 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
             .label = bgl_desc.label,
             .entries = entry_buf[0..bgl_desc.entries.len],
         });
+        pipeline_bgls[bgl_i] = bgls[bgl_i];
         bgls_created += 1;
     }
 
-    const pipeline_layout = try device.device.createPipelineLayout(desc.label, bgls);
+    const pipeline_layout = try device.device.createPipelineLayout(desc.label, pipeline_bgls[0..bgls.len], 0);
     defer pipeline_layout.deinit();
 
     var attr_buf: [4][16]wgpu.RenderPipeline.VertexAttribute = undefined;

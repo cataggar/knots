@@ -76,13 +76,20 @@ fn beginRenderPass(self: *Frame, desc: RenderPass.Desc) !RenderPass {
         break :blk target.view;
     } else blk: {
         if (self.surface_texture == null) {
-            self.surface_texture = self.surface.surface.getCurrentTexture() catch |err| switch (err) {
-                error.CurrentTextureOutdated, error.CurrentTextureLost => retry: {
+            self.surface_texture = switch (self.surface.surface.getCurrentTexture()) {
+                .success, .suboptimal => |texture| texture,
+                .outdated, .lost => retry: {
                     _ = self.surface.device.device.poll(true);
                     self.surface.configure(self.surface.surface_width, self.surface.surface_height);
-                    break :retry try self.surface.surface.getCurrentTexture();
+                    break :retry switch (self.surface.surface.getCurrentTexture()) {
+                        .success, .suboptimal => |texture| texture,
+                        .timeout, .occluded, .outdated => return error.SurfaceUnavailable,
+                        .lost => return error.SurfaceLost,
+                        .validation => return error.BackendFailure,
+                    };
                 },
-                else => return err,
+                .timeout, .occluded => return error.SurfaceUnavailable,
+                .validation => return error.BackendFailure,
             };
             self.view = try self.surface_texture.?.createView(.{ .format = self.surface.device.surface_format });
         }
