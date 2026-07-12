@@ -214,8 +214,11 @@ fn shadeLinear(in: VertexOutput) -> vec4f {
     } else if in.prim_type < 2.5 {
         let col = vec4f(sampled.rgb * in.color.rgb, sampled.a * in.color.a);
         return vec4f(col.rgb, col.a * clipAlpha(in.world_pos, in.clip_node));
-    } else {
+    } else if in.prim_type < 3.5 {
         return vec4f(in.color.rgb, in.color.a * clipAlpha(in.world_pos, in.clip_node));
+    } else {
+        let col = vec4f(sampled.rgb * in.color.rgb, in.color.a);
+        return vec4f(col.rgb, col.a * clipAlpha(in.world_pos, in.clip_node));
     }
 }
 

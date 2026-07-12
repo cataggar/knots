@@ -1000,7 +1000,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .border_color = zero4,
                     .corner_radius = Radius.zero.value,
                     .border_width = BorderWidth.zero.value,
-                    .prim_type = 2.0,
+                    .prim_type = if (img.@"opaque") 4.0 else 2.0,
                 };
                 try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture, clip);
             },

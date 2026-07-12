@@ -34,6 +34,7 @@ pub const Decoration = union(enum) {
     pub const Image = struct {
         texture: *const Texture,
         tint: [4]f32 = .{ 1, 1, 1, 1 },
+        @"opaque": bool = false,
     };
 
     pub const Range = struct {

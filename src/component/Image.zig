@@ -26,11 +26,17 @@ pub const Source = union(enum) {
     pixels: Pixels,
 };
 
+pub const SamplingMode = enum {
+    alpha,
+    @"opaque",
+};
+
 source: Source,
 width: Element.sizing.Axis = .grow(),
 height: Element.sizing.Axis = .grow(),
 position: Element.Position = .static,
 tint: [4]f32 = .{ 1, 1, 1, 1 },
+sampling_mode: SamplingMode = .alpha,
 key: Key,
 
 const Image = @This();
@@ -58,6 +64,7 @@ pub fn open(self: *const Image, app: *App) !Element.Id {
     }, .{ .image = .{
         .texture = texture,
         .tint = self.tint,
+        .@"opaque" = self.sampling_mode == .@"opaque",
     } });
 }
 

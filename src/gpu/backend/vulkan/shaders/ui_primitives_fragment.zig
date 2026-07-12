@@ -69,8 +69,10 @@ fn fragment(comptime encode_srgb: bool) void {
         break :blk .{ color[0], color[1], color[2], color[3] * coverage };
     } else if (in_prim_type.* < 2.5)
         .{ sampled[0] * color[0], sampled[1] * color[1], sampled[2] * color[2], sampled[3] * color[3] }
+    else if (in_prim_type.* < 3.5)
+        color
     else
-        color;
+        .{ sampled[0] * color[0], sampled[1] * color[1], sampled[2] * color[2], color[3] };
 
     const alpha = col[3] * common.clipAlpha(clip_nodes, in_world_pos.*, in_clip_node.*);
     if (comptime encode_srgb) {
