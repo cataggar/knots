@@ -57,6 +57,10 @@ pub fn deinit(self: *Device) void {
     self.instance.deinit();
 }
 
+pub fn waitIdle(self: *Device) !void {
+    _ = self.device.poll(true);
+}
+
 pub fn createBuffer(self: *Device, desc: gpu.Buffer.Desc) !Buffer {
     return Buffer.create(self.allocator, self.device, self.queue, desc);
 }

@@ -1002,7 +1002,7 @@ fn tessellateLayer(self: *UI, allocator: Allocator, draw_list: *DrawList, slots:
                     .border_width = BorderWidth.zero.value,
                     .prim_type = 2.0,
                 };
-                try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture_id, clip);
+                try draw_list.pushInstances(&[_]gpu.Instance{inst}, img.texture, clip);
             },
             .range => |r| try renderRange(draw_list, el.box, r, clip),
         }

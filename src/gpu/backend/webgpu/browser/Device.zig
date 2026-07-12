@@ -50,6 +50,11 @@ pub fn deinit(self: *Device) void {
     self.adapter.release();
 }
 
+// JavaScript WebGPU retains resources referenced by submitted commands.
+pub fn waitIdle(self: *Device) !void {
+    _ = self.queue;
+}
+
 pub fn createBuffer(self: *Device, desc: gpu.Buffer.Desc) !Buffer {
     return Buffer.create(self.allocator, self.device, self.queue, desc);
 }

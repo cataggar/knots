@@ -1,7 +1,7 @@
 const std = @import("std");
 const gpu = @import("gpu");
 const Clip = @import("Clip.zig");
-const TextureId = @import("Shared.zig").TextureId;
+const Texture = @import("Texture.zig");
 
 pub const MAX_LAYERS = 256;
 
@@ -12,7 +12,7 @@ pub const Command = struct {
     // .instance -> offset/count are first_instance/instance_count into `instances`
     // .text     -> offset/count are index_offset/index_count into `text_indices`
     kind: CommandKind,
-    texture: ?TextureId,
+    texture: ?*const Texture,
     offset: u32,
     count: u32,
     clip: Clip.State,
@@ -84,7 +84,7 @@ pub fn isEmpty(self: *const DrawList) bool {
     return self.layer_cmds.items.len == 0;
 }
 
-fn lastCmdMatches(self: *const DrawList, kind: CommandKind, texture: ?TextureId, clip: Clip.State) bool {
+fn lastCmdMatches(self: *const DrawList, kind: CommandKind, texture: ?*const Texture, clip: Clip.State) bool {
     if (!self.layers_dirty.isSet(self.current_layer)) return false;
     const range = self.layer_ranges[self.current_layer];
     if (range.len == 0) return false;
@@ -94,7 +94,7 @@ fn lastCmdMatches(self: *const DrawList, kind: CommandKind, texture: ?TextureId,
     return last.clip.scissorEql(clip);
 }
 
-fn beginCommand(self: *DrawList, kind: CommandKind, texture: ?TextureId, clip: Clip.State, offset: u32) !void {
+fn beginCommand(self: *DrawList, kind: CommandKind, texture: ?*const Texture, clip: Clip.State, offset: u32) !void {
     const range = &self.layer_ranges[self.current_layer];
     if (!self.layers_dirty.isSet(self.current_layer)) {
         range.start = @intCast(self.layer_cmds.items.len);
@@ -111,7 +111,7 @@ fn beginCommand(self: *DrawList, kind: CommandKind, texture: ?TextureId, clip: C
     range.len += 1;
 }
 
-pub fn push(self: *DrawList, vertices: []const gpu.Vertex, indices: []const u32, texture: ?TextureId, clip: Clip.State) !void {
+pub fn push(self: *DrawList, vertices: []const gpu.Vertex, indices: []const u32, texture: ?*const Texture, clip: Clip.State) !void {
     if (!self.lastCmdMatches(.vertex, texture, clip)) {
         try self.beginCommand(.vertex, texture, clip, @intCast(self.indices.items.len));
     }
@@ -133,7 +133,7 @@ pub fn push(self: *DrawList, vertices: []const gpu.Vertex, indices: []const u32,
     self.layer_cmds.items[range.start + range.len - 1].count += @intCast(indices.len);
 }
 
-pub fn pushInstances(self: *DrawList, insts: []const gpu.Instance, texture: ?TextureId, clip: Clip.State) !void {
+pub fn pushInstances(self: *DrawList, insts: []const gpu.Instance, texture: ?*const Texture, clip: Clip.State) !void {
     if (insts.len == 0) return;
     if (!self.lastCmdMatches(.instance, texture, clip)) {
         const first_instance: u32 = @intCast(self.instances.items.len);

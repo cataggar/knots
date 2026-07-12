@@ -2,6 +2,7 @@ const gpu = @import("gpu");
 const gpu_impl = @import("gpu_impl");
 const pipelines = @import("pipelines.zig");
 const Clip = @import("Clip.zig");
+const Context = @import("Context.zig");
 
 const INIT_VERTEX_BYTES = 256 * 1024;
 const INIT_INSTANCE_BYTES = 64 * 1024;
@@ -30,64 +31,59 @@ clip_node_buf: gpu_impl.Buffer,
 
 const FrameUploads = @This();
 
-pub fn init(
-    device: *gpu_impl.Device,
-    pipeline: *const gpu_impl.Pipeline,
-    instance_pipeline: *const gpu_impl.Pipeline,
-    text_pipeline: *const gpu_impl.Pipeline,
-) !FrameUploads {
-    var vertex_uniform_buf = try device.createBuffer(.{ .size = @sizeOf(pipelines.ViewportUniform), .usage = .{ .uniform = true, .copy_dst = true }, .label = "vertex_viewport_uniform" });
+pub fn init(ctx: *Context) !FrameUploads {
+    var vertex_uniform_buf = try ctx.device.createBuffer(.{ .size = @sizeOf(pipelines.ViewportUniform), .usage = .{ .uniform = true, .copy_dst = true }, .label = "vertex_viewport_uniform" });
     errdefer vertex_uniform_buf.deinit();
-    var instance_uniform_buf = try device.createBuffer(.{ .size = @sizeOf(pipelines.ViewportUniform), .usage = .{ .uniform = true, .copy_dst = true }, .label = "instance_viewport_uniform" });
+    var instance_uniform_buf = try ctx.device.createBuffer(.{ .size = @sizeOf(pipelines.ViewportUniform), .usage = .{ .uniform = true, .copy_dst = true }, .label = "instance_viewport_uniform" });
     errdefer instance_uniform_buf.deinit();
-    var text_uniform_buf = try device.createBuffer(.{ .size = @sizeOf(pipelines.SlugUniforms), .usage = .{ .uniform = true, .copy_dst = true }, .label = "text_uniforms" });
+    var text_uniform_buf = try ctx.device.createBuffer(.{ .size = @sizeOf(pipelines.SlugUniforms), .usage = .{ .uniform = true, .copy_dst = true }, .label = "text_uniforms" });
     errdefer text_uniform_buf.deinit();
-    var clip_node_buf = try device.createBuffer(.{ .size = INIT_CLIP_NODE_COUNT * @sizeOf(Clip.Node), .usage = .{ .storage = true, .copy_dst = true }, .label = "clip_nodes" });
+    var clip_node_buf = try ctx.device.createBuffer(.{ .size = INIT_CLIP_NODE_COUNT * @sizeOf(Clip.Node), .usage = .{ .storage = true, .copy_dst = true }, .label = "clip_nodes" });
     errdefer clip_node_buf.deinit();
     clip_node_buf.load(Clip.Node, &.{Clip.Node.empty});
 
-    var vertex_uniform_bg = try device.createBindGroup(.{
+    var vertex_uniform_bg = try ctx.device.createBindGroup(.{
         .label = "vertex_uniform_bg",
-        .pipeline = pipeline,
+        .pipeline = &ctx.pipeline,
         .layout_index = 0,
         .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &vertex_uniform_buf, .size = @sizeOf(pipelines.ViewportUniform) } } }},
     });
     errdefer vertex_uniform_bg.deinit();
 
-    var instance_uniform_bg = try device.createBindGroup(.{
+    var instance_uniform_bg = try ctx.device.createBindGroup(.{
         .label = "instance_uniform_bg",
-        .pipeline = instance_pipeline,
+        .pipeline = &ctx.instance_pipeline,
         .layout_index = 0,
         .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &instance_uniform_buf, .size = @sizeOf(pipelines.ViewportUniform) } } }},
     });
     errdefer instance_uniform_bg.deinit();
 
-    var text_uniform_bg = try device.createBindGroup(.{
+    var text_uniform_bg = try ctx.device.createBindGroup(.{
         .label = "text_uniform_bg",
-        .pipeline = text_pipeline,
+        .pipeline = &ctx.text_pipeline,
         .layout_index = 0,
         .entries = &.{.{ .binding = 0, .resource = .{ .buffer = .{ .buffer = &text_uniform_buf, .size = @sizeOf(pipelines.SlugUniforms) } } }},
     });
     errdefer text_uniform_bg.deinit();
 
-    var vertex_clip_bg = try createClipBindGroup(device, pipeline, &clip_node_buf, "vertex_clip_bg");
+    var vertex_clip_bg = try createClipBindGroup(&ctx.device, &ctx.pipeline, &clip_node_buf, "vertex_clip_bg");
     errdefer vertex_clip_bg.deinit();
-    var instance_clip_bg = try createClipBindGroup(device, instance_pipeline, &clip_node_buf, "instance_clip_bg");
+    var instance_clip_bg = try createClipBindGroup(&ctx.device, &ctx.instance_pipeline, &clip_node_buf, "instance_clip_bg");
     errdefer instance_clip_bg.deinit();
-    var text_clip_bg = try createClipBindGroup(device, text_pipeline, &clip_node_buf, "text_clip_bg");
+    var text_clip_bg = try createClipBindGroup(&ctx.device, &ctx.text_pipeline, &clip_node_buf, "text_clip_bg");
     errdefer text_clip_bg.deinit();
 
-    var vertex_buf = try device.createBuffer(.{ .size = INIT_VERTEX_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "ui_vertices" });
+    var vertex_buf = try ctx.device.createBuffer(.{ .size = INIT_VERTEX_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "ui_vertices" });
     errdefer vertex_buf.deinit();
-    var instance_buf = try device.createBuffer(.{ .size = INIT_INSTANCE_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "ui_instances" });
+    var instance_buf = try ctx.device.createBuffer(.{ .size = INIT_INSTANCE_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "ui_instances" });
     errdefer instance_buf.deinit();
-    var composite_instance_buf = try device.createBuffer(.{ .size = @sizeOf(gpu.Instance), .usage = .{ .vertex = true, .copy_dst = true }, .label = "composite_instance" });
+    var composite_instance_buf = try ctx.device.createBuffer(.{ .size = @sizeOf(gpu.Instance), .usage = .{ .vertex = true, .copy_dst = true }, .label = "composite_instance" });
     errdefer composite_instance_buf.deinit();
-    var text_vertex_buf = try device.createBuffer(.{ .size = INIT_TEXT_VERTEX_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "text_vertices" });
+    var text_vertex_buf = try ctx.device.createBuffer(.{ .size = INIT_TEXT_VERTEX_BYTES, .usage = .{ .vertex = true, .copy_dst = true }, .label = "text_vertices" });
     errdefer text_vertex_buf.deinit();
-    var index_buf = try device.createBuffer(.{ .size = INIT_INDEX_COUNT * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "ui_indices" });
+    var index_buf = try ctx.device.createBuffer(.{ .size = INIT_INDEX_COUNT * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "ui_indices" });
     errdefer index_buf.deinit();
-    var text_index_buf = try device.createBuffer(.{ .size = INIT_TEXT_INDEX_COUNT * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "text_indices" });
+    var text_index_buf = try ctx.device.createBuffer(.{ .size = INIT_TEXT_INDEX_COUNT * @sizeOf(u32), .usage = .{ .index = true, .copy_dst = true }, .label = "text_indices" });
     errdefer text_index_buf.deinit();
 
     return .{
@@ -129,28 +125,22 @@ pub fn deinit(self: *FrameUploads) void {
     self.clip_node_buf.deinit();
 }
 
-pub fn ensureClipNodeCapacity(
-    self: *FrameUploads,
-    device: *gpu_impl.Device,
-    pipeline: *const gpu_impl.Pipeline,
-    instance_pipeline: *const gpu_impl.Pipeline,
-    text_pipeline: *const gpu_impl.Pipeline,
-    required: usize,
-) !void {
+pub fn ensureClipNodeCapacity(self: *FrameUploads, context: *Context, required: usize) !void {
     if (required <= self.clip_node_buf.getSize()) return;
 
     const current_size = self.clip_node_buf.getSize();
     const new_size = @max(required, current_size + current_size / 2);
 
+    const device = &context.device;
     var clip_node_buf = try device.createBuffer(.{ .size = new_size, .usage = .{ .storage = true, .copy_dst = true }, .label = "clip_nodes" });
     errdefer clip_node_buf.deinit();
     clip_node_buf.load(Clip.Node, &.{Clip.Node.empty});
 
-    var vertex_clip_bg = try createClipBindGroup(device, pipeline, &clip_node_buf, "vertex_clip_bg");
+    var vertex_clip_bg = try createClipBindGroup(device, &context.pipeline, &clip_node_buf, "vertex_clip_bg");
     errdefer vertex_clip_bg.deinit();
-    var instance_clip_bg = try createClipBindGroup(device, instance_pipeline, &clip_node_buf, "instance_clip_bg");
+    var instance_clip_bg = try createClipBindGroup(device, &context.instance_pipeline, &clip_node_buf, "instance_clip_bg");
     errdefer instance_clip_bg.deinit();
-    var text_clip_bg = try createClipBindGroup(device, text_pipeline, &clip_node_buf, "text_clip_bg");
+    var text_clip_bg = try createClipBindGroup(device, &context.text_pipeline, &clip_node_buf, "text_clip_bg");
     errdefer text_clip_bg.deinit();
 
     self.vertex_clip_bg.deinit();

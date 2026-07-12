@@ -1,4 +1,20 @@
-pub const Format = enum { rgba8, rgba8_srgb, bgra8, bgra8_srgb, r8, rgba32f, rgba32u };
+pub const Format = enum {
+    rgba8,
+    rgba8_srgb,
+    bgra8,
+    bgra8_srgb,
+    r8,
+    rgba32f,
+    rgba32u,
+
+    pub fn bytesPerPixel(format: Format) usize {
+        return switch (format) {
+            .r8 => 1,
+            .rgba8, .rgba8_srgb, .bgra8, .bgra8_srgb => 4,
+            .rgba32f, .rgba32u => 16,
+        };
+    }
+};
 
 pub const Usage = struct {
     texture_binding: bool = false,

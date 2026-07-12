@@ -22,7 +22,7 @@ pub const Pixels = struct {
 };
 
 pub const Source = union(enum) {
-    texture: render.TextureId,
+    texture: *const render.Texture,
     pixels: Pixels,
 };
 
@@ -36,8 +36,8 @@ key: Key,
 const Image = @This();
 
 pub fn open(self: *const Image, app: *App) !Element.Id {
-    const texture_id = switch (self.source) {
-        .texture => |id| id,
+    const texture = switch (self.source) {
+        .texture => |value| value,
         .pixels => |p| try app.viewport.renderer.textureFromPixels(
             self.key.hash(),
             p.data,
@@ -56,7 +56,7 @@ pub fn open(self: *const Image, app: *App) !Element.Id {
         .position = self.position,
         .overflow = .hidden,
     }, .{ .image = .{
-        .texture_id = texture_id,
+        .texture = texture,
         .tint = self.tint,
     } });
 }

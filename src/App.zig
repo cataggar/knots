@@ -32,7 +32,7 @@ pub const OpenWindowConfig = struct {
 io: std.Io,
 allocator: std.mem.Allocator,
 frame_arena: std.heap.ArenaAllocator,
-renderer_group: *render.RendererGroup,
+render_context: *render.Context,
 main_viewport: *Viewport,
 viewport: *Viewport,
 secondary_viewports: std.ArrayList(*Viewport),
@@ -51,17 +51,15 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
     var main_window_owned = true;
     errdefer if (main_window_owned) main_window.deinit();
 
-    const renderer_group = try allocator.create(render.RendererGroup);
-    errdefer allocator.destroy(renderer_group);
-    renderer_group.* = try render.RendererGroup.init(allocator, &main_window);
-    errdefer renderer_group.deinit();
+    const render_context = try render.Context.create(allocator, &main_window);
+    errdefer render_context.destroy();
 
     var completion_queue: CompletionQueue = try .init(allocator, cfg.max_completions_recv);
     errdefer completion_queue.deinit(allocator, io);
 
-    var main_renderer: render.Renderer = try .init(allocator, renderer_group, &main_window, cfg.renderer);
+    const main_renderer = try render.Renderer.create(allocator, render_context, &main_window, cfg.renderer);
     var main_renderer_owned = true;
-    errdefer if (main_renderer_owned) main_renderer.deinit();
+    errdefer if (main_renderer_owned) main_renderer.destroy();
 
     const main_viewport = try createViewport(allocator, .main, main_window, main_renderer, .{
         .ui = cfg.ui,
@@ -78,7 +76,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
         .io = io,
         .allocator = allocator,
         .frame_arena = .init(allocator),
-        .renderer_group = renderer_group,
+        .render_context = render_context,
         .main_viewport = main_viewport,
         .viewport = main_viewport,
         .secondary_viewports = .empty,
@@ -87,7 +85,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator, cfg: Config) !App {
     };
 }
 
-fn createViewport(allocator: std.mem.Allocator, id: Viewport.Id, window_value: Window, renderer: render.Renderer, cfg: Viewport.Config) !*Viewport {
+fn createViewport(allocator: std.mem.Allocator, id: Viewport.Id, window_value: Window, renderer: *render.Renderer, cfg: Viewport.Config) !*Viewport {
     const viewport = try allocator.create(Viewport);
     errdefer allocator.destroy(viewport);
     viewport.* = try .init(allocator, id, window_value, renderer, cfg);
@@ -126,8 +124,7 @@ pub fn deinit(self: *App) void {
     self.secondary_viewports.deinit(self.allocator);
     self.frame_arena.deinit();
     self.destroyViewport(self.main_viewport);
-    self.renderer_group.deinit();
-    self.allocator.destroy(self.renderer_group);
+    self.render_context.destroy();
 }
 
 /// Start a frame-loop that runs until the main window is closed.
@@ -153,12 +150,10 @@ pub fn start(self: *App, frame_cb: Callback) !void {
             self.main_viewport.window.clearFrameHandler();
         }
         try self.takeFrameEventError();
-        try self.renderer_group.sweepSharedCaches();
         self.sweepClosedViewports();
         while (self.main_viewport.window.isOpen()) {
             self.main_viewport.window.waitEvents(self.io);
             try self.takeFrameEventError();
-            try self.renderer_group.sweepSharedCaches();
             self.sweepClosedViewports();
         }
     }
@@ -166,7 +161,7 @@ pub fn start(self: *App, frame_cb: Callback) !void {
 
 /// Open an independently scheduled native window.
 ///
-/// All native windows share the renderer group created for the main window.
+/// All native windows share the render context created for the main window.
 /// Secondary windows can fail to open if their surface does not support the
 /// main window's selected GPU device or surface format.
 /// Returns an id that is stable until that viewport closes.
@@ -182,9 +177,9 @@ pub fn openWindow(self: *App, open_cfg: OpenWindowConfig, frame_cb: Callback) !V
         var window_owned = true;
         errdefer if (window_owned) window_value.deinit();
 
-        var renderer: render.Renderer = try .init(self.allocator, self.renderer_group, &window_value, open_cfg.renderer orelse current.renderer.cfg);
+        const renderer = try render.Renderer.create(self.allocator, self.render_context, &window_value, open_cfg.renderer orelse current.renderer.cfg);
         var renderer_owned = true;
-        errdefer if (renderer_owned) renderer.deinit();
+        errdefer if (renderer_owned) renderer.destroy();
 
         const viewport = try createViewport(self.allocator, id, window_value, renderer, .{
             .ui = open_cfg.ui orelse current.ui_cfg,
@@ -263,10 +258,10 @@ fn renderFrame(self: *App, viewport: *Viewport) !void {
     try viewport.ui.endFrame(&viewport.window);
 
     try viewport.ui.resolve();
-    const draw_list = viewport.renderer.beginFrame();
-    try viewport.ui.tessellate(self.frame_arena.allocator(), draw_list);
+    viewport.draw_list.reset();
+    try viewport.ui.tessellate(self.frame_arena.allocator(), &viewport.draw_list);
     const hover_changed = viewport.ui.resolveHit();
-    viewport.renderer.endFrame(viewport.ui.font.glyph_builder, viewport.ui.content_scale) catch |err| switch (err) {
+    viewport.renderer.render(&viewport.draw_list, viewport.ui.font.glyph_builder, viewport.ui.content_scale) catch |err| switch (err) {
         error.SurfaceUnavailable => return,
         else => return err,
     };
@@ -339,8 +334,6 @@ fn stepFrameHook(ctx: *anyopaque) void {
         self.reportFrameHookError(err);
         return;
     };
-    if (platform.is_browser_wasm)
-        self.renderer_group.sweepSharedCaches() catch |err| self.reportFrameHookError(err);
 }
 
 fn reportFrameHookError(self: *App, err: anyerror) void {
@@ -354,19 +347,19 @@ fn reportFrameHookError(self: *App, err: anyerror) void {
 }
 
 /// Request another frame for the currently rendering viewport.
-pub  fn requestFrame(self: *App) void {
+pub fn requestFrame(self: *App) void {
     self.viewport.window.requestFrame();
 }
 
 /// Returns an arena allocator that is safe to use during the frame callback.
 /// The arena is freed at the end of the frame.
-pub  fn arena(self: *App) std.mem.Allocator {
+pub fn arena(self: *App) std.mem.Allocator {
     return self.frame_arena.allocator();
 }
 
 /// Dispatch a function to be executed using the `Io` implementation provided in init.
 /// `onComplete` will be called when the function is complete with the return type of `func`.
-pub  fn dispatch(self: *App, func: anytype, args: anytype, onComplete: CompletionQueue.Callback(ReturnType(func))) !void {
+pub fn dispatch(self: *App, func: anytype, args: anytype, onComplete: CompletionQueue.Callback(ReturnType(func))) !void {
     try self.completion_queue.dispatch(self.io, self.allocator, func, args, onComplete);
 }
 

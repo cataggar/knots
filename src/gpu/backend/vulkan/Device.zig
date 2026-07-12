@@ -219,6 +219,10 @@ pub fn deinit(self: *Device) void {
     if (builtin.os.tag != .windows) self.loader.lib.close();
 }
 
+pub fn waitIdle(self: *Device) !void {
+    try self.vkd.deviceWaitIdle(self.device);
+}
+
 pub fn createBuffer(self: *Device, desc: gpu.Buffer.Desc) !Buffer {
     return Buffer.create(self, desc);
 }

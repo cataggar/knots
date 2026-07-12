@@ -23,7 +23,8 @@ app: ?*App = null,
 id: Id,
 window: Window,
 ui: UI,
-renderer: render.Renderer,
+renderer: *render.Renderer,
+draw_list: render.DrawList,
 timer: Timer,
 ui_cfg: UI.Config,
 frame_cb: ?App.Callback = null,
@@ -33,7 +34,7 @@ renderer_reconfigure_error: ?render.Renderer.ReconfigureError = null,
 frame_active: bool = false,
 frame_pending: bool = false,
 
-pub fn init(allocator: std.mem.Allocator, id: Id, window_value: Window, renderer: render.Renderer, cfg: Config) !Viewport {
+pub fn init(allocator: std.mem.Allocator, id: Id, window_value: Window, renderer: *render.Renderer, cfg: Config) !Viewport {
     var ui: UI = try .init(allocator, cfg.ui);
     errdefer ui.deinit();
 
@@ -42,6 +43,7 @@ pub fn init(allocator: std.mem.Allocator, id: Id, window_value: Window, renderer
         .window = window_value,
         .ui = ui,
         .renderer = renderer,
+        .draw_list = .init(allocator),
         .timer = .init(cfg.timer_clock),
         .ui_cfg = cfg.ui,
     };
@@ -50,6 +52,7 @@ pub fn init(allocator: std.mem.Allocator, id: Id, window_value: Window, renderer
 pub fn deinit(self: *Viewport) void {
     self.window.clearFrameHandler();
     self.ui.deinit();
-    self.renderer.deinit();
+    self.draw_list.deinit();
+    self.renderer.destroy();
     self.window.deinit();
 }
