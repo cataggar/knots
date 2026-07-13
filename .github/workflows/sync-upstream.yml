@@ -1,0 +1,36 @@
+name: Sync upstream
+
+# Keeps this GitHub repo's main branch in sync with the upstream Codeberg
+# repository (https://codeberg.org/shahwali/knots), which is the canonical
+# source for this project.
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # daily at 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Add upstream remote
+        run: git remote add upstream https://codeberg.org/shahwali/knots.git
+
+      - name: Fetch upstream
+        run: git fetch upstream main
+
+      - name: Fast-forward main to upstream/main
+        run: git merge --ff-only upstream/main
+
+      - name: Push to origin
+        run: git push origin main
