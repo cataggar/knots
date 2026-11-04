@@ -77,6 +77,9 @@ jobs:
       - name: knots
         run: zig build test -Dtarget=wasm32-wasi -fwasmtime --summary all
 
+      - name: knots (webgl2)
+        run: zig build test -Dtarget=wasm32-wasi -Dgpu_backend=webgl2 -fwasmtime --summary all
+
       - name: lib/js-bridge
         working-directory: lib/js-bridge
         run: zig build test -Dtarget=wasm32-wasi -fwasmtime --summary all
@@ -91,3 +94,7 @@ jobs:
       - name: Build playground
         working-directory: examples/playground
         run: zig build -Dtarget=wasm32-freestanding --summary all
+
+      - name: Build playground (webgl2)
+        working-directory: examples/playground
+        run: zig build -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2 --summary all

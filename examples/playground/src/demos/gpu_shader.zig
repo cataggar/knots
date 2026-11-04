@@ -193,12 +193,18 @@ fn slider(frame: *ui.Frame, comptime label: []const u8, value: *f32, min: f32, m
 
 fn createResources(app: *knots.App) !Resources {
     const gpu = app.gpuContext();
+    const glsl_shader: ?renderer.gpu.Pipeline.GlslSource = if (renderer.gpu.backend != .vulkan) .{
+        .vs = @embedFile("gpu_shader_vert_glsl"),
+        .fs = @embedFile("gpu_shader_frag_glsl"),
+    } else null;
     var pipeline = try gpu.createPipeline(.{
         .label = "playground_knot_laboratory",
         .shader = switch (renderer.gpu.backend) {
             .webgpu => .{ .wgsl = @embedFile("gpu_shader_wgsl") },
+            .webgl2 => .{ .glsl = glsl_shader.? },
             .vulkan => .{ .spirv = .{ .vs = &vertex_spirv, .fs = &fragment_spirv } },
         },
+        .glsl = glsl_shader,
         .vertex_buffers = &.{
             .{
                 .stride = @sizeOf(MeshVertex),

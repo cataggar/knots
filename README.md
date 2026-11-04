@@ -19,10 +19,12 @@ Knots in your own window or renderer.
 | macOS               | WebGPU          | Vulkan (MoltenVK) |
 | Linux (Wayland)     | Vulkan          | WebGPU            |
 | Windows             | Vulkan          | WebGPU            |
-| WASM (freestanding) | WebGPU          | —                 |
+| WASM (freestanding) | WebGPU          | WebGL2 (automatic fallback or `-Dgpu_backend=webgl2`) |
 
 Select a backend with the `gpu_backend` dependency option. Read
 [GPU backends](https://knotsui.com/docs/gpu-backends.html).
+
+In the browser, Knots tries WebGPU first (including a software fallback adapter retry via `requestAdapter({ forceFallbackAdapter: true })`) and automatically falls back to WebGL2 (`#version 300 es`) when WebGPU is unavailable—such as on GPU-less Windows VMs / DevBoxes where Chromium enables ANGLE D3D11 WARP for WebGL2 by default. You can also target WebGL2 explicitly at build time with `-Dgpu_backend=webgl2` or at runtime with `startKnots({ gpuBackend: "webgl2" })` (or `?gpu=webgl2`).
 
 ## Known limitations
 
@@ -40,7 +42,7 @@ Select a backend with the `gpu_backend` dependency option. Read
   `wayland-cursor`, `wayland-protocols`, `wayland-scanner`, `pkg-config`, and
   `xkbcommon`.
 - For the Vulkan backend: a Vulkan 1.3 driver with dynamic rendering.
-- For the browser: a browser with WebGPU.
+- For the browser: a browser with WebGPU or WebGL2.
 
 ## Dependencies
 
