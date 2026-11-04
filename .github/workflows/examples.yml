@@ -48,6 +48,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev pkg-config
 
+      - name: Pre-fetch wgpu macOS archive
+        if: runner.os == 'macOS'
+        working-directory: examples/playground
+        run: |
+          mkdir -p zig-pkg/N-V-__8AAJUIAwqjxINeHG1uHPzXC1quY1Xb2eDKehZkywov
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/wgpu-macos-aarch64-debug.zip" \
+            https://github.com/gfx-rs/wgpu-native/releases/download/v29.0.1.1/wgpu-macos-aarch64-debug.zip
+          unzip -q "$RUNNER_TEMP/wgpu-macos-aarch64-debug.zip" \
+            -d zig-pkg/N-V-__8AAJUIAwqjxINeHG1uHPzXC1quY1Xb2eDKehZkywov
+          rm -f "$RUNNER_TEMP/wgpu-macos-aarch64-debug.zip"
+
       - name: examples/playground
         working-directory: examples/playground
         run: zig build ${{ matrix.target_flag }} --summary all
