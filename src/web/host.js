@@ -1,9 +1,19 @@
 import { createBridgeImports } from "./js-bridge.js";
 import { createWasiImports } from "./knots-wasi.js";
+import { createWebGL2Backend } from "./knots-webgl2.js";
 
 const WASM_MEMORY_INITIAL_PAGES = 256;
 const WASM_MEMORY_MAX_PAGES = 32768;
 const textDecoder = new TextDecoder("utf-8");
+
+function resolveGpuBackendOption(option) {
+  if (option === "webgpu" || option === "webgl2" || option === "auto") return option;
+  try {
+    const param = new URLSearchParams(globalThis.location?.search ?? "").get("gpu");
+    if (param === "webgpu" || param === "webgl2" || param === "auto") return param;
+  } catch {}
+  return "auto";
+}
 
 function isCanvas(value) {
   return typeof HTMLCanvasElement !== "undefined" && value instanceof HTMLCanvasElement;
@@ -174,6 +184,9 @@ class KnotsBrowserHost {
     this.fullscreenElementOption = options.fullscreenElement ?? null;
     this.logTarget = options.log ?? console;
     this.onError = typeof options.onError === "function" ? options.onError : null;
+    this.requestedGpuBackend = resolveGpuBackendOption(options.gpuBackend);
+    this.gpuBackend = null;
+    this.webgl2Backend = null;
     this.gpuAdapter = null;
     this.gpuDevice = null;
     this.gpuQueue = null;
@@ -225,13 +238,90 @@ class KnotsBrowserHost {
     this.frameRequest = null;
   }
 
+  async tryInitWebGpu() {
+    if (!navigator.gpu) {
+      return { ok: false, reason: "WebGPU is not available in this browser" };
+    }
+    try {
+      let adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter: true });
+      }
+      if (!adapter) {
+        return { ok: false, reason: "WebGPU adapter unavailable" };
+      }
+      const device = await adapter.requestDevice();
+      this.gpuBackend = "webgpu";
+      this.gpuAdapter = adapter;
+      this.gpuDevice = device;
+      this.gpuQueue = device.queue;
+      this.preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: errorMessage(err) };
+    }
+  }
+
+  initWebGL2(selector) {
+    let initialCanvas = null;
+    try {
+      initialCanvas = this.resolveCanvas(selector);
+    } catch {}
+    const backend = createWebGL2Backend(initialCanvas);
+    this.webgl2Backend = backend;
+    this.gpuBackend = "webgl2";
+    this.gpuAdapter = backend.adapter;
+    this.gpuDevice = backend.device;
+    this.gpuQueue = backend.queue;
+    this.preferredFormat = backend.preferredFormat;
+  }
+
   async initGpu() {
-    if (!navigator.gpu) throw new Error("WebGPU is not available in this browser");
-    this.gpuAdapter = await navigator.gpu.requestAdapter();
-    if (!this.gpuAdapter) throw new Error("WebGPU adapter unavailable");
-    this.gpuDevice = await this.gpuAdapter.requestDevice();
-    this.gpuQueue = this.gpuDevice.queue;
-    this.preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+    if (this.requestedGpuBackend === "webgl2") {
+      try {
+        this.initWebGL2();
+        return;
+      } catch (err) {
+        this.fatalError(errorMessage(err));
+        throw err;
+      }
+    }
+
+    const webgpuResult = await this.tryInitWebGpu();
+    if (webgpuResult.ok) return;
+
+    if (this.requestedGpuBackend === "webgpu") {
+      const err = new Error(webgpuResult.reason);
+      this.fatalError(err.message);
+      throw err;
+    }
+
+    try {
+      this.initWebGL2();
+      this.log(2, `WebGPU unavailable (${webgpuResult.reason}); using WebGL2 fallback`);
+    } catch (webgl2Err) {
+      const err = new Error(
+        `Neither WebGPU (${webgpuResult.reason}) nor WebGL2 (${errorMessage(webgl2Err)}) could be initialized`,
+      );
+      this.fatalError(err.message);
+      throw err;
+    }
+  }
+
+  ensureGpuBackend(compiledBackend, selector) {
+    if (compiledBackend === "webgl2" && this.gpuBackend !== "webgl2") {
+      this.initWebGL2(selector);
+    }
+    if (!this.gpuDevice) {
+      throw new Error("GPU device is not initialized");
+    }
+  }
+
+  getGpuContext(canvas) {
+    if (this.gpuBackend === "webgl2") {
+      return this.webgl2Backend.getCanvasContext(canvas);
+    }
+    return canvas.getContext("webgpu");
   }
 
   resolveCanvas(selector) {
@@ -608,6 +698,7 @@ export async function startKnots({
   startSymbol,
   symbols,
   canvas = "#canvas",
+  gpuBackend,
   wasmExports,
   log,
   onError,
@@ -632,6 +723,7 @@ export async function startKnots({
   });
   const imports = createKnotsImports({
     canvas,
+    gpuBackend,
     fullscreenElement,
     imports: extraImports,
     wasmExports: exports,

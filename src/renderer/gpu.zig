@@ -72,6 +72,10 @@ pub const Frame = struct {
 pub const Pipeline = struct {
     inner: gpu_impl.Pipeline,
 
+    pub const GlslSource = common.Pipeline.GlslSource;
+    pub const ShaderSource = common.Pipeline.ShaderSource;
+    pub const Desc = common.Pipeline.Desc;
+
     pub fn deinit(self: *Pipeline) void {
         self.inner.deinit();
     }

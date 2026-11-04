@@ -1,7 +1,13 @@
 const Texture = @import("Texture.zig");
 
+pub const GlslSource = struct {
+    vs: []const u8,
+    fs: []const u8,
+};
+
 pub const ShaderSource = union(enum) {
     wgsl: []const u8,
+    glsl: GlslSource,
     spirv: struct {
         vs: []align(@alignOf(u32)) const u8,
         fs: []align(@alignOf(u32)) const u8,
@@ -101,6 +107,7 @@ pub const PrimitiveState = struct {
 pub const Desc = struct {
     label: []const u8 = "",
     shader: ShaderSource,
+    glsl: ?GlslSource = null,
     vs_entry: []const u8 = "vs_main",
     fs_entry: []const u8 = "fs_main",
     vertex_buffers: []const VertexBufferLayout,

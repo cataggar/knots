@@ -78,6 +78,7 @@ pub fn build(b: *std.Build) void {
     if (js_bridge_mod) |m| b.modules.put(b.graph.arena, "js-bridge", m) catch @panic("OOM");
     if (platform == .browser) {
         b.addNamedLazyPath("web-host-js", b.path("src/web/host.js"));
+        b.addNamedLazyPath("web-webgl2-js", b.path("src/web/webgl2.js"));
         b.addNamedLazyPath("web-bridge-js", b.path("lib/js-bridge/src/runtime.js"));
         b.addNamedLazyPath("web-wasi-js", b.path("src/web/wasi.js"));
         if (web_threads) {
@@ -132,6 +133,28 @@ pub fn build(b: *std.Build) void {
 
             break :blk webgpu_mod;
         },
+        .webgl2 => {
+            if (platform != .browser) {
+                std.debug.panic("gpu_backend=webgl2 is only supported for browser WebAssembly targets", .{});
+            }
+            const browser_gpu_mod = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/gpu/backend/webgpu/root.zig"),
+                .imports = &.{
+                    .{ .name = "js-bridge", .module = js_bridge_mod.? },
+                },
+            });
+            const m = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/gpu/backend/webgl2/root.zig"),
+                .imports = &.{
+                    .{ .name = "browser_gpu", .module = browser_gpu_mod },
+                },
+            });
+            break :blk m;
+        },
         .vulkan => {
             const vulkan = b.dependency("vulkan", .{
                 .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
@@ -160,6 +183,9 @@ pub fn build(b: *std.Build) void {
     });
     gpu_mod.addImport("render_types", render_types_mod);
     gpu_impl_mod.addImport("gpu", gpu_mod);
+    if (gpu_impl_mod.import_table.get("browser_gpu")) |browser_gpu_mod| {
+        browser_gpu_mod.addImport("gpu", gpu_mod);
+    }
 
     const input_mod = b.addModule("input", .{
         .target = target,
@@ -512,8 +538,10 @@ pub fn addWebHostInstall(b: *std.Build, knots: *std.Build.Dependency, options: W
     }
 
     const install_host_js = b.addInstallFileWithDir(knots.namedLazyPath("web-host-js"), .{ .custom = options.dir }, options.host_js_name);
+    const install_webgl2_js = b.addInstallFileWithDir(knots.namedLazyPath("web-webgl2-js"), .{ .custom = options.dir }, "knots-webgl2.js");
     const install_bridge_js = b.addInstallFileWithDir(knots.namedLazyPath("web-bridge-js"), .{ .custom = options.dir }, options.bridge_js_name);
     install.dependOn(&install_host_js.step);
+    install.dependOn(&install_webgl2_js.step);
     install.dependOn(&install_bridge_js.step);
     const install_wasi_js = b.addInstallFileWithDir(knots.namedLazyPath("web-wasi-js"), .{ .custom = options.dir }, "knots-wasi.js");
     install.dependOn(&install_wasi_js.step);
@@ -595,10 +623,21 @@ pub fn defaultGpuBackend(target: std.Target) GPUBackend {
 
 fn addRenderShaderSources(b: *std.Build, render_mod: *std.Build.Module) void {
     const webgpu_dir = "src/gpu/backend/webgpu/shaders/";
+    const webgl2_dir = "src/gpu/backend/webgl2/shaders/";
     const vulkan_dir = "src/gpu/backend/vulkan/shaders/";
     addShaderSource(b, render_mod, "primitives_wgsl", webgpu_dir ++ "ui_primitives.wgsl");
     addShaderSource(b, render_mod, "slug_wgsl", webgpu_dir ++ "slug.wgsl");
     addShaderSource(b, render_mod, "backdrop_wgsl", webgpu_dir ++ "backdrop.wgsl");
+    addShaderSource(b, render_mod, "primitives_vert_glsl", webgl2_dir ++ "ui_primitives.vert.glsl");
+    addShaderSource(b, render_mod, "primitives_instance_vert_glsl", webgl2_dir ++ "ui_primitives_instance.vert.glsl");
+    addShaderSource(b, render_mod, "primitives_frag_glsl", webgl2_dir ++ "ui_primitives.frag.glsl");
+    addShaderSource(b, render_mod, "slug_vert_glsl", webgl2_dir ++ "slug.vert.glsl");
+    addShaderSource(b, render_mod, "slug_frag_glsl", webgl2_dir ++ "slug.frag.glsl");
+    addShaderSource(b, render_mod, "backdrop_blur_vert_glsl", webgl2_dir ++ "backdrop_blur.vert.glsl");
+    addShaderSource(b, render_mod, "backdrop_blur_down_frag_glsl", webgl2_dir ++ "backdrop_blur_down.frag.glsl");
+    addShaderSource(b, render_mod, "backdrop_blur_up_frag_glsl", webgl2_dir ++ "backdrop_blur_up.frag.glsl");
+    addShaderSource(b, render_mod, "backdrop_glass_vert_glsl", webgl2_dir ++ "backdrop_glass.vert.glsl");
+    addShaderSource(b, render_mod, "backdrop_glass_frag_glsl", webgl2_dir ++ "backdrop_glass.frag.glsl");
     addShaderSource(
         b,
         render_mod,
