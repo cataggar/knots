@@ -18,7 +18,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
     }
     const wgsl = switch (desc.shader) {
         .wgsl => |s| s,
-        .spirv => return error.UnsupportedShaderSource,
+        .glsl, .spirv => return error.UnsupportedShaderSource,
     };
 
     const shader_module = try wgpu.ShaderModule.init(device.device.device, .{ .wgsl = wgsl });
