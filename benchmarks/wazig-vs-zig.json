@@ -1,0 +1,771 @@
+{
+  "compilers": {
+    "wazig": {
+      "compile_sec": {
+        "fmt_check": 0.913,
+        "wasm_bench_runner_debug": {
+          "cold": 25.101,
+          "warm": 10.269
+        },
+        "wasm_bench_runner_releasesmall": {
+          "cold": 11.8,
+          "warm": 7.844
+        },
+        "tests_12_wasi": {
+          "wall_parallel_sec": 34.157,
+          "sum_cpu_sec": 139.997
+        },
+        "triangle_debug": {
+          "cold": 15.973,
+          "warm": 11.486
+        },
+        "triangle_release": {
+          "cold": 12.962,
+          "warm": 9.071
+        },
+        "playground_debug_webgpu_st": 29.848,
+        "playground_release_webgpu_st": 27.162,
+        "playground_debug_webgl2_st": 30.005,
+        "playground_release_webgl2_st": 27.281,
+        "playground_debug_webgpu_mt": 34.546,
+        "playground_release_webgpu_mt": 31.283,
+        "embedded_debug": 10.013,
+        "embedded_release": 7.783,
+        "benchmark_debug": 13.803,
+        "benchmark_release": 11.353
+      },
+      "binary_sizes": {
+        "wasm_bench_runner_debug": {
+          "raw": 1527486,
+          "gzip": 532423,
+          "zstd": 442416
+        },
+        "wasm_bench_runner_releasesmall": {
+          "raw": 1131032,
+          "gzip": 423145,
+          "zstd": 364024
+        },
+        "tests_12_wasi_total": {
+          "raw": 9197580,
+          "gzip": 2874737,
+          "zstd": 2296655
+        },
+        "playground_debug_webgpu_st": {
+          "raw": 3233900,
+          "gzip": 1023221,
+          "zstd": 766089
+        },
+        "playground_release_webgpu_st": {
+          "raw": 2725313,
+          "gzip": 886817,
+          "zstd": 697297
+        },
+        "playground_debug_webgl2_st": {
+          "raw": 3198829,
+          "gzip": 1018044,
+          "zstd": 787461
+        },
+        "playground_release_webgl2_st": {
+          "raw": 2690242,
+          "gzip": 881834,
+          "zstd": 693720
+        },
+        "playground_debug_webgpu_mt": {
+          "raw": 3246912,
+          "gzip": 1027455,
+          "zstd": 792882
+        },
+        "playground_release_webgpu_mt": {
+          "raw": 2734986,
+          "gzip": 889435,
+          "zstd": 707546
+        },
+        "triangle_debug": {
+          "raw": 1741662,
+          "gzip": 588371,
+          "zstd": 480888
+        },
+        "triangle_release": {
+          "raw": 1352961,
+          "gzip": 476800,
+          "zstd": 404866
+        },
+        "embedded_debug": {
+          "raw": 1527871,
+          "gzip": 516257,
+          "zstd": 426985
+        },
+        "embedded_release": {
+          "raw": 1205163,
+          "gzip": 430433,
+          "zstd": 369023
+        },
+        "benchmark_debug": {
+          "raw": 1767100,
+          "gzip": 597659,
+          "zstd": 486193
+        },
+        "benchmark_release": {
+          "raw": 1373105,
+          "gzip": 481804,
+          "zstd": 408348
+        }
+      },
+      "runtime": {
+        "tests_12_wasi_exec_sec": 4.02,
+        "wasm_bench_runner_debug": {
+          "optimize_mode": "debug",
+          "target": "wasm32-wasi",
+          "total_bench_ms": 3214.239,
+          "total_checksum": 2186326712793932228,
+          "workloads": {
+            "layout_bench": {
+              "iterations": 300,
+              "warmup_iterations": 50,
+              "elements_per_iter": 2047,
+              "total_ms": 505.225,
+              "mean_ms": 1.6841,
+              "median_ms": 1.683,
+              "p95_ms": 1.6916,
+              "min_ms": 1.6748,
+              "max_ms": 1.7427,
+              "ops_per_sec": 593.8,
+              "checksum": 417689973924794692
+            },
+            "text_bench": {
+              "iterations": 200,
+              "warmup_iterations": 20,
+              "elements_per_iter": 3405,
+              "total_ms": 1586.054,
+              "mean_ms": 7.9303,
+              "median_ms": 7.9215,
+              "p95_ms": 7.9862,
+              "min_ms": 7.8913,
+              "max_ms": 8.1348,
+              "ops_per_sec": 126.1,
+              "checksum": 12606774574179943755
+            },
+            "render_bench": {
+              "iterations": 300,
+              "warmup_iterations": 30,
+              "elements_per_iter": 5100,
+              "total_ms": 421.388,
+              "mean_ms": 1.4046,
+              "median_ms": 1.4026,
+              "p95_ms": 1.4169,
+              "min_ms": 1.3919,
+              "max_ms": 1.4876,
+              "ops_per_sec": 711.93,
+              "checksum": 8226312248921777708
+            },
+            "combined_frame": {
+              "iterations": 100,
+              "warmup_iterations": 15,
+              "elements_per_iter": 514,
+              "total_ms": 356.623,
+              "mean_ms": 3.5662,
+              "median_ms": 3.5607,
+              "p95_ms": 3.6248,
+              "min_ms": 3.5407,
+              "max_ms": 3.6465,
+              "ops_per_sec": 280.41,
+              "checksum": 8133605907336869050
+            }
+          }
+        },
+        "wasm_bench_runner_releasesmall": {
+          "optimize_mode": "small",
+          "target": "wasm32-wasi",
+          "total_bench_ms": 2569.108,
+          "total_checksum": 2186326712793932228,
+          "workloads": {
+            "layout_bench": {
+              "iterations": 300,
+              "warmup_iterations": 50,
+              "elements_per_iter": 2047,
+              "total_ms": 472.321,
+              "mean_ms": 1.5744,
+              "median_ms": 1.5745,
+              "p95_ms": 1.5793,
+              "min_ms": 1.5672,
+              "max_ms": 1.6087,
+              "ops_per_sec": 635.16,
+              "checksum": 417689973924794692
+            },
+            "text_bench": {
+              "iterations": 200,
+              "warmup_iterations": 20,
+              "elements_per_iter": 3405,
+              "total_ms": 1100.956,
+              "mean_ms": 5.5048,
+              "median_ms": 5.5048,
+              "p95_ms": 5.5187,
+              "min_ms": 5.4874,
+              "max_ms": 5.5423,
+              "ops_per_sec": 181.66,
+              "checksum": 12606774574179943755
+            },
+            "render_bench": {
+              "iterations": 300,
+              "warmup_iterations": 30,
+              "elements_per_iter": 5100,
+              "total_ms": 385.05,
+              "mean_ms": 1.2835,
+              "median_ms": 1.2821,
+              "p95_ms": 1.2935,
+              "min_ms": 1.2759,
+              "max_ms": 1.3076,
+              "ops_per_sec": 779.12,
+              "checksum": 8226312248921777708
+            },
+            "combined_frame": {
+              "iterations": 100,
+              "warmup_iterations": 15,
+              "elements_per_iter": 514,
+              "total_ms": 328.697,
+              "mean_ms": 3.287,
+              "median_ms": 3.2859,
+              "p95_ms": 3.3028,
+              "min_ms": 3.2742,
+              "max_ms": 3.3123,
+              "ops_per_sec": 304.23,
+              "checksum": 8133605907336869050
+            }
+          }
+        }
+      }
+    },
+    "zig_nollvm": {
+      "compile_sec": {
+        "fmt_check": 0.044,
+        "wasm_bench_runner_debug": {
+          "cold": 3.813,
+          "warm": 0.291
+        },
+        "wasm_bench_runner_releasesmall": {
+          "cold": 2.186,
+          "warm": 0.246
+        },
+        "tests_12_wasi": {
+          "wall_parallel_sec": 9.784,
+          "sum_cpu_sec": 43.475
+        },
+        "triangle_debug": {
+          "cold": 2.963,
+          "warm": 0.31
+        },
+        "triangle_release": {
+          "cold": 2.233,
+          "warm": 0.274
+        },
+        "playground_debug_webgpu_st": 1.294,
+        "playground_release_webgpu_st": 1.236,
+        "playground_debug_webgl2_st": 1.261,
+        "playground_release_webgl2_st": 1.274,
+        "playground_debug_webgpu_mt": {
+          "error": "src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction \"global.get\""
+        },
+        "playground_release_webgpu_mt": {
+          "error": "src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction \"global.get\""
+        },
+        "embedded_debug": 0.479,
+        "embedded_release": 0.393,
+        "benchmark_debug": 0.487,
+        "benchmark_release": 0.407
+      },
+      "binary_sizes": {
+        "wasm_bench_runner_debug": {
+          "raw": 1721051,
+          "gzip": 565747,
+          "zstd": 461024
+        },
+        "wasm_bench_runner_releasesmall": {
+          "raw": 1239509,
+          "gzip": 434279,
+          "zstd": 369462
+        },
+        "tests_12_wasi_total": {
+          "raw": 10824712,
+          "gzip": 3176910,
+          "zstd": 2509718
+        },
+        "triangle_debug": {
+          "raw": 1947644,
+          "gzip": 620909,
+          "zstd": 501829
+        },
+        "triangle_release": {
+          "raw": 1471850,
+          "gzip": 490823,
+          "zstd": 411077
+        },
+        "playground_debug_webgpu_st": {
+          "raw": 3485003,
+          "gzip": 1063610,
+          "zstd": 806816
+        },
+        "playground_release_webgpu_st": {
+          "raw": 2885287,
+          "gzip": 905858,
+          "zstd": 707610
+        },
+        "playground_debug_webgl2_st": {
+          "raw": 3449921,
+          "gzip": 1058343,
+          "zstd": 809357
+        },
+        "playground_release_webgl2_st": {
+          "raw": 2850213,
+          "gzip": 900055,
+          "zstd": 704291
+        },
+        "playground_debug_webgpu_mt": {
+          "error": "src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction \"global.get\""
+        },
+        "playground_release_webgpu_mt": {
+          "error": "src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction \"global.get\""
+        },
+        "embedded_debug": {
+          "raw": 1720161,
+          "gzip": 549514,
+          "zstd": 449596
+        },
+        "embedded_release": {
+          "raw": 1305835,
+          "gzip": 441977,
+          "zstd": 374085
+        },
+        "benchmark_debug": {
+          "raw": 1979724,
+          "gzip": 633259,
+          "zstd": 508761
+        },
+        "benchmark_release": {
+          "raw": 1497663,
+          "gzip": 496854,
+          "zstd": 416386
+        }
+      },
+      "runtime": {
+        "wasm_bench_runner_debug": {
+          "optimize_mode": "debug",
+          "target": "wasm32-wasi",
+          "total_bench_ms": 2438.212,
+          "total_checksum": 2186326712793932228,
+          "workloads": {
+            "layout_bench": {
+              "iterations": 300,
+              "warmup_iterations": 50,
+              "elements_per_iter": 2047,
+              "total_ms": 487.311,
+              "mean_ms": 1.6244,
+              "median_ms": 1.6246,
+              "p95_ms": 1.6287,
+              "min_ms": 1.6172,
+              "max_ms": 1.6409,
+              "ops_per_sec": 615.62,
+              "checksum": 417689973924794692
+            },
+            "text_bench": {
+              "iterations": 200,
+              "warmup_iterations": 20,
+              "elements_per_iter": 3405,
+              "total_ms": 1025.438,
+              "mean_ms": 5.1272,
+              "median_ms": 5.1252,
+              "p95_ms": 5.1535,
+              "min_ms": 5.1116,
+              "max_ms": 5.2016,
+              "ops_per_sec": 195.04,
+              "checksum": 12606774574179943755
+            },
+            "render_bench": {
+              "iterations": 300,
+              "warmup_iterations": 30,
+              "elements_per_iter": 5100,
+              "total_ms": 349.997,
+              "mean_ms": 1.1667,
+              "median_ms": 1.1652,
+              "p95_ms": 1.1748,
+              "min_ms": 1.1581,
+              "max_ms": 1.1986,
+              "ops_per_sec": 857.15,
+              "checksum": 8226312248921777708
+            },
+            "combined_frame": {
+              "iterations": 100,
+              "warmup_iterations": 15,
+              "elements_per_iter": 514,
+              "total_ms": 305.588,
+              "mean_ms": 3.0559,
+              "median_ms": 3.0554,
+              "p95_ms": 3.068,
+              "min_ms": 3.0427,
+              "max_ms": 3.0741,
+              "ops_per_sec": 327.24,
+              "checksum": 8133605907336869050
+            }
+          }
+        },
+        "wasm_bench_runner_releasesmall": {
+          "optimize_mode": "small",
+          "target": "wasm32-wasi",
+          "total_bench_ms": 1996.16,
+          "total_checksum": 2186326712793932228,
+          "workloads": {
+            "layout_bench": {
+              "iterations": 300,
+              "warmup_iterations": 50,
+              "elements_per_iter": 2047,
+              "total_ms": 461.849,
+              "mean_ms": 1.5395,
+              "median_ms": 1.5396,
+              "p95_ms": 1.5442,
+              "min_ms": 1.5314,
+              "max_ms": 1.5498,
+              "ops_per_sec": 649.56,
+              "checksum": 417689973924794692
+            },
+            "text_bench": {
+              "iterations": 200,
+              "warmup_iterations": 20,
+              "elements_per_iter": 3405,
+              "total_ms": 723.396,
+              "mean_ms": 3.617,
+              "median_ms": 3.6154,
+              "p95_ms": 3.6335,
+              "min_ms": 3.601,
+              "max_ms": 3.69,
+              "ops_per_sec": 276.47,
+              "checksum": 12606774574179943755
+            },
+            "render_bench": {
+              "iterations": 300,
+              "warmup_iterations": 30,
+              "elements_per_iter": 5100,
+              "total_ms": 307.207,
+              "mean_ms": 1.024,
+              "median_ms": 1.0229,
+              "p95_ms": 1.0316,
+              "min_ms": 1.0175,
+              "max_ms": 1.0468,
+              "ops_per_sec": 976.54,
+              "checksum": 8226312248921777708
+            },
+            "combined_frame": {
+              "iterations": 100,
+              "warmup_iterations": 15,
+              "elements_per_iter": 514,
+              "total_ms": 277.436,
+              "mean_ms": 2.7744,
+              "median_ms": 2.7741,
+              "p95_ms": 2.7861,
+              "min_ms": 2.7603,
+              "max_ms": 2.7925,
+              "ops_per_sec": 360.44,
+              "checksum": 8133605907336869050
+            }
+          }
+        },
+        "tests_12_wasi_exec_sec": 4.798
+      }
+    },
+    "zig_llvm": {
+      "compile_sec": {
+        "fmt_check": 0.044,
+        "wasm_bench_runner_debug": {
+          "cold": 6.334,
+          "warm": 2.734
+        },
+        "wasm_bench_runner_releasesmall": {
+          "cold": 7.444,
+          "warm": 5.328
+        },
+        "tests_12_wasi": {
+          "wall_parallel_sec": 14.726,
+          "sum_cpu_sec": 63.879
+        },
+        "triangle_debug": {
+          "cold": 5.732,
+          "warm": 3.119
+        },
+        "triangle_release": {
+          "cold": 8.56,
+          "warm": 6.434
+        },
+        "playground_debug_webgpu_st": 5.936,
+        "playground_release_webgpu_st": 13.81,
+        "playground_debug_webgl2_st": 5.805,
+        "playground_release_webgl2_st": 13.452,
+        "playground_debug_webgpu_mt": 8.745,
+        "playground_release_webgpu_mt": 16.348,
+        "embedded_debug": 2.852,
+        "embedded_release": 5.943,
+        "benchmark_debug": 3.36,
+        "benchmark_release": 7.289
+      },
+      "binary_sizes": {
+        "wasm_bench_runner_debug": {
+          "raw": 3707906,
+          "gzip": 1227312,
+          "zstd": 1002713
+        },
+        "wasm_bench_runner_releasesmall": {
+          "raw": 707142,
+          "gzip": 344105,
+          "zstd": 308217
+        },
+        "tests_12_wasi_total": {
+          "raw": 29879435,
+          "gzip": 9100359,
+          "zstd": 7368827
+        },
+        "triangle_debug": {
+          "raw": 3953089,
+          "gzip": 1319381,
+          "zstd": 1062323
+        },
+        "triangle_release": {
+          "raw": 833381,
+          "gzip": 378273,
+          "zstd": 338213
+        },
+        "playground_debug_webgpu_st": {
+          "raw": 6309184,
+          "gzip": 2044077,
+          "zstd": 1539407
+        },
+        "playground_release_webgpu_st": {
+          "raw": 1848363,
+          "gzip": 725744,
+          "zstd": 593068
+        },
+        "playground_debug_webgl2_st": {
+          "raw": 6274128,
+          "gzip": 2039171,
+          "zstd": 1545088
+        },
+        "playground_release_webgl2_st": {
+          "raw": 1813353,
+          "gzip": 719136,
+          "zstd": 603864
+        },
+        "playground_debug_webgpu_mt": {
+          "raw": 6349819,
+          "gzip": 2058887,
+          "zstd": 1580630
+        },
+        "playground_release_webgpu_mt": {
+          "raw": 1852637,
+          "gzip": 727624,
+          "zstd": 613551
+        },
+        "embedded_debug": {
+          "raw": 3511025,
+          "gzip": 1154595,
+          "zstd": 940856
+        },
+        "embedded_release": {
+          "raw": 764192,
+          "gzip": 350207,
+          "zstd": 313639
+        },
+        "benchmark_debug": {
+          "raw": 4029345,
+          "gzip": 1340078,
+          "zstd": 1078984
+        },
+        "benchmark_release": {
+          "raw": 840709,
+          "gzip": 381191,
+          "zstd": 340846
+        }
+      },
+      "runtime": {
+        "wasm_bench_runner_debug": {
+          "optimize_mode": "debug",
+          "target": "wasm32-wasi",
+          "total_bench_ms": 2229.839,
+          "total_checksum": 13151244770801229719,
+          "workloads": {
+            "layout_bench": {
+              "iterations": 300,
+              "warmup_iterations": 50,
+              "elements_per_iter": 2047,
+              "total_ms": 486.504,
+              "mean_ms": 1.6217,
+              "median_ms": 1.6213,
+              "p95_ms": 1.6269,
+              "min_ms": 1.6137,
+              "max_ms": 1.6834,
+              "ops_per_sec": 616.64,
+              "checksum": 417689973924794692
+            },
+            "text_bench": {
+              "iterations": 200,
+              "warmup_iterations": 20,
+              "elements_per_iter": 3405,
+              "total_ms": 882.267,
+              "mean_ms": 4.4113,
+              "median_ms": 4.4078,
+              "p95_ms": 4.4383,
+              "min_ms": 4.3903,
+              "max_ms": 4.4817,
+              "ops_per_sec": 226.69,
+              "checksum": 7686275582076872382
+            },
+            "render_bench": {
+              "iterations": 300,
+              "warmup_iterations": 30,
+              "elements_per_iter": 5100,
+              "total_ms": 313.635,
+              "mean_ms": 1.0454,
+              "median_ms": 1.0445,
+              "p95_ms": 1.0532,
+              "min_ms": 1.0373,
+              "max_ms": 1.0937,
+              "ops_per_sec": 956.53,
+              "checksum": 8226312248921777708
+            },
+            "combined_frame": {
+              "iterations": 100,
+              "warmup_iterations": 15,
+              "elements_per_iter": 514,
+              "total_ms": 296.676,
+              "mean_ms": 2.9668,
+              "median_ms": 2.9604,
+              "p95_ms": 3.0244,
+              "min_ms": 2.941,
+              "max_ms": 3.065,
+              "ops_per_sec": 337.07,
+              "checksum": 8133605907336869050
+            }
+          }
+        },
+        "wasm_bench_runner_releasesmall": {
+          "optimize_mode": "small",
+          "target": "wasm32-wasi",
+          "total_bench_ms": 539.788,
+          "total_checksum": 13151244770801229719,
+          "workloads": {
+            "layout_bench": {
+              "iterations": 300,
+              "warmup_iterations": 50,
+              "elements_per_iter": 2047,
+              "total_ms": 87.665,
+              "mean_ms": 0.2922,
+              "median_ms": 0.2913,
+              "p95_ms": 0.2955,
+              "min_ms": 0.2895,
+              "max_ms": 0.2976,
+              "ops_per_sec": 3422.12,
+              "checksum": 417689973924794692
+            },
+            "text_bench": {
+              "iterations": 200,
+              "warmup_iterations": 20,
+              "elements_per_iter": 3405,
+              "total_ms": 235.685,
+              "mean_ms": 1.1784,
+              "median_ms": 1.1768,
+              "p95_ms": 1.1852,
+              "min_ms": 1.1727,
+              "max_ms": 1.2457,
+              "ops_per_sec": 848.59,
+              "checksum": 7686275582076872382
+            },
+            "render_bench": {
+              "iterations": 300,
+              "warmup_iterations": 30,
+              "elements_per_iter": 5100,
+              "total_ms": 81.818,
+              "mean_ms": 0.2727,
+              "median_ms": 0.2692,
+              "p95_ms": 0.2826,
+              "min_ms": 0.2678,
+              "max_ms": 0.2924,
+              "ops_per_sec": 3666.7,
+              "checksum": 8226312248921777708
+            },
+            "combined_frame": {
+              "iterations": 100,
+              "warmup_iterations": 15,
+              "elements_per_iter": 514,
+              "total_ms": 74.555,
+              "mean_ms": 0.7456,
+              "median_ms": 0.7465,
+              "p95_ms": 0.7591,
+              "min_ms": 0.7352,
+              "max_ms": 0.7641,
+              "ops_per_sec": 1341.29,
+              "checksum": 8133605907336869050
+            }
+          }
+        },
+        "tests_12_wasi_exec_sec": 10.699
+      }
+    }
+  },
+  "toolchain_footprint": {
+    "wazig": {
+      "version": "0.17.0-wazig.3",
+      "release": "cataggar/zig@v0.17.0-wazig.3",
+      "archive_format": "wazig.tar.zst",
+      "archive_bytes": 8860467,
+      "archive_mb": 8.45,
+      "unpacked_release_bytes": 42362470,
+      "unpacked_release_mb": 40.4,
+      "wasm_binary_bytes": 22124954,
+      "wasm_binary_mb": 21.1,
+      "std_lib_bytes": 20237516,
+      "std_lib_mb": 19.3,
+      "ghr_installed_bytes": 74645512,
+      "ghr_installed_mb": 71.2,
+      "file_count": 1324,
+      "architecture": "wasm64-wasip3 (universal single binary across Linux/macOS/Windows x86_64 & aarch64)",
+      "attestation": "Native Sigstore bundle verified via ghr"
+    },
+    "zig": {
+      "version": "0.17.0-dev.27+0dd99239c",
+      "release": "zig-x86_64-linux-0.17.0",
+      "archive_format": "tar.xz",
+      "archive_bytes": 53687091,
+      "archive_mb": 51.2,
+      "unpacked_release_bytes": 277872640,
+      "unpacked_release_mb": 265.0,
+      "ghr_installed_bytes": 377815235,
+      "ghr_installed_mb": 360.3,
+      "file_count": 19505,
+      "architecture": "OS/arch-specific native binaries (x86_64-linux, aarch64-macos, x86_64-windows, etc.)",
+      "attestation": "minisign signature (external tool required)"
+    },
+    "wasm_deps_footprint": {
+      "lazy_wasm_only": {
+        "packages": [
+          "TrueType",
+          "tracy"
+        ],
+        "package_count": 2,
+        "archive_mb": 4.91,
+        "unpacked_bytes": 36391866,
+        "unpacked_mb": 34.71
+      },
+      "eager_all_deps": {
+        "packages": [
+          "TrueType",
+          "tracy",
+          "Vulkan_Headers",
+          "zigwin32",
+          "wgpu_native_zig",
+          "vulkan_zig",
+          "zig_wayland",
+          "zig_objc",
+          "celer"
+        ],
+        "package_count": 9,
+        "archive_mb": 230.0,
+        "unpacked_mb": 680.0
+      }
+    }
+  }
+}

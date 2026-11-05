@@ -1,7 +1,6 @@
 const std = @import("std");
 const web_build = @import("web_build.zig");
 const build_zon = @import("build.zig.zon");
-const WaylandScanner = @import("wayland").Scanner;
 
 pub const GPUBackend = @import("src/gpu/backend/root.zig").Backend;
 
@@ -60,7 +59,7 @@ pub fn build(b: *std.Build) void {
     if (platform == .browser) web_build.configureWasmTarget(&target, web_threads);
 
     const accesskit_dep = if (platform == .native)
-        b.dependency("accesskit", .{ .target = target, .optimize = optimize })
+        b.lazyDependency("accesskit", .{ .target = target, .optimize = optimize })
     else
         null;
 
@@ -127,7 +126,7 @@ pub fn build(b: *std.Build) void {
             if (platform == .browser)
                 webgpu_mod.addImport("js-bridge", js_bridge_mod.?)
             else {
-                const wgpu = b.dependency("wgpu", .{ .target = target, .optimize = optimize });
+                const wgpu = b.lazyDependency("wgpu", .{ .target = target, .optimize = optimize }) orelse return;
                 webgpu_mod.addImport("wgpu", wgpu.module("wgpu"));
             }
 
@@ -156,9 +155,10 @@ pub fn build(b: *std.Build) void {
             break :blk m;
         },
         .vulkan => {
-            const vulkan = b.dependency("vulkan", .{
-                .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
-            });
+            const vulkan_headers = b.lazyDependency("vulkan_headers", .{}) orelse return;
+            const vulkan = b.lazyDependency("vulkan", .{
+                .registry = vulkan_headers.path("registry/vk.xml"),
+            }) orelse return;
             buildTool(vulkan.artifact("vulkan-zig-generator"));
             break :blk b.createModule(.{
                 .target = target,
@@ -206,7 +206,7 @@ pub fn build(b: *std.Build) void {
     const window_impl_mod = blk: {
         switch (target.result.os.tag) {
             .macos => {
-                const objc_dep = b.dependency("zig_objc", .{ .target = target, .optimize = optimize });
+                const objc_dep = b.lazyDependency("zig_objc", .{ .target = target, .optimize = optimize }) orelse return;
                 const m = b.createModule(.{
                     .target = target,
                     .optimize = optimize,
@@ -223,7 +223,7 @@ pub fn build(b: *std.Build) void {
                 break :blk m;
             },
             .windows => {
-                const win32_dep = b.dependency("win32", .{});
+                const win32_dep = b.lazyDependency("win32", .{}) orelse return;
                 break :blk b.createModule(.{
                     .target = target,
                     .optimize = optimize,
@@ -236,7 +236,9 @@ pub fn build(b: *std.Build) void {
                 });
             },
             .linux => {
-                const scanner = WaylandScanner.create(b, .{});
+                _ = b.lazyDependency("wayland", .{}) orelse return;
+                const wayland = b.lazyImport(@This(), "wayland") orelse return;
+                const scanner = wayland.Scanner.create(b, .{});
                 buildTool(scanner.run.producer.?);
                 scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
                 scanner.addSystemProtocol("unstable/xdg-decoration/xdg-decoration-unstable-v1.xml");
@@ -476,6 +478,29 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(input_tests).step);
     test_step.dependOn(&b.addRunArtifact(public_render_consumer_tests).step);
     test_step.dependOn(&b.addRunArtifact(embedded_view_consumer_tests).step);
+
+    const bench_exe = b.addExecutable(.{
+        .name = "knots-wasm-bench",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("tests/wasm_bench_runner.zig"),
+            .imports = &.{
+                .{ .name = "math", .module = math_mod },
+                .{ .name = "style", .module = style_mod },
+                .{ .name = "layout", .module = layout_mod },
+                .{ .name = "TrueType", .module = truetype_dep.module("TrueType") },
+                .{ .name = "text", .module = text_mod },
+                .{ .name = "render_types", .module = render_types_mod },
+                .{ .name = "render", .module = render_mod },
+                .{ .name = "input", .module = input_mod },
+                .{ .name = "ui", .module = ui_mod },
+            },
+        }),
+    });
+    const run_bench = b.addRunArtifact(bench_exe);
+    const bench_step = b.step("bench", "Run headless UI/layout/text/render benchmark suite");
+    bench_step.dependOn(&run_bench.step);
     if (platform == .native) {
         const snapshot_exe = b.addExecutable(.{
             .name = "knots-snapshots",
@@ -574,7 +599,9 @@ pub const DevWatcherOptions = struct {
 /// `exe`, or reload the page when `exe` is a browser app. The app is the one
 /// `options.step` installs, with nothing added for dev.
 pub fn addDevWatcher(b: *std.Build, knots: *std.Build.Dependency, step: *std.Build.Step, exe: *std.Build.Step.Compile, options: DevWatcherOptions) void {
+    if (b.graph.host.result.cpu.arch.isWasm()) return;
     const knots_builder = knots.builder;
+    const celer_dep = knots_builder.lazyDependency("celer", .{ .target = b.graph.host, .optimize = .ReleaseFast }) orelse return;
     const tool = b.addExecutable(.{
         .name = "knots-dev",
         .root_module = b.createModule(.{
@@ -583,7 +610,7 @@ pub fn addDevWatcher(b: *std.Build, knots: *std.Build.Dependency, step: *std.Bui
             .optimize = .Debug,
             .imports = &.{.{
                 .name = "celer",
-                .module = knots_builder.dependency("celer", .{ .target = b.graph.host, .optimize = .ReleaseFast }).module("celer"),
+                .module = celer_dep.module("celer"),
             }},
         }),
     });
