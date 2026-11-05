@@ -29,6 +29,7 @@ Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-waz
 | `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **0.913s** | 0.044s | 0.044s |
 | `wasm_bench_runner.zig` (`Debug`) | 25.10s (cold) / 10.27s (warm) | 3.81s (cold) / 0.29s (warm) | 6.33s (cold) / 2.73s (warm) |
 | `wasm_bench_runner.zig` (`ReleaseSmall`) | 11.80s (cold) / 7.84s (warm) | 2.19s (cold) / 0.25s (warm) | 7.44s (cold) / 5.33s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseFast`) | 22.74s (cold) / 8.07s (warm) | 3.62s (cold) / 0.25s (warm) | 14.05s (cold) / 10.67s (warm) |
 | All 12 `wasm32-wasi` Test Suites (`js-bridge` + 11 `knots` suites) | 34.16s wall (140.0s CPU) | 9.78s wall (43.5s CPU) | 14.73s wall (63.9s CPU) |
 | `examples/triangle` (`Debug`) | 15.97s (cold) / 11.49s (warm) | 2.96s (cold) / 0.31s (warm) | 5.73s (cold) / 3.12s (warm) |
 | `examples/triangle` (`ReleaseSmall`) | 12.96s (cold) / 9.07s (warm) | 2.23s (cold) / 0.27s (warm) | 8.56s (cold) / 6.43s (warm) |
@@ -63,6 +64,7 @@ Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-waz
 | `benchmark` (`ReleaseSmall`) | 1,340.9 KB / 470.5 KB / **398.8 KB** | 1,462.6 KB / 485.2 KB / **406.6 KB** | 821.0 KB / 372.3 KB / **332.9 KB** | **-8.3%** |
 | `wasm_bench_runner` (`Debug`) | 1,491.7 KB / 519.9 KB / **432.0 KB** | 1,680.7 KB / 552.5 KB / **450.2 KB** | 3,621.0 KB / 1,198.5 KB / **979.2 KB** | **-11.2%** |
 | `wasm_bench_runner` (`ReleaseSmall`) | 1,104.5 KB / 413.2 KB / **355.5 KB** | 1,210.5 KB / 424.1 KB / **360.8 KB** | 690.6 KB / 336.0 KB / **301.0 KB** | **-8.8%** |
+| `wasm_bench_runner` (`ReleaseFast`) | 1,242.5 KB / 444.9 KB / **385.7 KB** | 1,349.4 KB / 457.4 KB / **390.9 KB** | 3,032.3 KB / 1,023.7 KB / **865.0 KB** | **-7.9%** |
 | All 12 `wasm32-wasi` Test Binaries (`Debug` Total) | 8,982.0 KB / 2,807.4 KB / **2,242.8 KB** | 10,571.0 KB / 3,102.5 KB / **2,450.9 KB** | 29,179.1 KB / 8,887.1 KB / **7,196.1 KB** | **-15.0%** |
 
 **Key Binary Size Takeaways:**
@@ -82,7 +84,20 @@ Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-waz
 | **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **1.282 ms** / 1.294 ms (**779.1 FPS**) | 1.023 ms / 1.032 ms (976.5 FPS) | 0.269 ms / 0.283 ms (3,666.7 FPS) | `8226312248921777708` |
 | **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **3.286 ms** / 3.303 ms (**304.2 FPS**) | 2.774 ms / 2.786 ms (360.4 FPS) | 0.747 ms / 0.759 ms (1,341.3 FPS) | `8133605907336869050` |
 
-### D.2 `wasm_bench_runner.wasm` — `Debug`
+### D.2 `wasm_bench_runner.wasm` — `ReleaseFast` vs `ReleaseSmall`
+
+| Workload | Iterations | Elements/Iter | `wazig` `ReleaseFast` (Median / P95 / FPS) | `zig -fno-llvm` `ReleaseFast` (Median / P95 / FPS) | `zig -fllvm` `ReleaseFast` (Median / P95 / FPS) | Checksum |
+| :--- | ---: | ---: | ---: | ---: | ---: | :--- |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **1.575 ms** / 1.583 ms (**634.7 FPS**) | 1.542 ms / 1.548 ms (648.6 FPS) | 0.208 ms / 0.215 ms (4,771.1 FPS) | `417689973924794692` |
+| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **5.513 ms** / 5.536 ms (**181.4 FPS**) | 3.614 ms / 3.635 ms (276.6 FPS) | 0.890 ms / 0.895 ms (1,123.8 FPS) | `12606774574179943755` |
+| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **1.278 ms** / 1.287 ms (**781.4 FPS**) | 1.020 ms / 1.030 ms (979.5 FPS) | 0.167 ms / 0.182 ms (5,900.2 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **3.277 ms** / 3.293 ms (**305.0 FPS**) | 2.777 ms / 2.826 ms (359.4 FPS) | 0.489 ms / 0.496 ms (2,053.5 FPS) | `8133605907336869050` |
+
+**`ReleaseFast` vs `ReleaseSmall` Analysis:**
+- **`wazig` (`-fno-llvm`) & `zig -fno-llvm`**: `ReleaseFast` (`1,242.5 KB` raw / `385.7 KB` zstd on `wazig`) is **+12.5% larger** than `ReleaseSmall` (`1,104.5 KB` raw / `355.5 KB` zstd) with nearly identical frame times (`3.276 ms` / `305.0 FPS` vs `3.286 ms` / `304.2 FPS`), because both modes disable runtime safety checks (`wantSafety() == false`) and `stage2_wasm` currently runs the same `CodeGen.zig`, `Mir.Optimize`, and `Optimizer.zig` passes for `ReleaseSmall` and `ReleaseFast`.
+- **`zig -fllvm` (LLVM 22)**: `ReleaseFast` increases `combined_frame` throughput from `1,341.3 FPS` (`0.747 ms`) to `2,053.5 FPS` (`0.487 ms`, `+53.1%`), but explodes `.wasm` binary size by **4.39x** (`3,032.3 KB` raw / `865.0 KB` zstd vs `690.6 KB` raw / `301.0 KB` zstd in `ReleaseSmall` — making `-fllvm ReleaseFast` **2.44x larger** than `wazig ReleaseFast` and **2.75x larger** than `wazig ReleaseSmall`).
+
+### D.3 `wasm_bench_runner.wasm` — `Debug`
 
 | Workload | Iterations | Elements/Iter | `wazig` (Median / P95 / FPS) | `zig -fno-llvm` (Median / P95 / FPS) | `zig -fllvm` (Median / P95 / FPS) | Checksum |
 | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
@@ -91,7 +106,7 @@ Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-waz
 | **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **1.403 ms** / 1.417 ms (**711.9 FPS**) | 1.165 ms / 1.175 ms (857.1 FPS) | 1.044 ms / 1.053 ms (956.5 FPS) | `8226312248921777708` |
 | **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **3.561 ms** / 3.625 ms (**280.4 FPS**) | 3.055 ms / 3.068 ms (327.2 FPS) | 2.960 ms / 3.024 ms (337.1 FPS) | `8133605907336869050` |
 
-### D.3 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)
+### D.4 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)
 
 | Compiler | Test Binaries Passed | Total `wasmtime run` Execution Time | Speedup vs `zig -fllvm` |
 | :--- | :---: | ---: | ---: |
@@ -100,4 +115,20 @@ Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-waz
 | **`zig v0.17.0 -fllvm`** | 12 / 12 (with `+atomics`) | 10.699 s | 1.00x (baseline) |
 
 > *\*Upstream `zig 0.17.0 -fno-llvm` (`0.17.0-dev.27+0dd99239c`) emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.0-wazig.3` fixes both bugs.*
+
+---
+
+## E. Built-In `wazig` Runtime Optimization Roadmap (No External Tools)
+
+All Wasm runtime FPS improvements are tracked directly in `cataggar/zig` (`wazig`'s self-hosted Wasm backend and linker optimizer, with zero external tools like `wasm-opt`) and `cataggar/knots#9`:
+
+1. **[`cataggar/zig#153`](https://github.com/cataggar/zig/issues/153) — Inline `f32`/`f64` `@min`/`@max` and 128-bit integer shifts/muls in `CodeGen.zig`**:
+   - **Root cause**: `CodeGen.floatMax`/`floatMin` currently calls `fmaxf`/`fminf` in `compiler_rt`, which under `stage2_wasm` executes 6 nested Wasm calls (`fmaxf` -> `fmax_f32` -> 2x `isNan` + 2–3x `signbit`) and accounts for **28.3% of total CPU samples** (`6,065 / 21,457` samples in `wasmtime run --profile=guest`).
+   - **Verified prototype impact**: Lowering `@max`/`@min` on `f32` to branchless `f32.gt`/`f32.lt` + `f32.ne` + `i32.or` + `select` improves `text_bench` from `5.505 ms` (`181.7 FPS`) to **`3.746 ms` (`266.8 FPS`, +47.0% faster)**, `render_bench` from `1.282 ms` (`779.1 FPS`) to **`1.021 ms` (`979.1 FPS`, +25.7% faster)**, and `layout_bench` from `1.575 ms` (`635.2 FPS`) to **`1.449 ms` (`690.0 FPS`)** with identical checksums.
+2. **[`cataggar/zig#154`](https://github.com/cataggar/zig/issues/154) — Scalar Replacement of Aggregates (SROA) / stack-slot promotion to Wasm locals in `CodeGen.zig`**:
+   - Promotes non-address-escaped `airAlloc` scalars and small structs (`[]const T`, `?T`, `E!T`, `Vec2`, `Rect`, `Color`, `Element.Sizing`) from the linear-memory shadow stack (`$__stack_pointer`) into Wasm SSA locals (`local.get`/`local.set`), eliminating `memory.copy` and `$__stack_pointer` frame prologues (`>= 2x` FPS target).
+3. **[`cataggar/zig#155`](https://github.com/cataggar/zig/issues/155) — Extend `Optimizer.zig` and `ReleaseFast`/`ReleaseSmall` inlining to parameterized small leaf functions**:
+   - Extends `inlineTrivialFunctions` in `src/link/Wasm/component/Optimizer.zig` beyond `params.len == 0` to inline hot parameterized leaf helpers (`std.debug.assert`, `ElementPool.get`, `Rect.x`/`y`/`w`/`h`, `TrueType.Buf.get8`/`get16`, `ArrayList.appendAssumeCapacity`, `DrawList.Box.add`) and differentiates `ReleaseFast` vs `ReleaseSmall` inlining budgets.
+4. **[`cataggar/zig#156`](https://github.com/cataggar/zig/issues/156) — Fix `IllDefinedMemoryLayout` panic on `@Vector` types with `+simd128` and implement `v128` vector arithmetic**:
+   - Unlocks `-mcpu=baseline+simd128` (`v128` `f32x4.*` / `i32x4.*` SIMD instructions) in `wazig` (`cataggar/knots#9`).
 
