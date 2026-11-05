@@ -519,6 +519,10 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
     zn_rel_rt = zn["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
     zl_rel_rt = zl["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
 
+    w_fast_rt = w["runtime"].get("wasm_bench_runner_releasefast", w["runtime"]["wasm_bench_runner_releasesmall"])["workloads"]
+    zn_fast_rt = zn["runtime"].get("wasm_bench_runner_releasefast", zn["runtime"]["wasm_bench_runner_releasesmall"])["workloads"]
+    zl_fast_rt = zl["runtime"].get("wasm_bench_runner_releasefast", zl["runtime"]["wasm_bench_runner_releasesmall"])["workloads"]
+
     w_dbg_rt = w["runtime"]["wasm_bench_runner_debug"]["workloads"]
     zn_dbg_rt = zn["runtime"]["wasm_bench_runner_debug"]["workloads"]
     zl_dbg_rt = zl["runtime"]["wasm_bench_runner_debug"]["workloads"]
@@ -570,6 +574,7 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
         f"| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **{w['compile_sec']['fmt_check']:.3f}s** | {zn['compile_sec']['fmt_check']:.3f}s | {zl['compile_sec']['fmt_check']:.3f}s |",
         f"| `wasm_bench_runner.zig` (`Debug`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_debug'])} |",
         f"| `wasm_bench_runner.zig` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_releasesmall'])} |",
+        f"| `wasm_bench_runner.zig` (`ReleaseFast`) | {fmt_comp_cell(w['compile_sec'].get('wasm_bench_runner_releasefast', w['compile_sec']['wasm_bench_runner_releasesmall']))} | {fmt_comp_cell(zn['compile_sec'].get('wasm_bench_runner_releasefast', zn['compile_sec']['wasm_bench_runner_releasesmall']))} | {fmt_comp_cell(zl['compile_sec'].get('wasm_bench_runner_releasefast', zl['compile_sec']['wasm_bench_runner_releasesmall']))} |",
         f"| All 12 `wasm32-wasi` Test Suites (`js-bridge` + 11 `knots` suites) | {fmt_comp_cell(w['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(zn['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(zl['compile_sec']['tests_12_wasi'])} |",
         f"| `examples/triangle` (`Debug`) | {fmt_comp_cell(w['compile_sec']['triangle_debug'])} | {fmt_comp_cell(zn['compile_sec']['triangle_debug'])} | {fmt_comp_cell(zl['compile_sec']['triangle_debug'])} |",
         f"| `examples/triangle` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['triangle_release'])} | {fmt_comp_cell(zn['compile_sec']['triangle_release'])} | {fmt_comp_cell(zl['compile_sec']['triangle_release'])} |",
@@ -607,6 +612,7 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
         ("benchmark_release", "`benchmark` (`ReleaseSmall`)"),
         ("wasm_bench_runner_debug", "`wasm_bench_runner` (`Debug`)"),
         ("wasm_bench_runner_releasesmall", "`wasm_bench_runner` (`ReleaseSmall`)"),
+        ("wasm_bench_runner_releasefast", "`wasm_bench_runner` (`ReleaseFast`)"),
         ("tests_12_wasi_total", "All 12 `wasm32-wasi` Test Binaries (`Debug` Total)"),
     ]
     for skey, slabel in all_size_keys:
@@ -658,7 +664,30 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
 
     lines.extend([
         "",
-        "### D.2 `wasm_bench_runner.wasm` — `Debug`",
+        "### D.2 `wasm_bench_runner.wasm` — `ReleaseFast` vs `ReleaseSmall`",
+        "",
+        "| Workload | Iterations | Elements/Iter | `wazig` `ReleaseFast` (Median / P95 / FPS) | `zig -fno-llvm` `ReleaseFast` (Median / P95 / FPS) | `zig -fllvm` `ReleaseFast` (Median / P95 / FPS) | Checksum |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
+    ])
+    for wkey, wlabel in workload_labels:
+        fw = w_fast_rt[wkey]
+        fzn = zn_fast_rt[wkey]
+        fzl = zl_fast_rt[wkey]
+        lines.append(
+            f"| **{wlabel}** | {fw['iterations']} | {fw['elements_per_iter']:,} | "
+            f"**{fw['median_ms']:.3f} ms** / {fw['p95_ms']:.3f} ms (**{fw['ops_per_sec']:,.1f} FPS**) | "
+            f"{fzn['median_ms']:.3f} ms / {fzn['p95_ms']:.3f} ms ({fzn['ops_per_sec']:,.1f} FPS) | "
+            f"{fzl['median_ms']:.3f} ms / {fzl['p95_ms']:.3f} ms ({fzl['ops_per_sec']:,.1f} FPS) | "
+            f"`{fw['checksum']}` |"
+        )
+
+    lines.extend([
+        "",
+        "**`ReleaseFast` vs `ReleaseSmall` Analysis:**",
+        "- **`wazig` (`-fno-llvm`) & `zig -fno-llvm`**: `ReleaseFast` (`1,242.5 KB` raw / `385.7 KB` zstd on `wazig`) is **+12.5% larger** than `ReleaseSmall` (`1,104.5 KB` raw / `355.5 KB` zstd) with nearly identical frame times (`3.276 ms` / `305.0 FPS` vs `3.286 ms` / `304.2 FPS`), because both modes disable runtime safety checks (`wantSafety() == false`) and `stage2_wasm` currently runs the same `CodeGen.zig`, `Mir.Optimize`, and `Optimizer.zig` passes for `ReleaseSmall` and `ReleaseFast`.",
+        "- **`zig -fllvm` (LLVM 22)**: `ReleaseFast` increases `combined_frame` throughput from `1,341.3 FPS` (`0.747 ms`) to `2,053.5 FPS` (`0.487 ms`, `+53.1%`), but explodes `.wasm` binary size by **4.39x** (`3,032.3 KB` raw / `865.0 KB` zstd vs `690.6 KB` raw / `301.0 KB` zstd in `ReleaseSmall` — making `-fllvm ReleaseFast` **2.44x larger** than `wazig ReleaseFast` and **2.75x larger** than `wazig ReleaseSmall`).",
+        "",
+        "### D.3 `wasm_bench_runner.wasm` — `Debug`",
         "",
         "| Workload | Iterations | Elements/Iter | `wazig` (Median / P95 / FPS) | `zig -fno-llvm` (Median / P95 / FPS) | `zig -fllvm` (Median / P95 / FPS) | Checksum |",
         "| :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
@@ -677,7 +706,7 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
 
     lines.extend([
         "",
-        "### D.3 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)",
+        "### D.4 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)",
         "",
         "| Compiler | Test Binaries Passed | Total `wasmtime run` Execution Time | Speedup vs `zig -fllvm` |",
         "| :--- | :---: | ---: | ---: |",
@@ -686,6 +715,22 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
         f"| **`zig v0.17.0 -fllvm`** | 12 / 12 (with `+atomics`) | {zl['runtime']['tests_12_wasi_exec_sec']:.3f} s | 1.00x (baseline) |",
         "",
         r'> *\*Upstream `zig 0.17.0 -fno-llvm` (`0.17.0-dev.27+0dd99239c`) emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.0-wazig.3` fixes both bugs.*',
+        "",
+        "---",
+        "",
+        "## E. Built-In `wazig` Runtime Optimization Roadmap (No External Tools)",
+        "",
+        "All Wasm runtime FPS improvements are tracked directly in `cataggar/zig` (`wazig`'s self-hosted Wasm backend and linker optimizer, with zero external tools like `wasm-opt`) and `cataggar/knots#9`:",
+        "",
+        "1. **[`cataggar/zig#153`](https://github.com/cataggar/zig/issues/153) — Inline `f32`/`f64` `@min`/`@max` and 128-bit integer shifts/muls in `CodeGen.zig`**:",
+        "   - **Root cause**: `CodeGen.floatMax`/`floatMin` currently calls `fmaxf`/`fminf` in `compiler_rt`, which under `stage2_wasm` executes 6 nested Wasm calls (`fmaxf` -> `fmax_f32` -> 2x `isNan` + 2–3x `signbit`) and accounts for **28.3% of total CPU samples** (`6,065 / 21,457` samples in `wasmtime run --profile=guest`).",
+        "   - **Verified prototype impact**: Lowering `@max`/`@min` on `f32` to branchless `f32.gt`/`f32.lt` + `f32.ne` + `i32.or` + `select` improves `text_bench` from `5.505 ms` (`181.7 FPS`) to **`3.746 ms` (`266.8 FPS`, +47.0% faster)**, `render_bench` from `1.282 ms` (`779.1 FPS`) to **`1.021 ms` (`979.1 FPS`, +25.7% faster)**, and `layout_bench` from `1.575 ms` (`635.2 FPS`) to **`1.449 ms` (`690.0 FPS`)** with identical checksums.",
+        "2. **[`cataggar/zig#154`](https://github.com/cataggar/zig/issues/154) — Scalar Replacement of Aggregates (SROA) / stack-slot promotion to Wasm locals in `CodeGen.zig`**:",
+        "   - Promotes non-address-escaped `airAlloc` scalars and small structs (`[]const T`, `?T`, `E!T`, `Vec2`, `Rect`, `Color`, `Element.Sizing`) from the linear-memory shadow stack (`$__stack_pointer`) into Wasm SSA locals (`local.get`/`local.set`), eliminating `memory.copy` and `$__stack_pointer` frame prologues (`>= 2x` FPS target).",
+        "3. **[`cataggar/zig#155`](https://github.com/cataggar/zig/issues/155) — Extend `Optimizer.zig` and `ReleaseFast`/`ReleaseSmall` inlining to parameterized small leaf functions**:",
+        "   - Extends `inlineTrivialFunctions` in `src/link/Wasm/component/Optimizer.zig` beyond `params.len == 0` to inline hot parameterized leaf helpers (`std.debug.assert`, `ElementPool.get`, `Rect.x`/`y`/`w`/`h`, `TrueType.Buf.get8`/`get16`, `ArrayList.appendAssumeCapacity`, `DrawList.Box.add`) and differentiates `ReleaseFast` vs `ReleaseSmall` inlining budgets.",
+        "4. **[`cataggar/zig#156`](https://github.com/cataggar/zig/issues/156) — Fix `IllDefinedMemoryLayout` panic on `@Vector` types with `+simd128` and implement `v128` vector arithmetic**:",
+        "   - Unlocks `-mcpu=baseline+simd128` (`v128` `f32x4.*` / `i32x4.*` SIMD instructions) in `wazig` (`cataggar/knots#9`).",
         "",
     ])
     return "\n".join(lines)
