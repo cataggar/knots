@@ -24,29 +24,65 @@ const title = std.fmt.comptimePrint(
 const Context = struct {
     app: knots.App,
     dev_tools: knots.debug.DevTools,
-};
 
-pub fn main(init: std.process.Init) !void {
-    var app = try knots.App.init(init.io, init.gpa, .{
-        .window = .{
-            .width = 1600,
-            .height = 1000,
-            .title = "Knots Benchmark",
-        },
-        .renderer = .{ .present_mode = .fifo },
-    });
-    errdefer app.deinit();
+    fn init(io: std.Io, allocator: std.mem.Allocator) !Context {
+        var app = try knots.App.init(io, allocator, .{
+            .window = .{
+                .width = 1600,
+                .height = 1000,
+                .title = "Knots Benchmark",
+            },
+            .renderer = .{ .present_mode = .fifo },
+        });
+        errdefer app.deinit();
 
-    var ctx = Context{
-        .app = app,
-        .dev_tools = try .init(init.gpa, app.main_viewport.renderer.cfg.present_mode),
-    };
-    defer {
-        ctx.dev_tools.deinit(init.gpa);
-        ctx.app.deinit();
+        return .{
+            .app = app,
+            .dev_tools = try .init(allocator, app.main_viewport.renderer.cfg.present_mode),
+        };
     }
 
-    try ctx.app.start(frameCb);
+    fn deinit(self: *Context, allocator: std.mem.Allocator) void {
+        self.dev_tools.deinit(allocator);
+        self.app.deinit();
+    }
+
+    fn start(self: *Context) !void {
+        try self.app.start(frameCb);
+    }
+};
+
+pub const std_options: std.Options = if (knots.platform.is_wasm) .{ .logFn = knots.wasm.logFn } else .{};
+
+pub const main = if (knots.platform.is_wasm) struct {
+    fn main() void {}
+}.main else nativeMain;
+
+fn nativeMain(init: std.process.Init) !void {
+    var ctx = try Context.init(init.io, init.gpa);
+    defer ctx.deinit(init.gpa);
+
+    try ctx.start();
+}
+
+comptime {
+    if (knots.platform.is_wasm) @export(&struct {
+        fn webMain() callconv(.{ .wasm_mvp = .{} }) i32 {
+            const allocator = knots.wasm.allocator;
+            const ptr = allocator.create(Context) catch |err| return knots.wasm.fail(err);
+            ptr.* = Context.init(knots.wasm.io, allocator) catch |err| {
+                allocator.destroy(ptr);
+                return knots.wasm.fail(err);
+            };
+            ptr.start() catch |err| {
+                ptr.deinit(allocator);
+                allocator.destroy(ptr);
+                return knots.wasm.fail(err);
+            };
+
+            return 0;
+        }
+    }.webMain, .{ .name = "main" });
 }
 
 fn frameCb(view: *knots.View, frame: *ui.Frame) !void {
