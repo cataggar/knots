@@ -5,7 +5,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const knots_dep = b.dependency("knots", .{ .target = target, .optimize = optimize });
+    const knots_dep = b.dependency("knots", .{
+        .target = target,
+        .optimize = optimize,
+        .gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots."),
+    });
 
     const executable = b.addExecutable(.{
         .name = "embedded",
