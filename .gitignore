@@ -1,4 +1,7 @@
 zig-pkg
 .zig-cache
+.zig-global-cache
+.cache-bench
 zig-out
 .wrangler/
+__pycache__/

@@ -42,11 +42,17 @@ pub fn build(b: *std.Build) void {
     });
     tracy_c.defineCMacro("TRACY_ENABLE", null);
     const tracy_mod = tracy_c.createModule();
+    if (is_wasm) tracy_mod.link_libc = false;
+
+    const web_threads = b.option(bool, "web_threads", "Enable worker threads in the web benchmark app.") orelse false;
+    const gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots.") orelse
+        knots.defaultGpuBackend(target.result);
 
     const knots_dep = b.dependency("knots", .{
         .target = target,
         .optimize = optimize,
-        .gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots."),
+        .web_threads = web_threads,
+        .gpu_backend = gpu_backend,
     });
 
     const exe = b.addExecutable(.{
@@ -65,7 +71,7 @@ pub fn build(b: *std.Build) void {
     if (tracy_lib) |lib| exe.root_module.linkLibrary(lib);
     if (is_wasm) {
         exe.entry = .disabled;
-        knots.configureWebExecutable(b, knots_dep, exe.root_module, exe, .{});
+        knots.installWeb(b, knots_dep, exe.root_module, exe, .{});
     }
 
     if (target.result.os.tag == .windows) exe.subsystem = .windows;

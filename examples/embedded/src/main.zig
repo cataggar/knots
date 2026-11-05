@@ -1,19 +1,23 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const knots = @import("knots");
 const ui = @import("knots-ui");
 const renderer = @import("knots-renderer");
 const Window = @import("knots-window").Window;
 
-pub const std_options: std.Options = if (builtin.os.tag == .freestanding) .{
-    .logFn = struct {
-        fn logFn(comptime _: std.log.Level, comptime _: @EnumLiteral(), comptime _: []const u8, _: anytype) void {}
-    }.logFn,
-} else .{};
+pub const std_options: std.Options = if (knots.platform.is_wasm) .{ .logFn = knots.wasm.logFn } else .{};
 
-pub const main = if (builtin.os.tag == .freestanding) freestandingMain else nativeMain;
+pub const main = if (knots.platform.is_wasm) struct {
+    fn main() void {}
+}.main else nativeMain;
 
-fn freestandingMain() !void {
-    try run(std.Io.failing, std.heap.wasm_allocator);
+comptime {
+    if (knots.platform.is_wasm) @export(&struct {
+        fn webMain() callconv(.{ .wasm_mvp = .{} }) i32 {
+            run(knots.wasm.io, knots.wasm.allocator) catch |err| return knots.wasm.fail(err);
+            return 0;
+        }
+    }.webMain, .{ .name = "main" });
 }
 
 fn nativeMain(init: std.process.Init) !void {
