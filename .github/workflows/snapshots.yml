@@ -26,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tools: |
-            cataggar/zig@v0.17.0-wazig.3
+            cataggar/zig@v0.17.0-wazig.4
             bytecodealliance/wasmtime@v50.0.1
       - name: Cache Zig and Wasmtime
         uses: actions/cache@v4

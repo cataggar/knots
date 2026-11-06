@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Self-contained build & test runner for knots using wazig + wasmtime (no native zig needed).
+Self-contained build & test runner for knots using wazig/wazigl + wasmtime (no native zig needed).
 
-Compiles the target build.zig + tools/wazig_configurer.zig into configurer.wasm via wazig,
-runs configurer.wasm via wasmtime to evaluate the real std.Build graph and materialize
-Step.Options / Step.WriteFile outputs, and executes emitted translate-c, compile, install,
-and test-run steps via wazig and wasmtime.
+Compiles the target build.zig + tools/wazig_configurer.zig into configurer.wasm via wazig
+(or wazigl when WAZIG=wazigl is set), runs configurer.wasm via wasmtime to evaluate the
+real std.Build graph and materialize Step.Options / Step.WriteFile outputs, and executes
+emitted translate-c, compile (-fno-llvm for wazig, -fllvm for wazigl), install, and
+test-run steps via wazig/wazigl and wasmtime.
 """
 
 from __future__ import annotations
