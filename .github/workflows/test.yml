@@ -26,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tools: |
-            cataggar/zig@v0.17.0-wazig.3
+            cataggar/zig@v0.17.0-wazig.4
             bytecodealliance/wasmtime@v50.0.1
       - name: Cache Zig and Wasmtime
         uses: actions/cache@v4
@@ -61,7 +61,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tools: |
-            cataggar/zig@v0.17.0-wazig.3
+            cataggar/zig@v0.17.0-wazig.4
             bytecodealliance/wasmtime@v50.0.1
       - name: Cache Zig and Wasmtime
         uses: actions/cache@v4
@@ -102,7 +102,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tools: |
-            cataggar/zig@v0.17.0-wazig.3
+            cataggar/zig@v0.17.0-wazig.4
             bytecodealliance/wasmtime@v50.0.1
       - name: Cache Zig and Wasmtime
         uses: actions/cache@v4
@@ -143,7 +143,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tools: |
-            cataggar/zig@v0.17.0-wazig.3
+            cataggar/zig@v0.17.0-wazig.4
+            cataggar/zig@v0.17.0-wazigl.4
             bytecodealliance/wasmtime@v50.0.1
       - name: Cache Zig and Wasmtime
         uses: actions/cache@v4
@@ -164,5 +165,10 @@ jobs:
           EOF
           echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
           echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
+      - name: Verify toolchain
+        run: |
+          wazig version
+          wazigl version
+          wasmtime --version
       - name: Run wazig CI benchmarks and publish summary
         run: python3 scripts/bench-wazig.py --ci-summary >> "$GITHUB_STEP_SUMMARY"

@@ -268,7 +268,8 @@ pub fn main(init: process.Init.Minimal) !void {
                 if (cs.kind == .@"test") {
                     try zig_args.append(arena, "--test-no-exec");
                 }
-                try zig_args.append(arena, "-fno-llvm");
+                const use_llvm = mem.endsWith(u8, zig_exe, "wazigl") or mem.endsWith(u8, zig_exe, "wazigl.wasm");
+                try zig_args.append(arena, if (use_llvm) "-fllvm" else "-fno-llvm");
                 try zig_args.append(arena, try std.fmt.allocPrint(arena, "-femit-bin={s}", .{out_path}));
 
                 switch (cs.entry) {

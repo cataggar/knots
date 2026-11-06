@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-bench-wazig.py — Comprehensive benchmark suite comparing wazig (cataggar/zig@v0.17.0-wazig.3)
-against standard zig v0.17.0 (-fno-llvm self-hosted Wasm backend and -fllvm LLVM 22 backend).
+bench-wazig.py — Comprehensive benchmark suite comparing wazig (cataggar/zig@v0.17.0-wazig.4,
+-fno-llvm self-hosted Wasm backend) and wazigl (cataggar/zig@v0.17.0-wazigl.4, -fllvm LLVM 22
+Wasm backend) against standard zig v0.17.0 (-fno-llvm and -fllvm).
 
 Measures four dimensions:
   A. Toolchain & CI Footprint (archive size, unpacked size, file count, lazy vs eager deps)
   B. Compilation Speed (cold cache & warm cache across fmt, wasm_bench_runner, 12 test suites, 4 examples)
-  C. Output .wasm Binary Size (raw, gzip -9, zstd -19 across Debug & ReleaseSmall)
+  C. Output .wasm Binary Size (raw, gzip -9, zstd -19 across Debug, ReleaseSmall & ReleaseFast +simd128)
   D. Runtime Execution Performance under wasmtime run (layout_bench, text_bench, render_bench,
      combined_frame, and all 12 wasm32-wasi test suites)
 
 Modes:
   1. Full Comparison Mode:
        python3 scripts/bench-wazig.py [--output-json benchmarks/wazig-vs-zig.json] [--output-md benchmarks/WAZIG_BENCHMARKS.md]
-  2. CI Summary Mode (runs on GitHub Actions where only wazig + wasmtime are installed):
+  2. CI Summary Mode (runs on GitHub Actions where wazig, wazigl, and wasmtime are installed):
        python3 scripts/bench-wazig.py --ci-summary >> "$GITHUB_STEP_SUMMARY"
 """
 
@@ -34,7 +35,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE_ROOT = REPO_ROOT / ".cache-bench"
 
-EMBEDDED_BASELINE: dict[str, Any] = {'compilers': {'wazig': {'compile_sec': {'fmt_check': 0.569, 'wasm_bench_runner_debug': {'cold': 14.683, 'warm': 6.864}, 'wasm_bench_runner_releasesmall': {'cold': 13.065, 'warm': 5.173}, 'wasm_bench_runner_releasefast': {'cold': 13.91, 'warm': 5.726}, 'wasm_bench_runner_releasefast_simd': {'cold': 13.53, 'warm': 5.736}, 'tests_12_wasi': {'wall_parallel_sec': 18.78, 'sum_cpu_sec': 57.41}, 'triangle_debug': {'cold': 10.22, 'warm': 7.53}, 'triangle_release': {'cold': 8.51, 'warm': 5.74}, 'playground_debug_webgpu_st': 18.06, 'playground_release_webgpu_st': 15.9, 'playground_debug_webgl2_st': 18.04, 'playground_release_webgl2_st': 15.7, 'playground_debug_webgpu_mt': 20.86, 'playground_release_webgpu_mt': 18.08, 'embedded_debug': 6.95, 'embedded_release': 5.28, 'benchmark_debug': 9.21, 'benchmark_release': 7.47}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 1317773, 'gzip': 497051, 'zstd': 421138}, 'wasm_bench_runner_releasesmall': {'raw': 1004393, 'gzip': 414002, 'zstd': 356817}, 'wasm_bench_runner_releasefast': {'raw': 1234079, 'gzip': 483004, 'zstd': 405613}, 'wasm_bench_runner_releasefast_simd': {'raw': 1237105, 'gzip': 484935, 'zstd': 407566}, 'tests_12_wasi_total': {'raw': 7945202, 'gzip': 2665141, 'zstd': 2162787}, 'triangle_debug': {'raw': 1531051, 'gzip': 556324, 'zstd': 462474}, 'triangle_release': {'raw': 1223749, 'gzip': 468814, 'zstd': 399941}, 'playground_debug_webgpu_st': {'raw': 2961119, 'gzip': 993623, 'zstd': 774032}, 'playground_release_webgpu_st': {'raw': 2556306, 'gzip': 886195, 'zstd': 698473}, 'playground_debug_webgl2_st': {'raw': 2926070, 'gzip': 988490, 'zstd': 770099}, 'playground_release_webgl2_st': {'raw': 2521241, 'gzip': 881161, 'zstd': 694430}, 'playground_debug_webgpu_mt': {'raw': 2971960, 'gzip': 996707, 'zstd': 777693}, 'playground_release_webgpu_mt': {'raw': 2564308, 'gzip': 888832, 'zstd': 684406}, 'embedded_debug': {'raw': 1345702, 'gzip': 489299, 'zstd': 411251}, 'embedded_release': {'raw': 1096440, 'gzip': 422639, 'zstd': 363863}, 'benchmark_debug': {'raw': 1552176, 'gzip': 564465, 'zstd': 467978}, 'benchmark_release': {'raw': 1240928, 'gzip': 473787, 'zstd': 404182}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 1034.824, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 317.201, 'mean_ms': 1.0573, 'median_ms': 1.0563, 'p95_ms': 1.0628, 'min_ms': 1.0521, 'max_ms': 1.1019, 'ops_per_sec': 945.77, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 233.415, 'mean_ms': 1.1671, 'median_ms': 1.165, 'p95_ms': 1.1776, 'min_ms': 1.1595, 'max_ms': 1.218, 'ops_per_sec': 856.84, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 180.679, 'mean_ms': 0.6023, 'median_ms': 0.6061, 'p95_ms': 0.6138, 'min_ms': 0.5901, 'max_ms': 0.6426, 'ops_per_sec': 1660.4, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 178.632, 'mean_ms': 1.7863, 'median_ms': 1.7855, 'p95_ms': 1.7967, 'min_ms': 1.7721, 'max_ms': 1.8462, 'ops_per_sec': 559.81, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 891.036, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 286.562, 'mean_ms': 0.9552, 'median_ms': 0.955, 'p95_ms': 0.9597, 'min_ms': 0.9463, 'max_ms': 0.9701, 'ops_per_sec': 1046.9, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 186.234, 'mean_ms': 0.9312, 'median_ms': 0.9307, 'p95_ms': 0.938, 'min_ms': 0.9184, 'max_ms': 0.9654, 'ops_per_sec': 1073.92, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 154.276, 'mean_ms': 0.5143, 'median_ms': 0.5182, 'p95_ms': 0.5235, 'min_ms': 0.5048, 'max_ms': 0.529, 'ops_per_sec': 1944.57, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 155.633, 'mean_ms': 1.5563, 'median_ms': 1.556, 'p95_ms': 1.5693, 'min_ms': 1.546, 'max_ms': 1.5717, 'ops_per_sec': 642.54, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 824.077, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 261.727, 'mean_ms': 0.8724, 'median_ms': 0.8725, 'p95_ms': 0.8754, 'min_ms': 0.8679, 'max_ms': 0.8778, 'ops_per_sec': 1146.23, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 171.216, 'mean_ms': 0.8561, 'median_ms': 0.8565, 'p95_ms': 0.8629, 'min_ms': 0.8454, 'max_ms': 0.8826, 'ops_per_sec': 1168.12, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 143.075, 'mean_ms': 0.4769, 'median_ms': 0.4776, 'p95_ms': 0.488, 'min_ms': 0.4665, 'max_ms': 0.541, 'ops_per_sec': 2096.8, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 147.846, 'mean_ms': 1.4785, 'median_ms': 1.4785, 'p95_ms': 1.4884, 'min_ms': 1.4662, 'max_ms': 1.5349, 'ops_per_sec': 676.38, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast_simd': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 795.07, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 260.795, 'mean_ms': 0.8693, 'median_ms': 0.8696, 'p95_ms': 0.873, 'min_ms': 0.862, 'max_ms': 0.877, 'ops_per_sec': 1150.33, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 170.196, 'mean_ms': 0.851, 'median_ms': 0.8508, 'p95_ms': 0.8594, 'min_ms': 0.8398, 'max_ms': 0.9055, 'ops_per_sec': 1175.12, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 122.155, 'mean_ms': 0.4072, 'median_ms': 0.4022, 'p95_ms': 0.4164, 'min_ms': 0.3991, 'max_ms': 0.4234, 'ops_per_sec': 2455.89, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 144.786, 'mean_ms': 1.4479, 'median_ms': 1.447, 'p95_ms': 1.4596, 'min_ms': 1.4377, 'max_ms': 1.4713, 'ops_per_sec': 690.67, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 0.931}}, 'zig_nollvm': {'compile_sec': {'fmt_check': 0.044, 'wasm_bench_runner_debug': {'cold': 3.813, 'warm': 0.291}, 'wasm_bench_runner_releasesmall': {'cold': 2.186, 'warm': 0.246}, 'tests_12_wasi': {'wall_parallel_sec': 9.784, 'sum_cpu_sec': 43.475}, 'triangle_debug': {'cold': 2.963, 'warm': 0.31}, 'triangle_release': {'cold': 2.233, 'warm': 0.274}, 'playground_debug_webgpu_st': 1.294, 'playground_release_webgpu_st': 1.236, 'playground_debug_webgl2_st': 1.261, 'playground_release_webgl2_st': 1.274, 'playground_debug_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'playground_release_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'embedded_debug': 0.479, 'embedded_release': 0.393, 'benchmark_debug': 0.487, 'benchmark_release': 0.407, 'wasm_bench_runner_releasefast': {'cold': 3.617, 'warm': 0.253}}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 1721051, 'gzip': 565747, 'zstd': 461024}, 'wasm_bench_runner_releasesmall': {'raw': 1239509, 'gzip': 434279, 'zstd': 369462}, 'tests_12_wasi_total': {'raw': 10824712, 'gzip': 3176910, 'zstd': 2509718}, 'triangle_debug': {'raw': 1947644, 'gzip': 620909, 'zstd': 501829}, 'triangle_release': {'raw': 1471850, 'gzip': 490823, 'zstd': 411077}, 'playground_debug_webgpu_st': {'raw': 3485003, 'gzip': 1063610, 'zstd': 806816}, 'playground_release_webgpu_st': {'raw': 2885287, 'gzip': 905858, 'zstd': 707610}, 'playground_debug_webgl2_st': {'raw': 3449921, 'gzip': 1058343, 'zstd': 809357}, 'playground_release_webgl2_st': {'raw': 2850213, 'gzip': 900055, 'zstd': 704291}, 'playground_debug_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'playground_release_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'embedded_debug': {'raw': 1720161, 'gzip': 549514, 'zstd': 449596}, 'embedded_release': {'raw': 1305835, 'gzip': 441977, 'zstd': 374085}, 'benchmark_debug': {'raw': 1979724, 'gzip': 633259, 'zstd': 508761}, 'benchmark_release': {'raw': 1497663, 'gzip': 496854, 'zstd': 416386}, 'wasm_bench_runner_releasefast': {'raw': 1381824, 'gzip': 468329, 'zstd': 400331}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 2438.212, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 487.311, 'mean_ms': 1.6244, 'median_ms': 1.6246, 'p95_ms': 1.6287, 'min_ms': 1.6172, 'max_ms': 1.6409, 'ops_per_sec': 615.62, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 1025.438, 'mean_ms': 5.1272, 'median_ms': 5.1252, 'p95_ms': 5.1535, 'min_ms': 5.1116, 'max_ms': 5.2016, 'ops_per_sec': 195.04, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 349.997, 'mean_ms': 1.1667, 'median_ms': 1.1652, 'p95_ms': 1.1748, 'min_ms': 1.1581, 'max_ms': 1.1986, 'ops_per_sec': 857.15, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 305.588, 'mean_ms': 3.0559, 'median_ms': 3.0554, 'p95_ms': 3.068, 'min_ms': 3.0427, 'max_ms': 3.0741, 'ops_per_sec': 327.24, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 1996.16, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 461.849, 'mean_ms': 1.5395, 'median_ms': 1.5396, 'p95_ms': 1.5442, 'min_ms': 1.5314, 'max_ms': 1.5498, 'ops_per_sec': 649.56, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 723.396, 'mean_ms': 3.617, 'median_ms': 3.6154, 'p95_ms': 3.6335, 'min_ms': 3.601, 'max_ms': 3.69, 'ops_per_sec': 276.47, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 307.207, 'mean_ms': 1.024, 'median_ms': 1.0229, 'p95_ms': 1.0316, 'min_ms': 1.0175, 'max_ms': 1.0468, 'ops_per_sec': 976.54, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 277.436, 'mean_ms': 2.7744, 'median_ms': 2.7741, 'p95_ms': 2.7861, 'min_ms': 2.7603, 'max_ms': 2.7925, 'ops_per_sec': 360.44, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 4.798, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 1996.981, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 462.544, 'mean_ms': 1.5418, 'median_ms': 1.5417, 'p95_ms': 1.5477, 'min_ms': 1.5355, 'max_ms': 1.5563, 'ops_per_sec': 648.59, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 722.995, 'mean_ms': 3.615, 'median_ms': 3.6135, 'p95_ms': 3.6349, 'min_ms': 3.5996, 'max_ms': 3.6472, 'ops_per_sec': 276.63, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 306.271, 'mean_ms': 1.0209, 'median_ms': 1.0197, 'p95_ms': 1.0298, 'min_ms': 1.0141, 'max_ms': 1.054, 'ops_per_sec': 979.52, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 278.199, 'mean_ms': 2.782, 'median_ms': 2.777, 'p95_ms': 2.8265, 'min_ms': 2.7554, 'max_ms': 2.8862, 'ops_per_sec': 359.45, 'checksum': 8133605907336869050}}}}}, 'zig_llvm': {'compile_sec': {'fmt_check': 0.044, 'wasm_bench_runner_debug': {'cold': 6.334, 'warm': 2.734}, 'wasm_bench_runner_releasesmall': {'cold': 7.444, 'warm': 5.328}, 'tests_12_wasi': {'wall_parallel_sec': 14.726, 'sum_cpu_sec': 63.879}, 'triangle_debug': {'cold': 5.732, 'warm': 3.119}, 'triangle_release': {'cold': 8.56, 'warm': 6.434}, 'playground_debug_webgpu_st': 5.936, 'playground_release_webgpu_st': 13.81, 'playground_debug_webgl2_st': 5.805, 'playground_release_webgl2_st': 13.452, 'playground_debug_webgpu_mt': 8.745, 'playground_release_webgpu_mt': 16.348, 'embedded_debug': 2.852, 'embedded_release': 5.943, 'benchmark_debug': 3.36, 'benchmark_release': 7.289, 'wasm_bench_runner_releasefast': {'cold': 14.05, 'warm': 10.67}}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 3707906, 'gzip': 1227312, 'zstd': 1002713}, 'wasm_bench_runner_releasesmall': {'raw': 707142, 'gzip': 344105, 'zstd': 308217}, 'tests_12_wasi_total': {'raw': 29879435, 'gzip': 9100359, 'zstd': 7368827}, 'triangle_debug': {'raw': 3953089, 'gzip': 1319381, 'zstd': 1062323}, 'triangle_release': {'raw': 833381, 'gzip': 378273, 'zstd': 338213}, 'playground_debug_webgpu_st': {'raw': 6309184, 'gzip': 2044077, 'zstd': 1539407}, 'playground_release_webgpu_st': {'raw': 1848363, 'gzip': 725744, 'zstd': 593068}, 'playground_debug_webgl2_st': {'raw': 6274128, 'gzip': 2039171, 'zstd': 1545088}, 'playground_release_webgl2_st': {'raw': 1813353, 'gzip': 719136, 'zstd': 603864}, 'playground_debug_webgpu_mt': {'raw': 6349819, 'gzip': 2058887, 'zstd': 1580630}, 'playground_release_webgpu_mt': {'raw': 1852637, 'gzip': 727624, 'zstd': 613551}, 'embedded_debug': {'raw': 3511025, 'gzip': 1154595, 'zstd': 940856}, 'embedded_release': {'raw': 764192, 'gzip': 350207, 'zstd': 313639}, 'benchmark_debug': {'raw': 4029345, 'gzip': 1340078, 'zstd': 1078984}, 'benchmark_release': {'raw': 840709, 'gzip': 381191, 'zstd': 340846}, 'wasm_bench_runner_releasefast': {'raw': 3105034, 'gzip': 1048238, 'zstd': 885770}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 2229.839, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 486.504, 'mean_ms': 1.6217, 'median_ms': 1.6213, 'p95_ms': 1.6269, 'min_ms': 1.6137, 'max_ms': 1.6834, 'ops_per_sec': 616.64, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 882.267, 'mean_ms': 4.4113, 'median_ms': 4.4078, 'p95_ms': 4.4383, 'min_ms': 4.3903, 'max_ms': 4.4817, 'ops_per_sec': 226.69, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 313.635, 'mean_ms': 1.0454, 'median_ms': 1.0445, 'p95_ms': 1.0532, 'min_ms': 1.0373, 'max_ms': 1.0937, 'ops_per_sec': 956.53, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 296.676, 'mean_ms': 2.9668, 'median_ms': 2.9604, 'p95_ms': 3.0244, 'min_ms': 2.941, 'max_ms': 3.065, 'ops_per_sec': 337.07, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 539.788, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 87.665, 'mean_ms': 0.2922, 'median_ms': 0.2913, 'p95_ms': 0.2955, 'min_ms': 0.2895, 'max_ms': 0.2976, 'ops_per_sec': 3422.12, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 235.685, 'mean_ms': 1.1784, 'median_ms': 1.1768, 'p95_ms': 1.1852, 'min_ms': 1.1727, 'max_ms': 1.2457, 'ops_per_sec': 848.59, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 81.818, 'mean_ms': 0.2727, 'median_ms': 0.2692, 'p95_ms': 0.2826, 'min_ms': 0.2678, 'max_ms': 0.2924, 'ops_per_sec': 3666.7, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 74.555, 'mean_ms': 0.7456, 'median_ms': 0.7465, 'p95_ms': 0.7591, 'min_ms': 0.7352, 'max_ms': 0.7641, 'ops_per_sec': 1341.29, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 10.699, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 383.196, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 62.879, 'mean_ms': 0.2096, 'median_ms': 0.2085, 'p95_ms': 0.2146, 'min_ms': 0.2068, 'max_ms': 0.2258, 'ops_per_sec': 4771.05, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 177.97, 'mean_ms': 0.8898, 'median_ms': 0.8897, 'p95_ms': 0.895, 'min_ms': 0.8819, 'max_ms': 0.9101, 'ops_per_sec': 1123.79, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 50.846, 'mean_ms': 0.1695, 'median_ms': 0.1669, 'p95_ms': 0.1824, 'min_ms': 0.166, 'max_ms': 0.1897, 'ops_per_sec': 5900.17, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 48.698, 'mean_ms': 0.487, 'median_ms': 0.4888, 'p95_ms': 0.4956, 'min_ms': 0.4789, 'max_ms': 0.5017, 'ops_per_sec': 2053.46, 'checksum': 8133605907336869050}}}}}}, 'toolchain_footprint': {'wazig': {'version': '0.17.0-wazig.3', 'release': 'cataggar/zig@v0.17.0-wazig.3', 'archive_format': 'wazig.tar.zst', 'archive_bytes': 8860467, 'archive_mb': 8.45, 'unpacked_release_bytes': 42362470, 'unpacked_release_mb': 40.4, 'wasm_binary_bytes': 22124954, 'wasm_binary_mb': 21.1, 'std_lib_bytes': 20237516, 'std_lib_mb': 19.3, 'ghr_installed_bytes': 74645512, 'ghr_installed_mb': 71.2, 'file_count': 1324, 'architecture': 'wasm64-wasip3 (universal single binary across Linux/macOS/Windows x86_64 & aarch64)', 'attestation': 'Native Sigstore bundle verified via ghr'}, 'zig': {'version': '0.17.0-dev.27+0dd99239c', 'release': 'zig-x86_64-linux-0.17.0', 'archive_format': 'tar.xz', 'archive_bytes': 53687091, 'archive_mb': 51.2, 'unpacked_release_bytes': 277872640, 'unpacked_release_mb': 265.0, 'ghr_installed_bytes': 377815235, 'ghr_installed_mb': 360.3, 'file_count': 19505, 'architecture': 'OS/arch-specific native binaries (x86_64-linux, aarch64-macos, x86_64-windows, etc.)', 'attestation': 'minisign signature (external tool required)'}, 'wasm_deps_footprint': {'lazy_wasm_only': {'packages': ['TrueType', 'tracy'], 'package_count': 2, 'archive_mb': 4.91, 'unpacked_bytes': 36391866, 'unpacked_mb': 34.71}, 'eager_all_deps': {'packages': ['TrueType', 'tracy', 'Vulkan_Headers', 'zigwin32', 'wgpu_native_zig', 'vulkan_zig', 'zig_wayland', 'zig_objc', 'celer'], 'package_count': 9, 'archive_mb': 230.0, 'unpacked_mb': 680.0}}}}
+EMBEDDED_BASELINE: dict[str, Any] = {'compilers': {'wazig': {'compile_sec': {'fmt_check': 0.555, 'wasm_bench_runner_debug': {'cold': 14.257, 'warm': 6.721}, 'wasm_bench_runner_releasesmall': {'cold': 12.322, 'warm': 4.906}, 'wasm_bench_runner_releasefast': {'cold': 13.238, 'warm': 5.526}, 'wasm_bench_runner_releasefast_simd': {'cold': 13.309, 'warm': 5.677}, 'tests_12_wasi': {'wall_parallel_sec': 20.8, 'sum_cpu_sec': 62.99}, 'triangle_debug': {'cold': 10.3, 'warm': 7.58}, 'triangle_release': {'cold': 8.05, 'warm': 5.74}, 'playground_debug_webgpu_st': 17.65, 'playground_release_webgpu_st': 15.13, 'playground_debug_webgl2_st': 17.4, 'playground_release_webgl2_st': 15.5, 'playground_debug_webgpu_mt': 20.35, 'playground_release_webgpu_mt': 17.86, 'embedded_debug': 6.52, 'embedded_release': 4.84, 'benchmark_debug': 8.63, 'benchmark_release': 6.94}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 1317773, 'gzip': 497051, 'zstd': 421138}, 'wasm_bench_runner_releasesmall': {'raw': 1004393, 'gzip': 414002, 'zstd': 356817}, 'wasm_bench_runner_releasefast': {'raw': 1234079, 'gzip': 483004, 'zstd': 405613}, 'wasm_bench_runner_releasefast_simd': {'raw': 1237089, 'gzip': 484920, 'zstd': 407472}, 'tests_12_wasi_total': {'raw': 8001945, 'gzip': 2693948, 'zstd': 2184868}, 'triangle_debug': {'raw': 1530822, 'gzip': 558034, 'zstd': 463259}, 'triangle_release': {'raw': 1223068, 'gzip': 469614, 'zstd': 400813}, 'playground_debug_webgpu_st': {'raw': 2963577, 'gzip': 995347, 'zstd': 775294}, 'playground_release_webgpu_st': {'raw': 2556785, 'gzip': 887892, 'zstd': 675728}, 'playground_debug_webgl2_st': {'raw': 2928528, 'gzip': 990296, 'zstd': 765669}, 'playground_release_webgl2_st': {'raw': 2521720, 'gzip': 882880, 'zstd': 677342}, 'playground_debug_webgpu_mt': {'raw': 2974418, 'gzip': 998099, 'zstd': 771251}, 'playground_release_webgpu_mt': {'raw': 2564789, 'gzip': 890606, 'zstd': 702442}, 'embedded_debug': {'raw': 1345563, 'gzip': 490170, 'zstd': 412178}, 'embedded_release': {'raw': 1095859, 'gzip': 423447, 'zstd': 364432}, 'benchmark_debug': {'raw': 1551947, 'gzip': 565392, 'zstd': 468933}, 'benchmark_release': {'raw': 1240247, 'gzip': 474656, 'zstd': 404864}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 1037.371, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 317.3, 'mean_ms': 1.0577, 'median_ms': 1.0558, 'p95_ms': 1.0756, 'min_ms': 1.0522, 'max_ms': 1.1131, 'ops_per_sec': 945.48, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 234.448, 'mean_ms': 1.1722, 'median_ms': 1.1671, 'p95_ms': 1.2058, 'min_ms': 1.1621, 'max_ms': 1.2466, 'ops_per_sec': 853.07, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 180.68, 'mean_ms': 0.6023, 'median_ms': 0.6037, 'p95_ms': 0.6164, 'min_ms': 0.5895, 'max_ms': 0.673, 'ops_per_sec': 1660.39, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 180.01, 'mean_ms': 1.8001, 'median_ms': 1.7974, 'p95_ms': 1.8313, 'min_ms': 1.7837, 'max_ms': 1.8477, 'ops_per_sec': 555.52, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 892.082, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 287.564, 'mean_ms': 0.9585, 'median_ms': 0.9585, 'p95_ms': 0.9629, 'min_ms': 0.9502, 'max_ms': 0.9769, 'ops_per_sec': 1043.24, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 186.841, 'mean_ms': 0.9342, 'median_ms': 0.934, 'p95_ms': 0.9413, 'min_ms': 0.9219, 'max_ms': 0.9509, 'ops_per_sec': 1070.43, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 153.63, 'mean_ms': 0.5121, 'median_ms': 0.5151, 'p95_ms': 0.5181, 'min_ms': 0.5037, 'max_ms': 0.5258, 'ops_per_sec': 1952.74, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 155.932, 'mean_ms': 1.5593, 'median_ms': 1.56, 'p95_ms': 1.57, 'min_ms': 1.5503, 'max_ms': 1.5723, 'ops_per_sec': 641.3, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 820.816, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 261.61, 'mean_ms': 0.872, 'median_ms': 0.8721, 'p95_ms': 0.8749, 'min_ms': 0.8662, 'max_ms': 0.8808, 'ops_per_sec': 1146.75, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 170.612, 'mean_ms': 0.8531, 'median_ms': 0.8533, 'p95_ms': 0.8605, 'min_ms': 0.8439, 'max_ms': 0.8732, 'ops_per_sec': 1172.25, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 141.845, 'mean_ms': 0.4728, 'median_ms': 0.47, 'p95_ms': 0.4839, 'min_ms': 0.465, 'max_ms': 0.4886, 'ops_per_sec': 2114.99, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 147.186, 'mean_ms': 1.4719, 'median_ms': 1.4717, 'p95_ms': 1.481, 'min_ms': 1.4627, 'max_ms': 1.4865, 'ops_per_sec': 679.41, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast_simd': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 797.988, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 260.876, 'mean_ms': 0.8696, 'median_ms': 0.8689, 'p95_ms': 0.8824, 'min_ms': 0.8611, 'max_ms': 0.9131, 'ops_per_sec': 1149.97, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 173.505, 'mean_ms': 0.8675, 'median_ms': 0.8659, 'p95_ms': 0.8772, 'min_ms': 0.8561, 'max_ms': 0.9977, 'ops_per_sec': 1152.71, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 121.625, 'mean_ms': 0.4054, 'median_ms': 0.4006, 'p95_ms': 0.4183, 'min_ms': 0.3978, 'max_ms': 0.4569, 'ops_per_sec': 2466.59, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 144.767, 'mean_ms': 1.4477, 'median_ms': 1.4464, 'p95_ms': 1.4739, 'min_ms': 1.4348, 'max_ms': 1.4903, 'ops_per_sec': 690.76, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 0.969}}, 'wazigl': {'compile_sec': {'fmt_check': 1.706, 'wasm_bench_runner_debug': {'cold': 32.294, 'warm': 16.642}, 'wasm_bench_runner_releasesmall': {'cold': 25.12, 'warm': 14.714}, 'wasm_bench_runner_releasefast': {'cold': 42.84, 'warm': 26.483}, 'wasm_bench_runner_releasefast_simd': {'cold': 43.236, 'warm': 26.527}, 'tests_12_wasi': {'wall_parallel_sec': 62.42, 'sum_cpu_sec': 203.77}, 'triangle_debug': {'cold': 31.75, 'warm': 18.31}, 'triangle_release': {'cold': 24.61, 'warm': 18.44}, 'playground_debug_webgpu_st': 33.99, 'playground_release_webgpu_st': 36.29, 'playground_debug_webgl2_st': 33.74, 'playground_release_webgl2_st': 36.09, 'playground_debug_webgpu_mt': 44.21, 'playground_release_webgpu_mt': 43.53, 'embedded_debug': 15.86, 'embedded_release': 15.03, 'benchmark_debug': 20.54, 'benchmark_release': 20.16}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 3651998, 'gzip': 1204780, 'zstd': 985613}, 'wasm_bench_runner_releasesmall': {'raw': 698802, 'gzip': 340701, 'zstd': 305354}, 'wasm_bench_runner_releasefast': {'raw': 2926589, 'gzip': 1000774, 'zstd': 846468}, 'wasm_bench_runner_releasefast_simd': {'raw': 2878198, 'gzip': 994405, 'zstd': 843214}, 'tests_12_wasi_total': {'raw': 29817722, 'gzip': 9079848, 'zstd': 7365226}, 'triangle_debug': {'raw': 3894943, 'gzip': 1293523, 'zstd': 1044444}, 'triangle_release': {'raw': 820175, 'gzip': 373034, 'zstd': 333765}, 'playground_debug_webgpu_st': {'raw': 6263045, 'gzip': 2026481, 'zstd': 1547789}, 'playground_release_webgpu_st': {'raw': 1825485, 'gzip': 716864, 'zstd': 589554}, 'playground_debug_webgl2_st': {'raw': 6227989, 'gzip': 2018587, 'zstd': 1567533}, 'playground_release_webgl2_st': {'raw': 1790475, 'gzip': 710126, 'zstd': 598806}, 'playground_debug_webgpu_mt': {'raw': 6303636, 'gzip': 2041585, 'zstd': 1553346}, 'playground_release_webgpu_mt': {'raw': 1829713, 'gzip': 719708, 'zstd': 584485}, 'embedded_debug': {'raw': 3453058, 'gzip': 1130125, 'zstd': 923725}, 'embedded_release': {'raw': 752000, 'gzip': 345663, 'zstd': 309644}, 'benchmark_debug': {'raw': 3971189, 'gzip': 1318785, 'zstd': 1061319}, 'benchmark_release': {'raw': 826714, 'gzip': 375680, 'zstd': 336620}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 1689.63, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 484.277, 'mean_ms': 1.6143, 'median_ms': 1.6136, 'p95_ms': 1.621, 'min_ms': 1.6063, 'max_ms': 1.6702, 'ops_per_sec': 619.48, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 395.619, 'mean_ms': 1.9781, 'median_ms': 1.9776, 'p95_ms': 1.987, 'min_ms': 1.9653, 'max_ms': 2.0037, 'ops_per_sec': 505.54, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 313.203, 'mean_ms': 1.044, 'median_ms': 1.043, 'p95_ms': 1.0519, 'min_ms': 1.0371, 'max_ms': 1.0602, 'ops_per_sec': 957.84, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 296.016, 'mean_ms': 2.9602, 'median_ms': 2.9599, 'p95_ms': 2.9715, 'min_ms': 2.9436, 'max_ms': 2.9779, 'ops_per_sec': 337.82, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 394.043, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 87.702, 'mean_ms': 0.2923, 'median_ms': 0.2911, 'p95_ms': 0.2966, 'min_ms': 0.2887, 'max_ms': 0.3083, 'ops_per_sec': 3420.66, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 104.049, 'mean_ms': 0.5202, 'median_ms': 0.522, 'p95_ms': 0.5259, 'min_ms': 0.5132, 'max_ms': 0.5395, 'ops_per_sec': 1922.18, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 81.579, 'mean_ms': 0.2719, 'median_ms': 0.2689, 'p95_ms': 0.2808, 'min_ms': 0.2671, 'max_ms': 0.2984, 'ops_per_sec': 3677.44, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 74.417, 'mean_ms': 0.7442, 'median_ms': 0.745, 'p95_ms': 0.7534, 'min_ms': 0.7349, 'max_ms': 0.7555, 'ops_per_sec': 1343.78, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 275.5, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 62.114, 'mean_ms': 0.207, 'median_ms': 0.2056, 'p95_ms': 0.2131, 'min_ms': 0.2037, 'max_ms': 0.2157, 'ops_per_sec': 4829.8, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 80.395, 'mean_ms': 0.402, 'median_ms': 0.3994, 'p95_ms': 0.4093, 'min_ms': 0.3959, 'max_ms': 0.4159, 'ops_per_sec': 2487.73, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 51.634, 'mean_ms': 0.1721, 'median_ms': 0.17, 'p95_ms': 0.1824, 'min_ms': 0.1689, 'max_ms': 0.1882, 'ops_per_sec': 5810.15, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 48.677, 'mean_ms': 0.4868, 'median_ms': 0.4891, 'p95_ms': 0.4946, 'min_ms': 0.4788, 'max_ms': 0.4986, 'ops_per_sec': 2054.34, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast_simd': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 277.384, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 62.548, 'mean_ms': 0.2085, 'median_ms': 0.2076, 'p95_ms': 0.2127, 'min_ms': 0.2051, 'max_ms': 0.2186, 'ops_per_sec': 4796.31, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 85.062, 'mean_ms': 0.4253, 'median_ms': 0.4234, 'p95_ms': 0.4313, 'min_ms': 0.4185, 'max_ms': 0.4399, 'ops_per_sec': 2351.24, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 49.142, 'mean_ms': 0.1638, 'median_ms': 0.1621, 'p95_ms': 0.1731, 'min_ms': 0.1606, 'max_ms': 0.175, 'ops_per_sec': 6104.71, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 47.691, 'mean_ms': 0.4769, 'median_ms': 0.4798, 'p95_ms': 0.4838, 'min_ms': 0.4678, 'max_ms': 0.4879, 'ops_per_sec': 2096.81, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 1.148}}, 'zig_nollvm': {'compile_sec': {'fmt_check': 0.043, 'wasm_bench_runner_debug': {'cold': 3.475, 'warm': 0.275}, 'wasm_bench_runner_releasesmall': {'cold': 2.258, 'warm': 0.255}, 'wasm_bench_runner_releasefast': {'cold': 3.554, 'warm': 0.234}, 'wasm_bench_runner_releasefast_simd': {'error': 'error.IllDefinedMemoryLayout on @Vector types with +simd128'}, 'tests_12_wasi': {'wall_parallel_sec': 4.305, 'sum_cpu_sec': 16.345}, 'triangle_debug': {'cold': 2.76, 'warm': 0.303}, 'triangle_release': {'cold': 2.109, 'warm': 0.254}, 'playground_debug_webgpu_st': 0.953, 'playground_release_webgpu_st': 0.916, 'playground_debug_webgl2_st': 0.961, 'playground_release_webgl2_st': 0.916, 'playground_debug_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'playground_release_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'embedded_debug': 0.28, 'embedded_release': 0.221, 'benchmark_debug': 0.358, 'benchmark_release': 0.297}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 1675917, 'gzip': 552987, 'zstd': 452248}, 'wasm_bench_runner_releasesmall': {'raw': 1214597, 'gzip': 426862, 'zstd': 363776}, 'wasm_bench_runner_releasefast': {'raw': 1355846, 'gzip': 459075, 'zstd': 394377}, 'wasm_bench_runner_releasefast_simd': {'error': 'error.IllDefinedMemoryLayout on @Vector types with +simd128'}, 'tests_12_wasi_total': {'raw': 10653658, 'gzip': 3126663, 'zstd': 2476090}, 'triangle_debug': {'raw': 1902526, 'gzip': 610269, 'zstd': 492857}, 'triangle_release': {'raw': 1446937, 'gzip': 483996, 'zstd': 405702}, 'playground_debug_webgpu_st': {'raw': 3443168, 'gzip': 1053419, 'zstd': 783247}, 'playground_release_webgpu_st': {'raw': 2862228, 'gzip': 898749, 'zstd': 701334}, 'playground_debug_webgl2_st': {'raw': 3408086, 'gzip': 1048328, 'zstd': 800014}, 'playground_release_webgl2_st': {'raw': 2827154, 'gzip': 893451, 'zstd': 698653}, 'playground_debug_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'playground_release_webgpu_mt': {'error': 'src/web/worker_host.zig:52:5: error: Malformed assembly, unknown instruction "global.get"'}, 'embedded_debug': {'raw': 1675043, 'gzip': 537033, 'zstd': 441063}, 'embedded_release': {'raw': 1280923, 'gzip': 435013, 'zstd': 368385}, 'benchmark_debug': {'raw': 1934606, 'gzip': 619115, 'zstd': 498799}, 'benchmark_release': {'raw': 1472750, 'gzip': 489847, 'zstd': 410773}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 1846.056, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 488.622, 'mean_ms': 1.6287, 'median_ms': 1.6277, 'p95_ms': 1.636, 'min_ms': 1.6213, 'max_ms': 1.6762, 'ops_per_sec': 613.97, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 479.737, 'mean_ms': 2.3987, 'median_ms': 2.3961, 'p95_ms': 2.4106, 'min_ms': 2.3856, 'max_ms': 2.4825, 'ops_per_sec': 416.89, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 354.09, 'mean_ms': 1.1803, 'median_ms': 1.178, 'p95_ms': 1.1916, 'min_ms': 1.1719, 'max_ms': 1.2517, 'ops_per_sec': 847.24, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 307.657, 'mean_ms': 3.0766, 'median_ms': 3.074, 'p95_ms': 3.1032, 'min_ms': 3.0587, 'max_ms': 3.148, 'ops_per_sec': 325.04, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 1610.605, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 460.259, 'mean_ms': 1.5342, 'median_ms': 1.5328, 'p95_ms': 1.5404, 'min_ms': 1.5272, 'max_ms': 1.5923, 'ops_per_sec': 651.81, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 375.759, 'mean_ms': 1.8788, 'median_ms': 1.8787, 'p95_ms': 1.8868, 'min_ms': 1.8669, 'max_ms': 1.8988, 'ops_per_sec': 532.26, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 306.587, 'mean_ms': 1.022, 'median_ms': 1.021, 'p95_ms': 1.0285, 'min_ms': 1.0156, 'max_ms': 1.0811, 'ops_per_sec': 978.52, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 277.221, 'mean_ms': 2.7722, 'median_ms': 2.7713, 'p95_ms': 2.7889, 'min_ms': 2.7581, 'max_ms': 2.791, 'ops_per_sec': 360.72, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 1611.123, 'total_checksum': 2186326712793932228, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 462.79, 'mean_ms': 1.5426, 'median_ms': 1.5426, 'p95_ms': 1.5476, 'min_ms': 1.5362, 'max_ms': 1.5722, 'ops_per_sec': 648.24, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 375.042, 'mean_ms': 1.8752, 'median_ms': 1.8745, 'p95_ms': 1.886, 'min_ms': 1.8613, 'max_ms': 1.9496, 'ops_per_sec': 533.27, 'checksum': 12606774574179943755}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 304.546, 'mean_ms': 1.0152, 'median_ms': 1.0144, 'p95_ms': 1.0234, 'min_ms': 1.0086, 'max_ms': 1.0282, 'ops_per_sec': 985.07, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 277.523, 'mean_ms': 2.7752, 'median_ms': 2.774, 'p95_ms': 2.7878, 'min_ms': 2.7606, 'max_ms': 2.8093, 'ops_per_sec': 360.33, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 1.254}}, 'zig_llvm': {'compile_sec': {'fmt_check': 0.043, 'wasm_bench_runner_debug': {'cold': 5.72, 'warm': 2.374}, 'wasm_bench_runner_releasesmall': {'cold': 6.796, 'warm': 4.656}, 'wasm_bench_runner_releasefast': {'cold': 12.518, 'warm': 9.078}, 'wasm_bench_runner_releasefast_simd': {'cold': 12.531, 'warm': 9.005}, 'tests_12_wasi': {'wall_parallel_sec': 10.448, 'sum_cpu_sec': 34.493}, 'triangle_debug': {'cold': 5.584, 'warm': 2.73}, 'triangle_release': {'cold': 7.584, 'warm': 5.987}, 'playground_debug_webgpu_st': 5.15, 'playground_release_webgpu_st': 11.614, 'playground_debug_webgl2_st': 5.144, 'playground_release_webgl2_st': 11.734, 'playground_debug_webgpu_mt': 7.825, 'playground_release_webgpu_mt': 13.363, 'embedded_debug': 2.357, 'embedded_release': 4.597, 'benchmark_debug': 2.901, 'benchmark_release': 6.264}, 'binary_sizes': {'wasm_bench_runner_debug': {'raw': 3648572, 'gzip': 1202478, 'zstd': 982769}, 'wasm_bench_runner_releasesmall': {'raw': 698802, 'gzip': 340702, 'zstd': 305356}, 'wasm_bench_runner_releasefast': {'raw': 2927013, 'gzip': 1000759, 'zstd': 846903}, 'wasm_bench_runner_releasefast_simd': {'raw': 2878624, 'gzip': 994580, 'zstd': 843992}, 'tests_12_wasi_total': {'raw': 29777247, 'gzip': 9059499, 'zstd': 7334234}, 'triangle_debug': {'raw': 3895156, 'gzip': 1293092, 'zstd': 1043186}, 'triangle_release': {'raw': 820175, 'gzip': 373035, 'zstd': 333756}, 'playground_debug_webgpu_st': {'raw': 6264015, 'gzip': 2026201, 'zstd': 1570617}, 'playground_release_webgpu_st': {'raw': 1825485, 'gzip': 716875, 'zstd': 604809}, 'playground_debug_webgl2_st': {'raw': 6228959, 'gzip': 2017857, 'zstd': 1565422}, 'playground_release_webgl2_st': {'raw': 1790475, 'gzip': 710122, 'zstd': 598813}, 'playground_debug_webgpu_mt': {'raw': 6304623, 'gzip': 2041322, 'zstd': 1573864}, 'playground_release_webgpu_mt': {'raw': 1829713, 'gzip': 719706, 'zstd': 584491}, 'embedded_debug': {'raw': 3453082, 'gzip': 1129894, 'zstd': 922492}, 'embedded_release': {'raw': 752000, 'gzip': 345666, 'zstd': 309636}, 'benchmark_debug': {'raw': 3971403, 'gzip': 1318532, 'zstd': 1060210}, 'benchmark_release': {'raw': 826714, 'gzip': 375680, 'zstd': 336618}}, 'runtime': {'wasm_bench_runner_debug': {'optimize_mode': 'debug', 'target': 'wasm32-wasi', 'total_bench_ms': 1692.552, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 486.843, 'mean_ms': 1.6228, 'median_ms': 1.6227, 'p95_ms': 1.6288, 'min_ms': 1.6122, 'max_ms': 1.637, 'ops_per_sec': 616.21, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 394.718, 'mean_ms': 1.9736, 'median_ms': 1.973, 'p95_ms': 1.9815, 'min_ms': 1.9616, 'max_ms': 1.994, 'ops_per_sec': 506.69, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 312.461, 'mean_ms': 1.0415, 'median_ms': 1.0407, 'p95_ms': 1.0497, 'min_ms': 1.0358, 'max_ms': 1.0621, 'ops_per_sec': 960.12, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 297.068, 'mean_ms': 2.9707, 'median_ms': 2.9705, 'p95_ms': 2.9809, 'min_ms': 2.9504, 'max_ms': 2.9858, 'ops_per_sec': 336.62, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasesmall': {'optimize_mode': 'small', 'target': 'wasm32-wasi', 'total_bench_ms': 396.098, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 87.829, 'mean_ms': 0.2928, 'median_ms': 0.2915, 'p95_ms': 0.2972, 'min_ms': 0.2896, 'max_ms': 0.3034, 'ops_per_sec': 3415.73, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 104.292, 'mean_ms': 0.5215, 'median_ms': 0.5228, 'p95_ms': 0.5313, 'min_ms': 0.5131, 'max_ms': 0.5939, 'ops_per_sec': 1917.7, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 82.168, 'mean_ms': 0.2739, 'median_ms': 0.2703, 'p95_ms': 0.284, 'min_ms': 0.2685, 'max_ms': 0.3325, 'ops_per_sec': 3651.07, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 74.865, 'mean_ms': 0.7486, 'median_ms': 0.7495, 'p95_ms': 0.7574, 'min_ms': 0.7384, 'max_ms': 0.7844, 'ops_per_sec': 1335.75, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 273.893, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 61.997, 'mean_ms': 0.2067, 'median_ms': 0.2056, 'p95_ms': 0.21, 'min_ms': 0.2036, 'max_ms': 0.2128, 'ops_per_sec': 4838.97, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 79.98, 'mean_ms': 0.3999, 'median_ms': 0.3979, 'p95_ms': 0.4057, 'min_ms': 0.3937, 'max_ms': 0.4134, 'ops_per_sec': 2500.63, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 50.81, 'mean_ms': 0.1694, 'median_ms': 0.1669, 'p95_ms': 0.181, 'min_ms': 0.1659, 'max_ms': 0.1824, 'ops_per_sec': 5904.34, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 48.271, 'mean_ms': 0.4827, 'median_ms': 0.4839, 'p95_ms': 0.4908, 'min_ms': 0.4741, 'max_ms': 0.5004, 'ops_per_sec': 2071.65, 'checksum': 8133605907336869050}}}, 'wasm_bench_runner_releasefast_simd': {'optimize_mode': 'fast', 'target': 'wasm32-wasi', 'total_bench_ms': 278.595, 'total_checksum': 13151244770801229719, 'workloads': {'layout_bench': {'iterations': 300, 'warmup_iterations': 50, 'elements_per_iter': 2047, 'total_ms': 62.435, 'mean_ms': 0.2081, 'median_ms': 0.207, 'p95_ms': 0.2138, 'min_ms': 0.2053, 'max_ms': 0.2176, 'ops_per_sec': 4804.99, 'checksum': 417689973924794692}, 'text_bench': {'iterations': 200, 'warmup_iterations': 20, 'elements_per_iter': 3405, 'total_ms': 85.141, 'mean_ms': 0.4257, 'median_ms': 0.4231, 'p95_ms': 0.4317, 'min_ms': 0.4199, 'max_ms': 0.4426, 'ops_per_sec': 2349.03, 'checksum': 7686275582076872382}, 'render_bench': {'iterations': 300, 'warmup_iterations': 30, 'elements_per_iter': 5100, 'total_ms': 49.527, 'mean_ms': 0.1651, 'median_ms': 0.1631, 'p95_ms': 0.175, 'min_ms': 0.1613, 'max_ms': 0.1822, 'ops_per_sec': 6057.35, 'checksum': 8226312248921777708}, 'combined_frame': {'iterations': 100, 'warmup_iterations': 15, 'elements_per_iter': 514, 'total_ms': 48.105, 'mean_ms': 0.4811, 'median_ms': 0.4839, 'p95_ms': 0.4891, 'min_ms': 0.4718, 'max_ms': 0.4971, 'ops_per_sec': 2078.78, 'checksum': 8133605907336869050}}}, 'tests_12_wasi_exec_sec': 1.167}}}, 'toolchain_footprint': {'wazig': {'version': '0.17.0-wazig.4', 'release': 'cataggar/zig@v0.17.0-wazig.4', 'archive_format': 'wazig.tar.zst', 'archive_bytes': 8879436, 'archive_mb': 8.47, 'archive_mb_decimal': 8.88, 'unpacked_release_bytes': 66553357, 'unpacked_release_mb': 63.47, 'unpacked_release_mb_decimal': 66.55, 'wasm_binary_name': 'wazig.wasm', 'wasm_binary_bytes': 36632158, 'wasm_binary_mb': 34.94, 'std_lib_bytes': 29921199, 'std_lib_mb': 28.54, 'ghr_installed_bytes': 70164480, 'ghr_installed_mb': 66.91, 'file_count': 1324, 'architecture': 'wasm64-wasip3 (universal single binary across Linux/macOS/Windows x86_64 & aarch64)', 'attestation': 'Native Sigstore bundle verified via ghr'}, 'wazigl': {'version': '0.17.0-wazigl.4', 'release': 'cataggar/zig@v0.17.0-wazigl.4', 'archive_format': 'wazigl.tar.zst', 'archive_bytes': 38254006, 'archive_mb': 36.48, 'archive_mb_decimal': 38.25, 'unpacked_release_bytes': 236996935, 'unpacked_release_mb': 226.02, 'unpacked_release_mb_decimal': 237.0, 'wasm_binary_name': 'wazigl.wasm', 'wasm_binary_bytes': 207075736, 'wasm_binary_mb': 197.48, 'std_lib_bytes': 29921199, 'std_lib_mb': 28.54, 'ghr_installed_bytes': 240611328, 'ghr_installed_mb': 229.46, 'file_count': 1324, 'architecture': 'wasm64-wasip3 + LLVM 22 (universal single binary across Linux/macOS/Windows x86_64 & aarch64)', 'attestation': 'Native Sigstore bundle verified via ghr'}, 'zig': {'version': '0.17.0', 'release': 'cataggar/zig@v0.17.0', 'archive_format': 'zig-aarch64-linux-0.17.0.tar.xz', 'archive_bytes': 52877280, 'archive_mb': 50.43, 'archive_mb_decimal': 52.88, 'unpacked_release_bytes': 360344860, 'unpacked_release_mb': 343.65, 'unpacked_release_mb_decimal': 360.34, 'elf_binary_name': 'zig', 'elf_binary_bytes': 171691896, 'elf_binary_mb': 163.74, 'std_lib_bytes': 187639324, 'std_lib_mb': 178.95, 'ghr_installed_bytes': 417058816, 'ghr_installed_mb': 397.74, 'file_count': 19506, 'architecture': 'OS/arch-specific native binaries (x86_64-linux, aarch64-linux, aarch64-macos, x86_64-windows, etc.)', 'attestation': 'minisign signature (external tool required)'}, 'wasm_deps_footprint': {'lazy_wasm_only': {'packages': ['TrueType', 'tracy'], 'package_count': 2, 'archive_mb': 4.91, 'unpacked_bytes': 36391866, 'unpacked_mb': 34.71}, 'eager_all_deps': {'packages': ['TrueType', 'tracy', 'Vulkan_Headers', 'zigwin32', 'wgpu_native_zig', 'vulkan_zig', 'zig_wayland', 'zig_objc', 'celer'], 'package_count': 9, 'archive_mb': 230.0, 'unpacked_mb': 680.0}}}}
 
 
 def setup_isolated_cache_env() -> dict[str, Path]:
@@ -67,7 +68,8 @@ def setup_isolated_cache_env() -> dict[str, Path]:
 
     os.environ["ZIG_LOCAL_CACHE_DIR"] = str(paths["zig_local"])
     os.environ["ZIG_GLOBAL_CACHE_DIR"] = str(paths["zig_global"])
-    os.environ["WASMTIME_CACHE_CONFIG"] = str(paths["wasmtime_toml"])
+    if not os.environ.get("WASMTIME_CACHE_CONFIG"):
+        os.environ["WASMTIME_CACHE_CONFIG"] = str(paths["wasmtime_toml"])
     os.environ["XDG_CONFIG_HOME"] = str(paths["xdg_config"])
     os.environ["XDG_CACHE_HOME"] = str(paths["xdg_cache"])
     os.environ["TMPDIR"] = str(paths["tmp"])
@@ -145,13 +147,19 @@ def wasm_bench_runner_args(
     global_cache_dir: Path,
     tt_zig: Path,
     tt_options_zig: Path,
+    mcpu: str | None = None,
 ) -> list[str]:
+    def target_opt_flags() -> list[str]:
+        flags = ["-target", "wasm32-wasi"]
+        if mcpu:
+            flags.extend(["-mcpu", mcpu])
+        flags.append(f"-O{opt_mode}")
+        return flags
+
     return [
         "build-exe",
         backend_flag,
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "--dep",
         "math",
         "--dep",
@@ -171,23 +179,15 @@ def wasm_bench_runner_args(
         "--dep",
         "ui",
         "-Mroot=tests/wasm_bench_runner.zig",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mmath=src/math/root.zig",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mrender_types=src/render/types/root.zig",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Minput=src/input/root.zig",
         "--dep",
         "math",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mlayout=src/layout/root.zig",
         "--dep",
         "layout",
@@ -195,29 +195,21 @@ def wasm_bench_runner_args(
         "math",
         "--dep",
         "render_types",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mstyle=src/style/root.zig",
         "--dep",
         "build_options",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         f"-MTrueType={rel_path(tt_zig)}",
         "--dep",
         "TrueType",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mtext=src/text/root.zig",
         "--dep",
         "render_types",
         "--dep",
         "math",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mrender=src/render/root.zig",
         "--dep",
         "layout",
@@ -233,13 +225,9 @@ def wasm_bench_runner_args(
         "render",
         "--dep",
         "math",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         "-Mui=src/ui/root.zig",
-        "-target",
-        "wasm32-wasi",
-        f"-O{opt_mode}",
+        *target_opt_flags(),
         f"-Mbuild_options={rel_path(tt_options_zig)}",
         "--cache-dir",
         rel_path(cache_dir),
@@ -261,7 +249,7 @@ def rewrite_compile_args(
     args: list[str] = []
     it = iter(orig_args)
     for a in it:
-        if a == "-fno-llvm":
+        if a in ("-fno-llvm", "-fllvm"):
             args.append(backend_flag)
         elif a.startswith("-femit-bin="):
             args.append(f"-femit-bin={rel_path(out_wasm)}")
@@ -271,8 +259,13 @@ def rewrite_compile_args(
         elif a == "--global-cache-dir":
             next(it)
             args.extend(["--global-cache-dir", rel_path(global_cache_dir)])
-        elif strip_atomics and a == "baseline+atomics+bulk_memory+bulk_memory_opt":
-            args.append("baseline+bulk_memory+bulk_memory_opt")
+        elif a == "-mcpu":
+            cpu_val = next(it)
+            if strip_atomics:
+                cpu_val = cpu_val.replace("+atomics", "").replace("+simd128", "")
+            args.extend(["-mcpu", cpu_val])
+        elif strip_atomics and a.startswith("baseline"):
+            args.append(a.replace("+atomics", "").replace("+simd128", ""))
         else:
             if tc_map:
                 for old_tc, new_tc in tc_map.items():
@@ -282,13 +275,20 @@ def rewrite_compile_args(
     return args
 
 
-def load_baseline_reference() -> dict[str, Any]:
-    committed_json = REPO_ROOT / "benchmarks" / "wazig-vs-zig.json"
-    if committed_json.is_file():
-        try:
-            return json.loads(committed_json.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+def load_baseline_reference(prefer_embedded: bool = False) -> dict[str, Any]:
+    if not prefer_embedded:
+        committed_json = REPO_ROOT / "benchmarks" / "wazig-vs-zig.json"
+        if committed_json.is_file():
+            try:
+                loaded = json.loads(committed_json.read_text(encoding="utf-8"))
+                if (
+                    "wazigl" in loaded.get("compilers", {})
+                    and "wazigl" in loaded.get("toolchain_footprint", {})
+                    and loaded["toolchain_footprint"].get("wazig", {}).get("version") == "0.17.0-wazig.4"
+                ):
+                    return loaded
+            except Exception:
+                pass
     return json.loads(json.dumps(EMBEDDED_BASELINE))
 
 
@@ -297,26 +297,31 @@ def fmt_kb(num_bytes: int) -> str:
 
 
 def run_ci_summary(paths: dict[str, Path]) -> str:
-    """Run live wazig + wasmtime benchmarks in CI and return a Markdown summary table."""
+    """Run live wazig (+ wazigl if installed) + wasmtime benchmarks in CI and return a 4-way Markdown summary."""
     wb = load_wazig_build_module()
     wazig_bin = find_optional_tool("wazig", "WAZIG")
+    wazigl_bin = find_optional_tool("wazigl", "WAZIGL")
     wasmtime_bin = find_optional_tool("wasmtime", "WASMTIME")
     if not wazig_bin or not wasmtime_bin:
         raise RuntimeError("wazig and wasmtime must be installed for --ci-summary")
 
     baseline = load_baseline_reference()
     w_base = baseline["compilers"]["wazig"]
+    wl_base = baseline["compilers"]["wazigl"]
     zn_base = baseline["compilers"]["zig_nollvm"]
     zl_base = baseline["compilers"]["zig_llvm"]
 
     print("[bench-wazig] Warming Wasmtime module cache for wazig...", file=sys.stderr, flush=True)
     subprocess.run([wazig_bin, "version"], cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
+    if wazigl_bin:
+        print("[bench-wazig] Warming Wasmtime module cache for wazigl...", file=sys.stderr, flush=True)
+        subprocess.run([wazigl_bin, "version"], cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
 
     tt_zig = ensure_truetype_pkg(wb, wazig_bin, paths["zig_local"], paths["zig_global"])
     tt_options_zig = paths["tmp"] / "truetype_options.zig"
     tt_options_zig.write_text("pub const debug_todo: bool = false;\n", encoding="utf-8")
 
-    # 1. Measure wazig fmt --check
+    # 1. Measure wazig fmt --check (and wazigl fmt --check if installed)
     print("[bench-wazig] Timing wazig fmt --check...", file=sys.stderr, flush=True)
     t0 = time.perf_counter()
     subprocess.run(
@@ -326,22 +331,37 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
     )
     fmt_sec = round(time.perf_counter() - t0, 3)
 
-    # 2. Compile & run wasm_bench_runner (Debug & ReleaseSmall)
-    ci_lc = paths["root"] / "lc-ci-wazig"
-    ci_gc = paths["root"] / "gc-ci-wazig"
-    shutil.rmtree(ci_lc, ignore_errors=True)
-    shutil.rmtree(ci_gc, ignore_errors=True)
-    ci_lc.mkdir(parents=True, exist_ok=True)
-    ci_gc.mkdir(parents=True, exist_ok=True)
+    wl_fmt_sec = wl_base["compile_sec"]["fmt_check"]
+    if wazigl_bin:
+        print("[bench-wazig] Timing wazigl fmt --check...", file=sys.stderr, flush=True)
+        t_wl0 = time.perf_counter()
+        subprocess.run(
+            [wazigl_bin, "fmt", "--check", "src/", "tests/", "examples/", "lib/js-bridge/src/"],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+        wl_fmt_sec = round(time.perf_counter() - t_wl0, 3)
 
+    # 2. Compile & run wasm_bench_runner for wazig (Debug, ReleaseSmall, ReleaseFast +simd128)
     live_compile: dict[str, Any] = {"fmt_check": fmt_sec}
     live_sizes: dict[str, Any] = {}
     live_runtime: dict[str, Any] = {}
 
-    for opt in ["Debug", "ReleaseSmall"]:
-        key = f"wasm_bench_runner_{opt.lower()}"
-        out_w = paths["bins"] / f"{key}_ci.wasm"
-        args = wasm_bench_runner_args(opt, "-fno-llvm", out_w, ci_lc, ci_gc, tt_zig, tt_options_zig)
+    wazig_ci_modes = [
+        ("wasm_bench_runner_debug", "Debug", None),
+        ("wasm_bench_runner_releasesmall", "ReleaseSmall", None),
+        ("wasm_bench_runner_releasefast_simd", "ReleaseFast", "baseline+simd128"),
+    ]
+    for key, opt, mcpu in wazig_ci_modes:
+        ci_lc = paths["root"] / f"lc-ci-wazig-{key}"
+        ci_gc = paths["root"] / f"gc-ci-wazig-{key}"
+        shutil.rmtree(ci_lc, ignore_errors=True)
+        shutil.rmtree(ci_gc, ignore_errors=True)
+        ci_lc.mkdir(parents=True, exist_ok=True)
+        ci_gc.mkdir(parents=True, exist_ok=True)
+
+        out_w = paths["bins"] / f"{key}_ci_wazig.wasm"
+        args = wasm_bench_runner_args(opt, "-fno-llvm", out_w, ci_lc, ci_gc, tt_zig, tt_options_zig, mcpu=mcpu)
         print(f"[bench-wazig] Compiling {key} with wazig...", file=sys.stderr, flush=True)
         t_c0 = time.perf_counter()
         subprocess.run([wazig_bin, *args], cwd=REPO_ROOT, check=True)
@@ -354,7 +374,7 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
         live_compile[key] = {"cold": t_cold, "warm": t_warm}
         live_sizes[key] = compress_sizes(out_w)
 
-        print(f"[bench-wazig] Running {key} under wasmtime...", file=sys.stderr, flush=True)
+        print(f"[bench-wazig] Running {key} (wazig) under wasmtime...", file=sys.stderr, flush=True)
         proc = subprocess.run(
             [wasmtime_bin, "run", str(out_w), "--", "--json"],
             cwd=REPO_ROOT,
@@ -363,8 +383,59 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
             check=True,
         )
         live_runtime[key] = json.loads(proc.stdout)
+        shutil.rmtree(ci_lc, ignore_errors=True)
+        shutil.rmtree(ci_gc, ignore_errors=True)
 
-    # 3. Check or build browser examples (playground, triangle, embedded, benchmark) in ReleaseSmall
+    # 3. Compile & run wasm_bench_runner for wazigl (ReleaseSmall, ReleaseFast +simd128) if installed
+    wl_live_compile: dict[str, Any] = {
+        "fmt_check": wl_fmt_sec,
+        "wasm_bench_runner_debug": wl_base["compile_sec"]["wasm_bench_runner_debug"],
+        "wasm_bench_runner_releasesmall": wl_base["compile_sec"]["wasm_bench_runner_releasesmall"],
+        "wasm_bench_runner_releasefast_simd": wl_base["compile_sec"]["wasm_bench_runner_releasefast_simd"],
+    }
+    wl_live_sizes: dict[str, Any] = dict(wl_base["binary_sizes"])
+    wl_live_runtime: dict[str, Any] = dict(wl_base["runtime"])
+
+    if wazigl_bin:
+        wazigl_ci_modes = [
+            ("wasm_bench_runner_releasesmall", "ReleaseSmall", None),
+            ("wasm_bench_runner_releasefast_simd", "ReleaseFast", "baseline+simd128"),
+        ]
+        for key, opt, mcpu in wazigl_ci_modes:
+            ci_lc = paths["root"] / f"lc-ci-wazigl-{key}"
+            ci_gc = paths["root"] / f"gc-ci-wazigl-{key}"
+            shutil.rmtree(ci_lc, ignore_errors=True)
+            shutil.rmtree(ci_gc, ignore_errors=True)
+            ci_lc.mkdir(parents=True, exist_ok=True)
+            ci_gc.mkdir(parents=True, exist_ok=True)
+
+            out_w = paths["bins"] / f"{key}_ci_wazigl.wasm"
+            args = wasm_bench_runner_args(opt, "-fllvm", out_w, ci_lc, ci_gc, tt_zig, tt_options_zig, mcpu=mcpu)
+            print(f"[bench-wazig] Compiling {key} with wazigl...", file=sys.stderr, flush=True)
+            t_c0 = time.perf_counter()
+            subprocess.run([wazigl_bin, *args], cwd=REPO_ROOT, check=True)
+            t_cold = round(time.perf_counter() - t_c0, 3)
+
+            t_w0 = time.perf_counter()
+            subprocess.run([wazigl_bin, *args], cwd=REPO_ROOT, check=True)
+            t_warm = round(time.perf_counter() - t_w0, 3)
+
+            wl_live_compile[key] = {"cold": t_cold, "warm": t_warm}
+            wl_live_sizes[key] = compress_sizes(out_w)
+
+            print(f"[bench-wazig] Running {key} (wazigl) under wasmtime...", file=sys.stderr, flush=True)
+            proc = subprocess.run(
+                [wasmtime_bin, "run", str(out_w), "--", "--json"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            wl_live_runtime[key] = json.loads(proc.stdout)
+            shutil.rmtree(ci_lc, ignore_errors=True)
+            shutil.rmtree(ci_gc, ignore_errors=True)
+
+    # 4. Check or build browser examples (playground, triangle, embedded, benchmark) in ReleaseSmall
     example_targets = [
         ("playground_release_webgpu_st", "examples/playground", "playground.wasm", ["-Dtarget=wasm32-freestanding", "-Doptimize=ReleaseSmall", "-Dgpu_backend=webgpu", "-Dweb_threads=false"]),
         ("triangle_release", "examples/triangle", "triangle.wasm", ["-Dtarget=wasm32-freestanding", "-Doptimize=ReleaseSmall"]),
@@ -385,47 +456,65 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
             live_compile[key] = c_val["cold"] if isinstance(c_val, dict) else c_val
         elif key == "embedded_release":
             print(f"[bench-wazig] Building {ex_dir} (ReleaseSmall) with wazig...", file=sys.stderr, flush=True)
+            ex_lc = paths["root"] / "lc-ci-ex"
+            ex_gc = paths["root"] / "gc-ci-ex"
+            ex_lc.mkdir(parents=True, exist_ok=True)
+            ex_gc.mkdir(parents=True, exist_ok=True)
             out_prefix = paths["tmp"] / f"ci-out-{key}"
             t_ex0 = time.perf_counter()
             plan = wb.compile_and_run_configurer(
-                wazig_bin, wasmtime_bin, (REPO_ROOT / ex_dir).resolve(), ci_lc, ci_gc, out_prefix.resolve(), [], d_flags
+                wazig_bin, wasmtime_bin, (REPO_ROOT / ex_dir).resolve(), ex_lc, ex_gc, out_prefix.resolve(), [], d_flags
             )
             tc_map: dict[str, str] = {}
             out_w = paths["bins"] / f"{key}_ci.wasm"
             for step in plan["steps"]:
                 if step["kind"] == "translate_c":
                     tc_out = paths["bins"] / f"tc_{key}_ci.zig"
-                    tc_args = rewrite_compile_args(step["args"], "-fno-llvm", tc_out, ci_lc, ci_gc)
+                    tc_args = rewrite_compile_args(step["args"], "-fno-llvm", tc_out, ex_lc, ex_gc)
                     with open(tc_out, "w", encoding="utf-8") as f:
                         subprocess.run([wazig_bin, *tc_args], cwd=REPO_ROOT, stdout=f, check=True)
                     tc_map[step["output"]] = str(tc_out)
                 elif step["kind"] == "compile":
-                    c_args = rewrite_compile_args(step["args"], "-fno-llvm", out_w, ci_lc, ci_gc, tc_map)
+                    c_args = rewrite_compile_args(step["args"], "-fno-llvm", out_w, ex_lc, ex_gc, tc_map)
                     subprocess.run([wazig_bin, *c_args], cwd=REPO_ROOT, check=True)
             live_compile[key] = round(time.perf_counter() - t_ex0, 3)
             live_sizes[key] = compress_sizes(out_w)
+            shutil.rmtree(ex_lc, ignore_errors=True)
+            shutil.rmtree(ex_gc, ignore_errors=True)
         else:
             live_sizes[key] = w_base["binary_sizes"][key]
             c_val = w_base["compile_sec"].get(key)
             live_compile[key] = c_val["cold"] if isinstance(c_val, dict) else c_val
 
-    # Render CI Markdown summary
+    # Render 4-way CI Markdown summary
+    wl_mode_label = "Live" if wazigl_bin else "Baseline"
     rel_rt = live_runtime["wasm_bench_runner_releasesmall"]["workloads"]
+    simd_rt = live_runtime["wasm_bench_runner_releasefast_simd"]["workloads"]
     dbg_rt = live_runtime["wasm_bench_runner_debug"]["workloads"]
+
+    wl_rel_rt = wl_live_runtime["wasm_bench_runner_releasesmall"]["workloads"]
+    wl_simd_rt = wl_live_runtime["wasm_bench_runner_releasefast_simd"]["workloads"]
+    wl_dbg_rt = wl_live_runtime["wasm_bench_runner_debug"]["workloads"]
+
     zn_rel_rt = zn_base["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
-    zl_rel_rt = zl_base["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
+    zn_fast_rt = zn_base["runtime"]["wasm_bench_runner_releasefast"]["workloads"]
     zn_dbg_rt = zn_base["runtime"]["wasm_bench_runner_debug"]["workloads"]
+
+    zl_rel_rt = zl_base["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
+    zl_simd_rt = zl_base["runtime"]["wasm_bench_runner_releasefast_simd"]["workloads"]
     zl_dbg_rt = zl_base["runtime"]["wasm_bench_runner_debug"]["workloads"]
 
     lines = [
-        "## `wazig v0.17.0-wazig.3` CI Benchmark Summary",
+        "## `wazig v0.17.0-wazig.4` & `wazigl v0.17.0-wazigl.4` CI Benchmark Summary",
         "",
-        "Live benchmarks executed on this runner with **`wazig v0.17.0-wazig.3`** (`cataggar/zig@v0.17.0-wazig.3`) + **`wasmtime v50.0.1`**, compared against standard **`zig v0.17.0`** (`-fno-llvm` and `-fllvm`).",
+        "Live benchmarks executed on this runner with **`wazig v0.17.0-wazig.4`** (`cataggar/zig@v0.17.0-wazig.4`, `-fno-llvm`) "
+        "and **`wazigl v0.17.0-wazigl.4`** (`cataggar/zig@v0.17.0-wazigl.4`, `-fllvm` LLVM 22) + **`wasmtime v50.0.1`**, "
+        "compared against standard **`zig v0.17.0`** (`-fno-llvm` and `-fllvm`).",
         "",
         "### 1. Runtime Execution Performance (`wasmtime run`, `wasm_bench_runner.wasm`)",
         "",
-        "| Workload (`ReleaseSmall`) | Elements / Frame | `wazig` (Live Median / FPS) | `zig -fno-llvm` (Baseline) | `zig -fllvm` (Baseline) | Checksum |",
-        "| :--- | ---: | ---: | ---: | ---: | :--- |",
+        f"| Workload (`ReleaseSmall`) | Elements | `wazig.4` (Live) | `wazigl.4` ({wl_mode_label}) | `zig -fno-llvm` (Baseline) | `zig -fllvm` (Baseline) |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
     ]
     workload_labels = [
         ("layout_bench", "Dashboard Flexbox Layout"),
@@ -435,43 +524,64 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
     ]
     for wkey, wlabel in workload_labels:
         w = rel_rt[wkey]
+        wl = wl_rel_rt[wkey]
         zn = zn_rel_rt[wkey]
         zl = zl_rel_rt[wkey]
         lines.append(
             f"| **{wlabel}** (`{wkey}`) | {w['elements_per_iter']:,} | "
             f"**{w['median_ms']:.3f} ms** ({w['ops_per_sec']:,.1f} FPS) | "
+            f"**{wl['median_ms']:.3f} ms** ({wl['ops_per_sec']:,.1f} FPS) | "
             f"{zn['median_ms']:.3f} ms ({zn['ops_per_sec']:,.1f} FPS) | "
-            f"{zl['median_ms']:.3f} ms ({zl['ops_per_sec']:,.1f} FPS) | "
-            f"`{w['checksum']}` |"
+            f"{zl['median_ms']:.3f} ms ({zl['ops_per_sec']:,.1f} FPS) |"
         )
 
     lines.extend([
         "",
-        "| Workload (`Debug`) | Elements / Frame | `wazig` (Live Median / FPS) | `zig -fno-llvm` (Baseline) | `zig -fllvm` (Baseline) | Checksum |",
-        "| :--- | ---: | ---: | ---: | ---: | :--- |",
+        f"| Workload (`ReleaseFast +simd128`) | Elements | `wazig.4` (Live) | `wazigl.4` ({wl_mode_label}) | `zig -fno-llvm` (`ReleaseFast`*) | `zig -fllvm` (Baseline) |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
+    ])
+    for wkey, wlabel in workload_labels:
+        w = simd_rt[wkey]
+        wl = wl_simd_rt[wkey]
+        zn = zn_fast_rt[wkey]
+        zl = zl_simd_rt[wkey]
+        lines.append(
+            f"| **{wlabel}** (`{wkey}`) | {w['elements_per_iter']:,} | "
+            f"**{w['median_ms']:.3f} ms** ({w['ops_per_sec']:,.1f} FPS) | "
+            f"**{wl['median_ms']:.3f} ms** ({wl['ops_per_sec']:,.1f} FPS) | "
+            f"{zn['median_ms']:.3f} ms ({zn['ops_per_sec']:,.1f} FPS)* | "
+            f"{zl['median_ms']:.3f} ms ({zl['ops_per_sec']:,.1f} FPS) |"
+        )
+
+    lines.extend([
+        "",
+        "| Workload (`Debug`) | Elements | `wazig.4` (Live) | `wazigl.4` (Baseline) | `zig -fno-llvm` (Baseline) | `zig -fllvm` (Baseline) |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
     ])
     for wkey, wlabel in workload_labels:
         w = dbg_rt[wkey]
+        wl = wl_dbg_rt[wkey]
         zn = zn_dbg_rt[wkey]
         zl = zl_dbg_rt[wkey]
         lines.append(
             f"| **{wlabel}** (`{wkey}`) | {w['elements_per_iter']:,} | "
             f"**{w['median_ms']:.3f} ms** ({w['ops_per_sec']:,.1f} FPS) | "
+            f"{wl['median_ms']:.3f} ms ({wl['ops_per_sec']:,.1f} FPS) | "
             f"{zn['median_ms']:.3f} ms ({zn['ops_per_sec']:,.1f} FPS) | "
-            f"{zl['median_ms']:.3f} ms ({zl['ops_per_sec']:,.1f} FPS) | "
-            f"`{w['checksum']}` |"
+            f"{zl['median_ms']:.3f} ms ({zl['ops_per_sec']:,.1f} FPS) |"
         )
 
     lines.extend([
         "",
         "### 2. Output `.wasm` Binary Size (`Raw` / `gzip -9` / `zstd -19`)",
         "",
-        "| Artifact | `wazig` (Raw / Gzip / Zstd) | `zig -fno-llvm` (Raw / Zstd) | `zig -fllvm` (Raw / Zstd) | `wazig` vs `zig -fno-llvm` |",
-        "| :--- | ---: | ---: | ---: | ---: |",
+        f"| Artifact | `wazig.4` (Raw / Gzip / Zstd) | `wazigl.4` (Raw / Gzip / Zstd) | `zig -fno-llvm` (Raw / Zstd) | `zig -fllvm` (Raw / Zstd) | `wazig` vs `zig -fno-llvm` |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
     ])
     size_rows = [
         ("wasm_bench_runner_debug", "`wasm_bench_runner.wasm` (`Debug`)"),
         ("wasm_bench_runner_releasesmall", "`wasm_bench_runner.wasm` (`ReleaseSmall`)"),
+        ("wasm_bench_runner_releasefast_simd", "`wasm_bench_runner.wasm` (`ReleaseFast +simd128`)"),
         ("playground_release_webgpu_st", "`playground.wasm` (`ReleaseSmall`, WebGPU)"),
         ("triangle_release", "`triangle.wasm` (`ReleaseSmall`)"),
         ("embedded_release", "`knots_Check.wasm` (`ReleaseSmall`)"),
@@ -479,31 +589,40 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
     ]
     for skey, slabel in size_rows:
         ws = live_sizes[skey]
+        wls = wl_live_sizes[skey]
         zns = zn_base["binary_sizes"][skey]
         zls = zl_base["binary_sizes"][skey]
-        delta_pct = ((ws["raw"] - zns["raw"]) / zns["raw"]) * 100.0
+        if "error" in zns:
+            zn_cell = "FAIL (`IllDefinedMemoryLayout`)*"
+            delta_str = "**`wazig` succeeds**"
+        else:
+            zn_cell = f"{fmt_kb(zns['raw'])} / {fmt_kb(zns['zstd'])}"
+            delta_pct = ((ws["raw"] - zns["raw"]) / zns["raw"]) * 100.0
+            delta_str = f"**{delta_pct:+.1f}%**"
         lines.append(
             f"| {slabel} | **{fmt_kb(ws['raw'])}** / {fmt_kb(ws['gzip'])} / **{fmt_kb(ws['zstd'])}** | "
-            f"{fmt_kb(zns['raw'])} / {fmt_kb(zns['zstd'])} | "
+            f"**{fmt_kb(wls['raw'])}** / {fmt_kb(wls['gzip'])} / **{fmt_kb(wls['zstd'])}** | "
+            f"{zn_cell} | "
             f"{fmt_kb(zls['raw'])} / {fmt_kb(zls['zstd'])} | "
-            f"**{delta_pct:+.1f}%** |"
+            f"{delta_str} |"
         )
 
     lines.extend([
         "",
         "### 3. Compilation Speed & Toolchain Footprint",
         "",
-        "| Metric | `wazig v0.17.0-wazig.3` | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` |",
-        "| :--- | ---: | ---: | ---: |",
-        "| **Toolchain Download Archive** | **8.45 MB** (`.tar.zst`) | 51.20 MB (`.tar.xz`) | 51.20 MB (`.tar.xz`) |",
-        "| **Unpacked Toolchain Footprint** | **40.40 MB** (1,324 files) | 265.00 MB (19,505 files) | 265.00 MB (19,505 files) |",
-        "| **Wasm Dependency Fetch** | **4.91 MB** (2 lazy deps) | 230.00 MB (9 eager deps) | 230.00 MB (9 eager deps) |",
-        f"| **`fmt --check` (all sources)** | **{live_compile['fmt_check']:.3f} s** | {zn_base['compile_sec']['fmt_check']:.3f} s | {zl_base['compile_sec']['fmt_check']:.3f} s |",
-        f"| **`wasm_bench_runner` (`Debug` cold / warm)** | **{live_compile['wasm_bench_runner_debug']['cold']:.2f} s** / **{live_compile['wasm_bench_runner_debug']['warm']:.2f} s** | {zn_base['compile_sec']['wasm_bench_runner_debug']['cold']:.2f} s / {zn_base['compile_sec']['wasm_bench_runner_debug']['warm']:.2f} s | {zl_base['compile_sec']['wasm_bench_runner_debug']['cold']:.2f} s / {zl_base['compile_sec']['wasm_bench_runner_debug']['warm']:.2f} s |",
-        f"| **`wasm_bench_runner` (`ReleaseSmall` cold / warm)** | **{live_compile['wasm_bench_runner_releasesmall']['cold']:.2f} s** / **{live_compile['wasm_bench_runner_releasesmall']['warm']:.2f} s** | {zn_base['compile_sec']['wasm_bench_runner_releasesmall']['cold']:.2f} s / {zn_base['compile_sec']['wasm_bench_runner_releasesmall']['warm']:.2f} s | {zl_base['compile_sec']['wasm_bench_runner_releasesmall']['cold']:.2f} s / {zl_base['compile_sec']['wasm_bench_runner_releasesmall']['warm']:.2f} s |",
-        f"| **12 `wasm32-wasi` Test Suites Execution (`wasmtime`)** | **{w_base['runtime']['tests_12_wasi_exec_sec']:.2f} s** (12/12 pass) | {zn_base['runtime']['tests_12_wasi_exec_sec']:.2f} s (fails `+atomics`*) | {zl_base['runtime']['tests_12_wasi_exec_sec']:.2f} s (12/12 pass) |",
+        "| Metric | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+        "| **Toolchain Download Archive** | **8.47 MiB** (`wazig.tar.zst`) | **36.48 MiB** (`wazigl.tar.zst`) | 50.43 MiB (`.tar.xz`) | 50.43 MiB (`.tar.xz`) |",
+        "| **Unpacked Toolchain Footprint** | **63.47 MiB** (1,324 files) | **226.02 MiB** (1,324 files) | 343.65 MiB (19,506 files) | 343.65 MiB (19,506 files) |",
+        "| **Wasm Dependency Fetch** | **4.91 MiB** (2 lazy deps) | **4.91 MiB** (2 lazy deps) | 230.00 MiB (9 eager deps) | 230.00 MiB (9 eager deps) |",
+        f"| **`fmt --check` (all sources)** | **{live_compile['fmt_check']:.3f} s** | **{wl_live_compile['fmt_check']:.3f} s** | {zn_base['compile_sec']['fmt_check']:.3f} s | {zl_base['compile_sec']['fmt_check']:.3f} s |",
+        f"| **`wasm_bench_runner` (`Debug` cold / warm)** | **{live_compile['wasm_bench_runner_debug']['cold']:.2f} s** / **{live_compile['wasm_bench_runner_debug']['warm']:.2f} s** | {wl_live_compile['wasm_bench_runner_debug']['cold']:.2f} s / {wl_live_compile['wasm_bench_runner_debug']['warm']:.2f} s | {zn_base['compile_sec']['wasm_bench_runner_debug']['cold']:.2f} s / {zn_base['compile_sec']['wasm_bench_runner_debug']['warm']:.2f} s | {zl_base['compile_sec']['wasm_bench_runner_debug']['cold']:.2f} s / {zl_base['compile_sec']['wasm_bench_runner_debug']['warm']:.2f} s |",
+        f"| **`wasm_bench_runner` (`ReleaseSmall` cold / warm)** | **{live_compile['wasm_bench_runner_releasesmall']['cold']:.2f} s** / **{live_compile['wasm_bench_runner_releasesmall']['warm']:.2f} s** | **{wl_live_compile['wasm_bench_runner_releasesmall']['cold']:.2f} s** / **{wl_live_compile['wasm_bench_runner_releasesmall']['warm']:.2f} s** | {zn_base['compile_sec']['wasm_bench_runner_releasesmall']['cold']:.2f} s / {zn_base['compile_sec']['wasm_bench_runner_releasesmall']['warm']:.2f} s | {zl_base['compile_sec']['wasm_bench_runner_releasesmall']['cold']:.2f} s / {zl_base['compile_sec']['wasm_bench_runner_releasesmall']['warm']:.2f} s |",
+        f"| **`wasm_bench_runner` (`ReleaseFast +simd128` cold / warm)** | **{live_compile['wasm_bench_runner_releasefast_simd']['cold']:.2f} s** / **{live_compile['wasm_bench_runner_releasefast_simd']['warm']:.2f} s** | **{wl_live_compile['wasm_bench_runner_releasefast_simd']['cold']:.2f} s** / **{wl_live_compile['wasm_bench_runner_releasefast_simd']['warm']:.2f} s** | FAIL (`IllDefinedMemoryLayout`)* | {zl_base['compile_sec']['wasm_bench_runner_releasefast_simd']['cold']:.2f} s / {zl_base['compile_sec']['wasm_bench_runner_releasefast_simd']['warm']:.2f} s |",
+        f"| **12 `wasm32-wasi` Test Suites Execution (`wasmtime`)** | **{w_base['runtime']['tests_12_wasi_exec_sec']:.3f} s** (12/12 pass) | **{wl_base['runtime']['tests_12_wasi_exec_sec']:.3f} s** (12/12 pass) | {zn_base['runtime']['tests_12_wasi_exec_sec']:.3f} s (fails `+atomics`*) | {zl_base['runtime']['tests_12_wasi_exec_sec']:.3f} s (12/12 pass) |",
         "",
-        r'> *\*Note: Upstream `zig 0.17.0 -fno-llvm` fails to compile `playground` with `web_threads=true` (`Malformed assembly, unknown instruction "global.get"` in `src/web/worker_host.zig`) and emits an invalid `0xfe 0x27a` atomic opcode on `+atomics` WASI tests; `wazig v0.17.0-wazig.3` fixes both self-hosted Wasm backend issues.*',
+        r'> *\*Note: Upstream `zig 0.17.0 -fno-llvm` fails on `+simd128` (`error.IllDefinedMemoryLayout` / invalid `v128` codegen in `scrollbar.render` & `mem.findScalarPos` failing Wasmtime validation; non-SIMD `zig -fno-llvm` numbers above are measured with `+simd128` stripped), fails to compile `playground` with `web_threads=true` (`Malformed assembly, unknown instruction "global.get"` in `src/web/worker_host.zig`), and emits an invalid `0xfe 0x27a` atomic opcode on `+atomics` WASI tests; `wazig v0.17.0-wazig.4` fixes all three self-hosted Wasm backend bugs while `wazigl v0.17.0-wazigl.4` provides a universal `wasm64-wasip3` LLVM 22 compiler with byte-identical `ReleaseSmall` codegen to native `zig -fllvm`.*',
         "",
     ])
     return "\n".join(lines)
@@ -512,31 +631,42 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
 def generate_full_markdown(data: dict[str, Any]) -> str:
     tf = data["toolchain_footprint"]
     w = data["compilers"]["wazig"]
+    wl = data["compilers"]["wazigl"]
     zn = data["compilers"]["zig_nollvm"]
     zl = data["compilers"]["zig_llvm"]
 
     w_rel_rt = w["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
+    wl_rel_rt = wl["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
     zn_rel_rt = zn["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
     zl_rel_rt = zl["runtime"]["wasm_bench_runner_releasesmall"]["workloads"]
 
-    w_fast_rt = w["runtime"].get("wasm_bench_runner_releasefast", w["runtime"]["wasm_bench_runner_releasesmall"])["workloads"]
-    w_fast_simd_rt = w["runtime"].get("wasm_bench_runner_releasefast_simd", w["runtime"].get("wasm_bench_runner_releasefast", w["runtime"]["wasm_bench_runner_releasesmall"]))["workloads"]
-    zn_fast_rt = zn["runtime"].get("wasm_bench_runner_releasefast", zn["runtime"]["wasm_bench_runner_releasesmall"])["workloads"]
-    zl_fast_rt = zl["runtime"].get("wasm_bench_runner_releasefast", zl["runtime"]["wasm_bench_runner_releasesmall"])["workloads"]
+    w_fast_rt = w["runtime"]["wasm_bench_runner_releasefast"]["workloads"]
+    wl_fast_rt = wl["runtime"]["wasm_bench_runner_releasefast"]["workloads"]
+    zn_fast_rt = zn["runtime"]["wasm_bench_runner_releasefast"]["workloads"]
+    zl_fast_rt = zl["runtime"]["wasm_bench_runner_releasefast"]["workloads"]
+
+    w_fast_simd_rt = w["runtime"]["wasm_bench_runner_releasefast_simd"]["workloads"]
+    wl_fast_simd_rt = wl["runtime"]["wasm_bench_runner_releasefast_simd"]["workloads"]
+    zl_fast_simd_rt = zl["runtime"]["wasm_bench_runner_releasefast_simd"]["workloads"]
 
     w_dbg_rt = w["runtime"]["wasm_bench_runner_debug"]["workloads"]
+    wl_dbg_rt = wl["runtime"]["wasm_bench_runner_debug"]["workloads"]
     zn_dbg_rt = zn["runtime"]["wasm_bench_runner_debug"]["workloads"]
     zl_dbg_rt = zl["runtime"]["wasm_bench_runner_debug"]["workloads"]
 
     def fmt_sz_cell(entry: dict[str, Any]) -> str:
         if "error" in entry:
-            return "FAIL (`global.get` asm)"
+            if "IllDefinedMemoryLayout" in entry["error"]:
+                return "FAIL (`IllDefinedMemoryLayout`)*"
+            return "FAIL (`global.get` asm)*"
         return f"{fmt_kb(entry['raw'])} / {fmt_kb(entry['gzip'])} / **{fmt_kb(entry['zstd'])}**"
 
     def fmt_comp_cell(val: Any) -> str:
         if isinstance(val, dict):
             if "error" in val:
-                return "FAIL (`global.get` asm)"
+                if "IllDefinedMemoryLayout" in val["error"]:
+                    return "FAIL (`IllDefinedMemoryLayout`)*"
+                return "FAIL (`global.get` asm)*"
             if "cold" in val:
                 return f"{val['cold']:.2f}s (cold) / {val['warm']:.2f}s (warm)"
             if "wall_parallel_sec" in val:
@@ -544,59 +674,65 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
         return f"{float(val):.2f}s"
 
     lines = [
-        "# `wazig` (`v0.17.0-wazig.4` Candidate) vs `zig v0.17.0` Comprehensive Benchmark Report",
+        "# wazig (v0.17.0-wazig.4) & wazigl (v0.17.0-wazigl.4) vs zig v0.17.0 Comprehensive Benchmark Report",
         "",
-        "Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-wazig.py`) comparing:",
-        "- **`wazig` (`v0.17.0-wazig.4` candidate, `cataggar/zig@b23f3693b9`)** (universal `wasm64-wasip3` self-hosted Wasm backend executed via `wasmtime v50.0.1`, including `cataggar/zig#158`, `#159`, `#163`, `#164`, `#168`, `#169`, `#170`, `#171` and `cataggar/knots#10` / `#11`)",
-        "- **`zig v0.17.0 -fno-llvm`** (`0.17.0-dev.27+0dd99239c`, native `x86_64-linux` binary with self-hosted Wasm backend)",
-        "- **`zig v0.17.0 -fllvm`** (`0.17.0-dev.27+0dd99239c`, native `x86_64-linux` binary with LLVM 22 backend)",
+        "Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-wazig.py`) comparing:",
+        "- **`wazig v0.17.0-wazig.4`** (`cataggar/zig@v0.17.0-wazig.4`, `-fno-llvm`): universal `wasm64-wasip3` self-hosted Wasm backend executed via `wasmtime v50.0.1` (`8.47 MiB` `.tar.zst`, `63.47 MiB` unpacked), including `cataggar/zig#158`, `#159`, `#163`, `#164`, `#168`, `#169`, `#170`, `#171` and `cataggar/knots#10` (`#11`)",
+        "- **`wazigl v0.17.0-wazigl.4`** (`cataggar/zig@v0.17.0-wazigl.4`, `-fllvm`): universal `wasm64-wasip3` compiler with full LLVM 22 Wasm backend executed via `wasmtime v50.0.1` (`36.48 MiB` `.tar.zst`, `226.02 MiB` unpacked)",
+        "- **`zig v0.17.0 -fno-llvm`** (`cataggar/zig@v0.17.0`, native `0.17.0` binary with self-hosted Wasm backend)",
+        "- **`zig v0.17.0 -fllvm`** (`cataggar/zig@v0.17.0`, native `0.17.0` binary with LLVM 22 backend)",
         "",
         "---",
         "",
         "## A. Toolchain & CI Footprint",
         "",
-        "| Metric | `wazig` (`wasm64-wasip3`) | `zig v0.17.0` (Standard) | Reduction / Advantage |",
-        "| :--- | :--- | :--- | :--- |",
-        f"| **Release Archive Size** | **{tf['wazig']['archive_mb']:.2f} MB** (`{tf['wazig']['archive_format']}`) | {tf['zig']['archive_mb']:.2f} MB (`{tf['zig']['archive_format']}`) | **6.06x smaller download (-83.5%)** |",
-        f"| **Unpacked Release Size** | **{tf['wazig']['unpacked_release_mb']:.1f} MB** (`21.1 MB` `wazig.wasm` + `19.3 MB` Wasm `lib/`) | {tf['zig']['unpacked_release_mb']:.1f} MB (`360.3 MB` in `ghr` store) | **6.56x–8.92x smaller on disk (-84.8%)** |",
-        f"| **Installed File Count** | **{tf['wazig']['file_count']:,} files** | {tf['zig']['file_count']:,} files | **14.7x fewer files** |",
-        f"| **Binary Portability** | {tf['wazig']['architecture']} | {tf['zig']['architecture']} | **Single universal artifact** |",
-        f"| **Supply-Chain Attestation** | {tf['wazig']['attestation']} | {tf['zig']['attestation']} | **Zero extra verification tools** |",
-        f"| **Wasm Build Dependency Fetch** | **{tf['wasm_deps_footprint']['lazy_wasm_only']['archive_mb']:.2f} MB** compressed / **{tf['wasm_deps_footprint']['lazy_wasm_only']['unpacked_mb']:.1f} MB** unpacked (2 pkgs: `TrueType`, `tracy`) | ~{tf['wasm_deps_footprint']['eager_all_deps']['archive_mb']:.0f}+ MB compressed / ~{tf['wasm_deps_footprint']['eager_all_deps']['unpacked_mb']:.0f} MB unpacked (9 pkgs incl. Vulkan, Wayland, Win32, wgpu) | **~46x smaller dependency fetch** |",
+        "| Metric | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0` (Standard) | Reduction / Advantage |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+        f"| **Release Archive Size** | **{tf['wazig']['archive_mb']:.2f} MiB** (`{tf['wazig']['archive_format']}`) | **{tf['wazigl']['archive_mb']:.2f} MiB** (`{tf['wazigl']['archive_format']}`) | {tf['zig']['archive_mb']:.2f} MiB (`{tf['zig']['archive_format']}`) | **`wazig`: 5.96x smaller (-83.2%) / `wazigl`: 1.38x smaller (-27.7%)** |",
+        f"| **Unpacked Release Size** | **{tf['wazig']['unpacked_release_mb']:.2f} MiB** (`{tf['wazig']['wasm_binary_mb']:.2f} MiB` `wazig.wasm` + `{tf['wazig']['std_lib_mb']:.2f} MiB` `lib/`) | **{tf['wazigl']['unpacked_release_mb']:.2f} MiB** (`{tf['wazigl']['wasm_binary_mb']:.2f} MiB` `wazigl.wasm` + `{tf['wazigl']['std_lib_mb']:.2f} MiB` `lib/`) | {tf['zig']['unpacked_release_mb']:.2f} MiB (`{tf['zig']['elf_binary_mb']:.2f} MiB` `zig` + `{tf['zig']['std_lib_mb']:.2f} MiB` `lib/`; `{tf['zig']['ghr_installed_mb']:.2f} MiB` on disk) | **`wazig`: 5.41x smaller (-81.5%) / `wazigl`: 1.52x smaller (-34.2%)** |",
+        f"| **Installed File Count** | **{tf['wazig']['file_count']:,} files** | **{tf['wazigl']['file_count']:,} files** | {tf['zig']['file_count']:,} files | **14.7x fewer files (-93.2%)** |",
+        f"| **Binary Portability** | {tf['wazig']['architecture']} | {tf['wazigl']['architecture']} | {tf['zig']['architecture']} | **Single universal artifact per tier** |",
+        f"| **Supply-Chain Attestation** | {tf['wazig']['attestation']} | {tf['wazigl']['attestation']} | {tf['zig']['attestation']} | **Zero extra verification tools** |",
+        f"| **Wasm Build Dependency Fetch** | **{tf['wasm_deps_footprint']['lazy_wasm_only']['archive_mb']:.2f} MiB** compressed / **{tf['wasm_deps_footprint']['lazy_wasm_only']['unpacked_mb']:.2f} MiB** unpacked (2 pkgs: `TrueType`, `tracy`) | **{tf['wasm_deps_footprint']['lazy_wasm_only']['archive_mb']:.2f} MiB** compressed / **{tf['wasm_deps_footprint']['lazy_wasm_only']['unpacked_mb']:.2f} MiB** unpacked (2 pkgs: `TrueType`, `tracy`) | ~{tf['wasm_deps_footprint']['eager_all_deps']['archive_mb']:.0f}+ MiB compressed / ~{tf['wasm_deps_footprint']['eager_all_deps']['unpacked_mb']:.0f} MiB unpacked (9 pkgs incl. Vulkan, Wayland, Win32, wgpu) | **~46x smaller dependency fetch** |",
         "",
         "---",
         "",
         "## B. Compilation Speed (Cold Cache & Warm Cache)",
         "",
-        "> All `wazig` measurements run with Wasmtime's compiled module cache warmed (`wazig version` startup `0.26s`).",
+        "> All `wazig` and `wazigl` measurements run with Wasmtime's compiled module cache warmed.",
         "",
-        "| Workload | `wazig` (`-fno-llvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` (LLVM 22) |",
-        "| :--- | ---: | ---: | ---: |",
-        f"| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **{w['compile_sec']['fmt_check']:.3f}s** | {zn['compile_sec']['fmt_check']:.3f}s | {zl['compile_sec']['fmt_check']:.3f}s |",
-        f"| `wasm_bench_runner.zig` (`Debug`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_debug'])} |",
-        f"| `wasm_bench_runner.zig` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_releasesmall'])} |",
-        f"| `wasm_bench_runner.zig` (`ReleaseFast`) | {fmt_comp_cell(w['compile_sec'].get('wasm_bench_runner_releasefast', w['compile_sec']['wasm_bench_runner_releasesmall']))} | {fmt_comp_cell(zn['compile_sec'].get('wasm_bench_runner_releasefast', zn['compile_sec']['wasm_bench_runner_releasesmall']))} | {fmt_comp_cell(zl['compile_sec'].get('wasm_bench_runner_releasefast', zl['compile_sec']['wasm_bench_runner_releasesmall']))} |",
-        f"| `wasm_bench_runner.zig` (`ReleaseFast +simd128`) | {fmt_comp_cell(w['compile_sec'].get('wasm_bench_runner_releasefast_simd', w['compile_sec'].get('wasm_bench_runner_releasefast', w['compile_sec']['wasm_bench_runner_releasesmall'])))} | FAIL (`IllDefinedMemoryLayout`)* | {fmt_comp_cell(zl['compile_sec'].get('wasm_bench_runner_releasefast', zl['compile_sec']['wasm_bench_runner_releasesmall']))} |",
-        f"| All 12 `wasm32-wasi` Test Suites (`js-bridge` + 11 `knots` suites) | {fmt_comp_cell(w['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(zn['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(zl['compile_sec']['tests_12_wasi'])} |",
-        f"| `examples/triangle` (`Debug`) | {fmt_comp_cell(w['compile_sec']['triangle_debug'])} | {fmt_comp_cell(zn['compile_sec']['triangle_debug'])} | {fmt_comp_cell(zl['compile_sec']['triangle_debug'])} |",
-        f"| `examples/triangle` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['triangle_release'])} | {fmt_comp_cell(zn['compile_sec']['triangle_release'])} | {fmt_comp_cell(zl['compile_sec']['triangle_release'])} |",
-        f"| `examples/playground` (`Debug`, WebGPU, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_debug_webgpu_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_debug_webgpu_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_debug_webgpu_st'])} |",
-        f"| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_release_webgpu_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_release_webgpu_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_release_webgpu_st'])} |",
-        f"| `examples/playground` (`Debug`, WebGL2, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_debug_webgl2_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_debug_webgl2_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_debug_webgl2_st'])} |",
-        f"| `examples/playground` (`ReleaseSmall`, WebGL2, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_release_webgl2_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_release_webgl2_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_release_webgl2_st'])} |",
-        f"| `examples/playground` (`Debug`, WebGPU, `web_threads=true`) | **{fmt_comp_cell(w['compile_sec']['playground_debug_webgpu_mt'])}** | {fmt_comp_cell(zn['compile_sec']['playground_debug_webgpu_mt'])} | {fmt_comp_cell(zl['compile_sec']['playground_debug_webgpu_mt'])} |",
-        f"| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=true`) | **{fmt_comp_cell(w['compile_sec']['playground_release_webgpu_mt'])}** | {fmt_comp_cell(zn['compile_sec']['playground_release_webgpu_mt'])} | {fmt_comp_cell(zl['compile_sec']['playground_release_webgpu_mt'])} |",
-        f"| `examples/embedded` (`Debug`) | {fmt_comp_cell(w['compile_sec']['embedded_debug'])} | {fmt_comp_cell(zn['compile_sec']['embedded_debug'])} | {fmt_comp_cell(zl['compile_sec']['embedded_debug'])} |",
-        f"| `examples/embedded` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['embedded_release'])} | {fmt_comp_cell(zn['compile_sec']['embedded_release'])} | {fmt_comp_cell(zl['compile_sec']['embedded_release'])} |",
-        f"| `examples/benchmark` + `translate-c` `TracyC.h` (`Debug`) | {fmt_comp_cell(w['compile_sec']['benchmark_debug'])} | {fmt_comp_cell(zn['compile_sec']['benchmark_debug'])} | {fmt_comp_cell(zl['compile_sec']['benchmark_debug'])} |",
-        f"| `examples/benchmark` + `translate-c` `TracyC.h` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['benchmark_release'])} | {fmt_comp_cell(zn['compile_sec']['benchmark_release'])} | {fmt_comp_cell(zl['compile_sec']['benchmark_release'])} |",
+        "| Workload | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` (LLVM 22) |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+        f"| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **{w['compile_sec']['fmt_check']:.3f}s** | {wl['compile_sec']['fmt_check']:.3f}s | {zn['compile_sec']['fmt_check']:.3f}s | {zl['compile_sec']['fmt_check']:.3f}s |",
+        f"| `wasm_bench_runner.zig` (`Debug`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(wl['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_debug'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_debug'])} |",
+        f"| `wasm_bench_runner.zig` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(wl['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_releasesmall'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_releasesmall'])} |",
+        f"| `wasm_bench_runner.zig` (`ReleaseFast`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_releasefast'])} | {fmt_comp_cell(wl['compile_sec']['wasm_bench_runner_releasefast'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_releasefast'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_releasefast'])} |",
+        f"| `wasm_bench_runner.zig` (`ReleaseFast +simd128`) | {fmt_comp_cell(w['compile_sec']['wasm_bench_runner_releasefast_simd'])} | {fmt_comp_cell(wl['compile_sec']['wasm_bench_runner_releasefast_simd'])} | {fmt_comp_cell(zn['compile_sec']['wasm_bench_runner_releasefast_simd'])} | {fmt_comp_cell(zl['compile_sec']['wasm_bench_runner_releasefast_simd'])} |",
+        f"| All 12 `wasm32-wasi` Test Suites (`js-bridge` + 11 `knots` suites) | {fmt_comp_cell(w['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(wl['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(zn['compile_sec']['tests_12_wasi'])} | {fmt_comp_cell(zl['compile_sec']['tests_12_wasi'])} |",
+        f"| `examples/triangle` (`Debug`) | {fmt_comp_cell(w['compile_sec']['triangle_debug'])} | {fmt_comp_cell(wl['compile_sec']['triangle_debug'])} | {fmt_comp_cell(zn['compile_sec']['triangle_debug'])} | {fmt_comp_cell(zl['compile_sec']['triangle_debug'])} |",
+        f"| `examples/triangle` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['triangle_release'])} | {fmt_comp_cell(wl['compile_sec']['triangle_release'])} | {fmt_comp_cell(zn['compile_sec']['triangle_release'])} | {fmt_comp_cell(zl['compile_sec']['triangle_release'])} |",
+        f"| `examples/playground` (`Debug`, WebGPU, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_debug_webgpu_st'])} | {fmt_comp_cell(wl['compile_sec']['playground_debug_webgpu_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_debug_webgpu_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_debug_webgpu_st'])} |",
+        f"| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_release_webgpu_st'])} | {fmt_comp_cell(wl['compile_sec']['playground_release_webgpu_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_release_webgpu_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_release_webgpu_st'])} |",
+        f"| `examples/playground` (`Debug`, WebGL2, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_debug_webgl2_st'])} | {fmt_comp_cell(wl['compile_sec']['playground_debug_webgl2_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_debug_webgl2_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_debug_webgl2_st'])} |",
+        f"| `examples/playground` (`ReleaseSmall`, WebGL2, `web_threads=false`) | {fmt_comp_cell(w['compile_sec']['playground_release_webgl2_st'])} | {fmt_comp_cell(wl['compile_sec']['playground_release_webgl2_st'])} | {fmt_comp_cell(zn['compile_sec']['playground_release_webgl2_st'])} | {fmt_comp_cell(zl['compile_sec']['playground_release_webgl2_st'])} |",
+        f"| `examples/playground` (`Debug`, WebGPU, `web_threads=true`) | **{fmt_comp_cell(w['compile_sec']['playground_debug_webgpu_mt'])}** | **{fmt_comp_cell(wl['compile_sec']['playground_debug_webgpu_mt'])}** | {fmt_comp_cell(zn['compile_sec']['playground_debug_webgpu_mt'])} | {fmt_comp_cell(zl['compile_sec']['playground_debug_webgpu_mt'])} |",
+        f"| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=true`) | **{fmt_comp_cell(w['compile_sec']['playground_release_webgpu_mt'])}** | **{fmt_comp_cell(wl['compile_sec']['playground_release_webgpu_mt'])}** | {fmt_comp_cell(zn['compile_sec']['playground_release_webgpu_mt'])} | {fmt_comp_cell(zl['compile_sec']['playground_release_webgpu_mt'])} |",
+        f"| `examples/embedded` (`Debug`) | {fmt_comp_cell(w['compile_sec']['embedded_debug'])} | {fmt_comp_cell(wl['compile_sec']['embedded_debug'])} | {fmt_comp_cell(zn['compile_sec']['embedded_debug'])} | {fmt_comp_cell(zl['compile_sec']['embedded_debug'])} |",
+        f"| `examples/embedded` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['embedded_release'])} | {fmt_comp_cell(wl['compile_sec']['embedded_release'])} | {fmt_comp_cell(zn['compile_sec']['embedded_release'])} | {fmt_comp_cell(zl['compile_sec']['embedded_release'])} |",
+        f"| `examples/benchmark` + `translate-c` `TracyC.h` (`Debug`) | {fmt_comp_cell(w['compile_sec']['benchmark_debug'])} | {fmt_comp_cell(wl['compile_sec']['benchmark_debug'])} | {fmt_comp_cell(zn['compile_sec']['benchmark_debug'])} | {fmt_comp_cell(zl['compile_sec']['benchmark_debug'])} |",
+        f"| `examples/benchmark` + `translate-c` `TracyC.h` (`ReleaseSmall`) | {fmt_comp_cell(w['compile_sec']['benchmark_release'])} | {fmt_comp_cell(wl['compile_sec']['benchmark_release'])} | {fmt_comp_cell(zn['compile_sec']['benchmark_release'])} | {fmt_comp_cell(zl['compile_sec']['benchmark_release'])} |",
+        "",
+        "**Compilation Speed Analysis (`wazig.4` vs `wazigl.4` vs `zig 0.17.0`):**",
+        "- **`wazig v0.17.0-wazig.4` (`-fno-llvm`) vs `wazigl v0.17.0-wazigl.4` (`-fllvm`)**: Because `wazig` uses Zig's self-hosted WebAssembly backend (`src/codegen/wasm/Optimizer.zig`) without invoking LLVM's optimization passes, `wazig.4` compiles **2.0x–4.8x faster** than `wazigl.4` across every workload (`4.91s` vs `14.71s` warm on `wasm_bench_runner ReleaseSmall`, `5.68s` vs `26.53s` warm on `ReleaseFast +simd128`, `20.80s` vs `62.42s` wall time across all 12 WASI test suites, and `0.555s` vs `1.706s` on `fmt --check`).",
+        "- **`wazig v0.17.0-wazig.4` vs Native `zig v0.17.0 -fllvm`**: Even running inside Wasmtime (`wasm64-wasip3`), `wazig.4` warm-cache builds (`4.91s` `ReleaseSmall`, `5.53s` `ReleaseFast`, `5.68s` `ReleaseFast +simd128`) are **competitive with or up to 1.60x faster than native `zig 0.17.0 -fllvm`** (`4.66s` `ReleaseSmall`, `9.08s` `ReleaseFast`, `9.01s` `ReleaseFast +simd128`), and `triangle` (`5.74s` vs `5.99s` warm) and `embedded` (`4.84s` vs `4.60s`) build at near-native LLVM speed.",
+        "- **`wazigl v0.17.0-wazigl.4` vs Native `zig v0.17.0 -fllvm`**: Running the full LLVM 22 + Clang C++ toolchain inside Wasmtime (`wazigl.wasm`, `197.48 MiB`) incurs a ~2.8x–3.5x Wasmtime guest execution multiplier relative to native `zig -fllvm` (`14.71s` vs `4.66s` warm on `ReleaseSmall`, `36.29s` vs `11.61s` on `playground ReleaseSmall`), making `wazig.4` ideal for fast CI test/check inner loops and `wazigl.4` ideal when maximum LLVM codegen optimization is desired without OS/arch-specific native compiler binaries.",
         "",
         "---",
         "",
         "## C. Output `.wasm` Binary Size (`Raw / gzip -9 / zstd -19`)",
         "",
-        "| Target Artifact | `wazig` (`-fno-llvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | `wazig` vs `zig -fno-llvm` (Raw) |",
-        "| :--- | ---: | ---: | ---: | ---: |",
+        "| Target Artifact | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | `wazig` vs `zig -fno-llvm` / `wazigl` vs `zig -fllvm` |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     all_size_keys = [
@@ -620,24 +756,28 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
     ]
     for skey, slabel in all_size_keys:
         ws = w["binary_sizes"][skey]
-        zns = zn["binary_sizes"].get(skey, {"error": "IllDefinedMemoryLayout"})
-        zls = zl["binary_sizes"].get(skey, zl["binary_sizes"]["wasm_bench_runner_releasefast"])
+        wls = wl["binary_sizes"][skey]
+        zns = zn["binary_sizes"][skey]
+        zls = zl["binary_sizes"][skey]
+        wl_diff_bytes = wls["raw"] - zls["raw"]
+        wl_vs_zl = "0 B (identical)" if wl_diff_bytes == 0 else f"{((wls['raw'] - zls['raw']) / zls['raw']) * 100.0:+.2f}%"
         if "error" in zns:
-            delta_str = "**`wazig` succeeds** (`zig -fno-llvm` fails)"
+            delta_str = f"**`wazig` succeeds** / `wazigl`: **{wl_vs_zl}**"
         else:
             pct = ((ws["raw"] - zns["raw"]) / zns["raw"]) * 100.0
-            delta_str = f"**{pct:+.1f}%**"
-        zns_cell = "FAIL (`IllDefinedMemoryLayout`)*" if skey == "wasm_bench_runner_releasefast_simd" else fmt_sz_cell(zns)
+            delta_str = f"`wazig`: **{pct:+.1f}%** / `wazigl`: **{wl_vs_zl}**"
         lines.append(
-            f"| {slabel} | {fmt_sz_cell(ws)} | {zns_cell} | {fmt_sz_cell(zls)} | {delta_str} |"
+            f"| {slabel} | {fmt_sz_cell(ws)} | {fmt_sz_cell(wls)} | {fmt_sz_cell(zns)} | {fmt_sz_cell(zls)} | {delta_str} |"
         )
 
     lines.extend([
         "",
         "**Key Binary Size Takeaways:**",
-        "- In **`Debug`** builds, `wazig` produces the **smallest `.wasm` binaries of all three compilers** — **14.8%–23.4% smaller** than upstream `zig 0.17.0 -fno-llvm` and **53.1%–65.3% smaller (2.13x–2.88x smaller)** than `zig 0.17.0 -fllvm`.",
-        "- In **`ReleaseSmall`** builds, `wazig` is **11.1%–19.0% smaller** than upstream `zig 0.17.0 -fno-llvm` across all targets (`980.9 KB` raw / `348.5 KB` zstd on `wasm_bench_runner.wasm` vs `1,210.5 KB` raw on `zig -fno-llvm`).",
-        "- Across all 12 `wasm32-wasi` test binaries, `wazig` emits **7.58 MB** raw (`2.06 MB` zstd) vs **28.50 MB** raw (`7.03 MB` zstd) with `zig -fllvm`, cutting Wasmtime JIT compile + test execution time by **11.49x** (`0.931s` vs `10.699s`, and **3.31x faster** than `25bcd82e14`'s `3.078s`).",
+        "- **`wazigl v0.17.0-wazigl.4` (`-fllvm`) produces byte-for-byte identical `ReleaseSmall` `.wasm` binaries (`0 B` difference) to native `zig v0.17.0 -fllvm` across every single `ReleaseSmall` target:** `682.4 KB` raw (`298.2 KB` zstd) on `wasm_bench_runner`, `1,782.7 KB` raw (`575.7 KB` zstd) on `playground` WebGPU, `1,748.5 KB` raw (`584.8 KB` zstd) on `playground` WebGL2, `1,786.8 KB` raw (`570.8 KB` zstd) on `playground` WebGPU + threads, `801.0 KB` raw (`325.9 KB` zstd) on `triangle`, `734.4 KB` raw (`302.4 KB` zstd) on `embedded`, and `807.3 KB` raw (`328.7 KB` zstd) on `benchmark` — delivering full LLVM 22 codegen from a single universal `wasm64-wasip3` compiler.",
+        "- **`wazig v0.17.0-wazig.4` (`-fno-llvm`) produces the smallest `Debug` and `ReleaseFast` `.wasm` binaries of all four compilers:**",
+        "  - In **`Debug`** builds, `wazig.4` is **13.9%–24.9% smaller** than upstream `zig 0.17.0 -fno-llvm` and **52.7%–73.2% smaller (2.11x–3.73x smaller)** than `wazigl.4` and `zig 0.17.0 -fllvm`.",
+        "  - In **`ReleaseFast +simd128`** builds, `wazig.4` (`1,208.1 KB` raw / `397.9 KB` zstd) is **2.33x smaller** than `wazigl.4` (`2,810.7 KB` raw / `823.5 KB` zstd) and `zig 0.17.0 -fllvm` (`2,811.2 KB` raw / `824.2 KB` zstd), because LLVM's `ReleaseFast` loop unrolling and aggressive inlining expand `.wasm` binary size by **4.12x** over `ReleaseSmall` (`682.4 KB` → `2,810.7 KB`), whereas `wazig`'s targeted leaf inliner (`Optimizer.zig`) adds only `+23.2%` over `ReleaseSmall` (`980.9 KB` → `1,208.1 KB`).",
+        "  - Across all 12 `wasm32-wasi` test binaries (`Debug`), `wazig.4` emits **7.63 MiB** raw (`2.08 MiB` zstd) vs **28.44 MiB** raw (`7.02 MiB` zstd) with `wazigl.4` / `zig -fllvm` (**3.73x smaller**), enabling the fastest test suite execution (`0.969s`).",
         "",
         "---",
         "",
@@ -645,8 +785,8 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
         "",
         "### D.1 `wasm_bench_runner.wasm` — `ReleaseSmall`",
         "",
-        "| Workload | Iterations | Elements/Iter | `wazig` (Median / P95 / FPS) | `zig -fno-llvm` (Median / P95 / FPS) | `zig -fllvm` (Median / P95 / FPS) | Checksum |",
-        "| :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
+        "| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
     ])
 
     workload_labels = [
@@ -657,74 +797,105 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
     ]
     for wkey, wlabel in workload_labels:
         rw = w_rel_rt[wkey]
+        rwl = wl_rel_rt[wkey]
         rzn = zn_rel_rt[wkey]
         rzl = zl_rel_rt[wkey]
+        cs_str = f"`{rw['checksum']}`" if rw["checksum"] == rwl["checksum"] else f"`{rw['checksum']}` / `{rwl['checksum']}`"
         lines.append(
             f"| **{wlabel}** | {rw['iterations']} | {rw['elements_per_iter']:,} | "
             f"**{rw['median_ms']:.3f} ms** / {rw['p95_ms']:.3f} ms (**{rw['ops_per_sec']:,.1f} FPS**) | "
+            f"**{rwl['median_ms']:.3f} ms** / {rwl['p95_ms']:.3f} ms (**{rwl['ops_per_sec']:,.1f} FPS**) | "
             f"{rzn['median_ms']:.3f} ms / {rzn['p95_ms']:.3f} ms ({rzn['ops_per_sec']:,.1f} FPS) | "
             f"{rzl['median_ms']:.3f} ms / {rzl['p95_ms']:.3f} ms ({rzl['ops_per_sec']:,.1f} FPS) | "
-            f"`{rw['checksum']}` |"
+            f"{cs_str} |"
         )
 
     lines.extend([
         "",
         "### D.2 `wasm_bench_runner.wasm` — `ReleaseFast` & `ReleaseFast (+simd128)`",
         "",
-        "| Workload | `wazig` `ReleaseFast` (Median / FPS) | `wazig` `ReleaseFast +simd128` (Median / FPS) | `zig -fno-llvm` `ReleaseFast` (Median / FPS) | `zig -fllvm` `ReleaseFast` (Median / FPS) | Checksum |",
+        "#### `ReleaseFast (+simd128)` (Default Wasm Target Features in `web_build.zig`)",
+        "",
+        "| Workload | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |",
+        "| :--- | ---: | ---: | ---: | ---: | :--- |",
+    ])
+    for wkey, wlabel in workload_labels:
+        fws = w_fast_simd_rt[wkey]
+        fwls = wl_fast_simd_rt[wkey]
+        fzls = zl_fast_simd_rt[wkey]
+        cs_str = f"`{fws['checksum']}`" if fws["checksum"] == fwls["checksum"] else f"`{fws['checksum']}` / `{fwls['checksum']}`"
+        lines.append(
+            f"| **{wlabel}** | "
+            f"**{fws['median_ms']:.3f} ms** / {fws['p95_ms']:.3f} ms (**{fws['ops_per_sec']:,.1f} FPS**) | "
+            f"**{fwls['median_ms']:.3f} ms** / {fwls['p95_ms']:.3f} ms (**{fwls['ops_per_sec']:,.1f} FPS**) | "
+            f"FAIL (`IllDefinedMemoryLayout`)* | "
+            f"{fzls['median_ms']:.3f} ms / {fzls['p95_ms']:.3f} ms ({fzls['ops_per_sec']:,.1f} FPS) | "
+            f"{cs_str} |"
+        )
+
+    lines.extend([
+        "",
+        "#### `ReleaseFast` (Baseline Wasm CPU without `+simd128`)",
+        "",
+        "| Workload | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |",
         "| :--- | ---: | ---: | ---: | ---: | :--- |",
     ])
     for wkey, wlabel in workload_labels:
         fw = w_fast_rt[wkey]
-        fws = w_fast_simd_rt[wkey]
+        fwl = wl_fast_rt[wkey]
         fzn = zn_fast_rt[wkey]
         fzl = zl_fast_rt[wkey]
+        cs_str = f"`{fw['checksum']}`" if fw["checksum"] == fwl["checksum"] else f"`{fw['checksum']}` / `{fwl['checksum']}`"
         lines.append(
             f"| **{wlabel}** | "
-            f"**{fw['median_ms']:.3f} ms** (**{fw['ops_per_sec']:,.1f} FPS**) | "
-            f"**{fws['median_ms']:.3f} ms** (**{fws['ops_per_sec']:,.1f} FPS**) | "
-            f"{fzn['median_ms']:.3f} ms ({fzn['ops_per_sec']:,.1f} FPS) | "
-            f"{fzl['median_ms']:.3f} ms ({fzl['ops_per_sec']:,.1f} FPS) | "
-            f"`{fw['checksum']}` |"
+            f"**{fw['median_ms']:.3f} ms** / {fw['p95_ms']:.3f} ms (**{fw['ops_per_sec']:,.1f} FPS**) | "
+            f"**{fwl['median_ms']:.3f} ms** / {fwl['p95_ms']:.3f} ms (**{fwl['ops_per_sec']:,.1f} FPS**) | "
+            f"{fzn['median_ms']:.3f} ms / {fzn['p95_ms']:.3f} ms ({fzn['ops_per_sec']:,.1f} FPS) | "
+            f"{fzl['median_ms']:.3f} ms / {fzl['p95_ms']:.3f} ms ({fzl['ops_per_sec']:,.1f} FPS) | "
+            f"{cs_str} |"
         )
 
     lines.extend([
         "",
         "**`ReleaseFast` & `+simd128` vs `ReleaseSmall` Analysis:**",
-        "- **`wazig` vs `zig 0.17.0 -fno-llvm` & `zig 0.17.0 -fllvm`**: With inline `@min`/`@max` (`cataggar/zig#158`), SROA to Wasm locals (`cataggar/zig#159`), parameterized leaf inlining (`cataggar/zig#163`, `#169`), `v128` `+simd128` vector & `@reduce` lowering (`cataggar/zig#164`, `#168`), multivalue 2-scalar returns (`cataggar/zig#170`), and `band.fillBands` curve extent precomputation (`cataggar/knots#10` / `#11`), `wazig` is now **1.77x–4.25x faster** than upstream `zig 0.17.0 -fno-llvm` across all four workloads (and **1.81x–6.47x faster** than `wazig v0.17.0-wazig.3`). On `text_bench`, `wazig` (`1,073.9 FPS` in `ReleaseSmall`, `1,168.1 FPS` in `ReleaseFast`, **`1,175.1 FPS`** in `ReleaseFast +simd128`) **outperforms `zig 0.17.0 -fllvm` (LLVM 22)** in both `ReleaseSmall` (`848.6 FPS`, **1.27x faster**) and `ReleaseFast` (`1,123.8 FPS`, **1.05x faster**).",
-        "- **`ReleaseFast +simd128` vs `ReleaseSmall`**: Parameterized leaf inlining in `.fast` mode (`band.curveExtent`, `ElementPool.get`, `DrawList.Box.add`, `mem.swap`, `hash_map.header`, `appendAssumeCapacity`), Wasm multivalue 2-scalar returns (`curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`), and `v128` SIMD (`Rect.eql` and `Clip.State.scissorEql` lowered to `f32x4.eq` + `i32x4.all_true` and completely inlined into `DrawList.keyMatches` / `DrawList.lastCmdMatches`) boosts `render_bench` from `1,944.6 FPS` (`ReleaseSmall`) to **`2,455.9 FPS` (+26.3%)**, `layout_bench` from `1,046.9 FPS` to **`1,150.3 FPS` (+9.9%)**, `text_bench` from `1,073.9 FPS` to **`1,175.1 FPS` (+9.4%)**, and `combined_frame` from `642.5 FPS` to **`690.7 FPS` (+7.5%)**.",
-        "- **`zig -fllvm` (LLVM 22)**: `ReleaseFast` increases `combined_frame` throughput from `1,341.3 FPS` (`0.747 ms`) to `2,053.5 FPS` (`0.487 ms`, `+53.1%`), but explodes `.wasm` binary size by **4.39x** (`3,032.3 KB` raw / `865.0 KB` zstd vs `690.6 KB` raw / `301.0 KB` zstd in `ReleaseSmall` — making `-fllvm ReleaseFast` **2.52x larger** than `wazig ReleaseFast` and **3.09x larger** than `wazig ReleaseSmall`).",
+        "- **`wazigl v0.17.0-wazigl.4` (`-fllvm`) matches native `zig v0.17.0 -fllvm` runtime throughput across every mode:** In `ReleaseSmall`, `wazigl.4` achieves `3,420.7 FPS` (`layout_bench`), `1,922.2 FPS` (`text_bench`), `3,677.4 FPS` (`render_bench`), and `1,343.8 FPS` (`combined_frame`) — matching native `zig -fllvm` (`3,415.7`, `1,917.7`, `3,651.1`, `1,335.8 FPS`). In `ReleaseFast +simd128`, `wazigl.4` reaches **`6,104.7 FPS` (`0.162 ms`)** on `render_bench`, **`4,796.3 FPS` (`0.208 ms`)** on `layout_bench`, **`2,351.2 FPS` (`0.423 ms`)** on `text_bench`, and **`2,096.8 FPS` (`0.480 ms`)** on `combined_frame`.",
+        "- **`wazig v0.17.0-wazig.4` (`-fno-llvm`) vs `zig v0.17.0 -fno-llvm`**: With inline `@min`/`@max` (`cataggar/zig#158`), SROA to Wasm locals (`cataggar/zig#159`), parameterized leaf inlining (`cataggar/zig#163`, `#169`), `v128` `+simd128` vector & `@reduce` lowering (`cataggar/zig#164`, `#168`), multivalue 2-scalar returns (`cataggar/zig#170`), and `band.fillBands` curve extent precomputation (`cataggar/knots#10` / `#11`), `wazig.4` is **1.60x–2.50x faster** than upstream `zig 0.17.0 -fno-llvm` on the exact same `knots` source (`1,150.0 FPS` vs `648.2 FPS` on `layout_bench`, `1,172.2 FPS` vs `533.3 FPS` on `text_bench`, `2,466.6 FPS` vs `985.1 FPS` on `render_bench`, and `690.8 FPS` vs `360.3 FPS` on `combined_frame`), and **1.81x–6.45x faster** than `wazig v0.17.0-wazig.3`.",
+        "- **`wazig v0.17.0-wazig.4` `ReleaseFast +simd128` vs `ReleaseSmall`**: Parameterized leaf inlining in `.fast` mode (`band.curveExtent`, `ElementPool.get`, `DrawList.Box.add`, `mem.swap`, `hash_map.header`, `appendAssumeCapacity`), Wasm multivalue 2-scalar returns (`curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`), and `v128` SIMD (`Rect.eql` and `Clip.State.scissorEql` lowered to `f32x4.eq` + `i32x4.all_true` and completely inlined into `DrawList.keyMatches` / `DrawList.lastCmdMatches`) boost `wazig.4` `render_bench` from `1,952.7 FPS` (`ReleaseSmall`) to **`2,466.6 FPS` (+26.3%)**, `layout_bench` from `1,043.2 FPS` to **`1,150.0 FPS` (+10.2%)**, `text_bench` from `1,070.4 FPS` to **`1,152.7–1,172.2 FPS` (+7.7%–9.5%)**, and `combined_frame` from `641.3 FPS` to **`690.8 FPS` (+7.7%)**.",
         "",
         "### D.3 `wasm_bench_runner.wasm` — `Debug`",
         "",
-        "| Workload | Iterations | Elements/Iter | `wazig` (Median / P95 / FPS) | `zig -fno-llvm` (Median / P95 / FPS) | `zig -fllvm` (Median / P95 / FPS) | Checksum |",
-        "| :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
+        "| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
     ])
     for wkey, wlabel in workload_labels:
         dw = w_dbg_rt[wkey]
+        dwl = wl_dbg_rt[wkey]
         dzn = zn_dbg_rt[wkey]
         dzl = zl_dbg_rt[wkey]
+        cs_str = f"`{dw['checksum']}`" if dw["checksum"] == dwl["checksum"] else f"`{dw['checksum']}` / `{dwl['checksum']}`"
         lines.append(
             f"| **{wlabel}** | {dw['iterations']} | {dw['elements_per_iter']:,} | "
             f"**{dw['median_ms']:.3f} ms** / {dw['p95_ms']:.3f} ms (**{dw['ops_per_sec']:,.1f} FPS**) | "
+            f"{dwl['median_ms']:.3f} ms / {dwl['p95_ms']:.3f} ms ({dwl['ops_per_sec']:,.1f} FPS) | "
             f"{dzn['median_ms']:.3f} ms / {dzn['p95_ms']:.3f} ms ({dzn['ops_per_sec']:,.1f} FPS) | "
             f"{dzl['median_ms']:.3f} ms / {dzl['p95_ms']:.3f} ms ({dzl['ops_per_sec']:,.1f} FPS) | "
-            f"`{dw['checksum']}` |"
+            f"{cs_str} |"
         )
 
     lines.extend([
         "",
-        "**`Debug` Runtime Highlight:** In `Debug` builds, `wazig` is now **1.53x–3.78x faster at runtime than `zig 0.17.0 -fllvm` (LLVM 22)** across all four workloads (`945.8 FPS` vs `616.6 FPS` on `layout_bench`, `856.8 FPS` vs `226.7 FPS` on `text_bench`, `1,660.4 FPS` vs `956.5 FPS` on `render_bench`, and `559.8 FPS` vs `337.1 FPS` on `combined_frame`) while producing **2.81x smaller** `.wasm` binaries (`1,286.9 KB` vs `3,621.0 KB`).",
+        "**`Debug` Runtime Highlight:** In `Debug` builds, `wazig v0.17.0-wazig.4` (`-fno-llvm`) is **1.53x–1.73x faster at runtime than both `wazigl v0.17.0-wazigl.4` and `zig v0.17.0 -fllvm` (LLVM 22)** across all four workloads (`945.5 FPS` vs `619.5` / `616.2 FPS` on `layout_bench`, `853.1 FPS` vs `505.5` / `506.7 FPS` on `text_bench`, `1,660.4 FPS` vs `957.8` / `960.1 FPS` on `render_bench`, and `555.5 FPS` vs `337.8` / `336.6 FPS` on `combined_frame`) while producing **2.77x smaller** `.wasm` binaries (`1,286.9 KB` vs `3,566.4 KB`).",
         "",
         "### D.4 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)",
         "",
-        "| Compiler | Test Binaries Passed | Total `wasmtime run` Execution Time | Speedup vs `zig -fllvm` |",
-        "| :--- | :---: | ---: | ---: |",
-        f"| **`wazig` (`-fno-llvm`)** | **12 / 12** (with `+atomics`) | **{w['runtime']['tests_12_wasi_exec_sec']:.3f} s** | **11.49x faster** |",
-        f"| **`zig v0.17.0 -fno-llvm`** | 0 / 12 with `+atomics`* (12 / 12 without `+atomics`) | {zn['runtime']['tests_12_wasi_exec_sec']:.3f} s | 2.23x faster |",
-        f"| **`zig v0.17.0 -fllvm`** | 12 / 12 (with `+atomics`) | {zl['runtime']['tests_12_wasi_exec_sec']:.3f} s | 1.00x (baseline) |",
+        "| Compiler | Test Binaries Passed | Total Test `.wasm` Size (Raw / Zstd) | Total `wasmtime run` Execution Time | Speedup vs `zig -fllvm` |",
+        "| :--- | :---: | ---: | ---: | ---: |",
+        f"| **`wazig v0.17.0-wazig.4` (`-fno-llvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | **{fmt_kb(w['binary_sizes']['tests_12_wasi_total']['raw'])}** / **{fmt_kb(w['binary_sizes']['tests_12_wasi_total']['zstd'])}** | **{w['runtime']['tests_12_wasi_exec_sec']:.3f} s** | **{zl['runtime']['tests_12_wasi_exec_sec'] / w['runtime']['tests_12_wasi_exec_sec']:.2f}x faster** |",
+        f"| **`wazigl v0.17.0-wazigl.4` (`-fllvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | {fmt_kb(wl['binary_sizes']['tests_12_wasi_total']['raw'])} / {fmt_kb(wl['binary_sizes']['tests_12_wasi_total']['zstd'])} | **{wl['runtime']['tests_12_wasi_exec_sec']:.3f} s** | {zl['runtime']['tests_12_wasi_exec_sec'] / wl['runtime']['tests_12_wasi_exec_sec']:.2f}x |",
+        f"| **`zig v0.17.0 -fno-llvm`** | 0 / 12 with `+atomics`/`+simd128`* (12 / 12 stripped) | {fmt_kb(zn['binary_sizes']['tests_12_wasi_total']['raw'])} / {fmt_kb(zn['binary_sizes']['tests_12_wasi_total']['zstd'])} | {zn['runtime']['tests_12_wasi_exec_sec']:.3f} s | {zl['runtime']['tests_12_wasi_exec_sec'] / zn['runtime']['tests_12_wasi_exec_sec']:.2f}x |",
+        f"| **`zig v0.17.0 -fllvm`** | 12 / 12 (with `+atomics` + `+simd128`) | {fmt_kb(zl['binary_sizes']['tests_12_wasi_total']['raw'])} / {fmt_kb(zl['binary_sizes']['tests_12_wasi_total']['zstd'])} | {zl['runtime']['tests_12_wasi_exec_sec']:.3f} s | 1.00x (baseline) |",
         "",
-        r'> *\*Upstream `zig 0.17.0 -fno-llvm` (`0.17.0-dev.27+0dd99239c`) emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled, panics with `IllDefinedMemoryLayout` on `@Vector` types with `+simd128`, and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig` fixes all three bugs.*',
+        r'> *\*Upstream `zig 0.17.0 -fno-llvm` emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled, emits invalid `v128` Wasm instructions (`type mismatch: expected v128, found i32` in `scrollbar.render` & `mem.findScalarPos` failing Wasmtime validation) or `IllDefinedMemoryLayout` when `+simd128` is enabled (so non-SIMD `zig -fno-llvm` rows above are measured with `+simd128` and `+atomics` stripped), and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.0-wazig.4` fixes all three bugs.*',
         "",
         "---",
         "",
@@ -732,24 +903,24 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
         "",
         "### E.1 Verified Impact of `cataggar/zig#158`–`#171` & `cataggar/knots#10` (`#11`, `#9`)",
         "",
-        "Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **3.41x** from `21,457` (`v0.17.0-wazig.3`) → `7,777` (`25bcd82e14`) → **`6,984` (`ReleaseSmall`) / `6,513` (`ReleaseFast`) / `6,287` (`ReleaseFast +simd128`)** in `cataggar/zig@b23f3693b9` + `cataggar/knots#10` (`#11`), with all `cataggar/knots#9` targets met or exceeded:",
+        "Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **3.41x** from `21,457` (`v0.17.0-wazig.3`) → **`6,984` (`ReleaseSmall`) / `6,513` (`ReleaseFast`) / `6,287` (`ReleaseFast +simd128`)** in **`wazig v0.17.0-wazig.4`** (`cataggar/zig@v0.17.0-wazig.4`) + `cataggar/knots#10` (`#11`), with all `cataggar/knots#9` targets met or exceeded:",
         "",
-        "| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.4` (`25bcd82e14`, `ReleaseFast +simd128`) | `wazig.4` (`b23f3693b9`, `ReleaseSmall`) | `wazig.4` (`b23f3693b9`, `ReleaseFast +simd128`) | Speedup vs `wazig.3` | `knots#9` Goal |",
+        "| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.4` (`ReleaseSmall`) | `wazig.4` (`ReleaseFast +simd128`) | `wazigl.4` (`ReleaseFast +simd128`) | `wazig.4` Speedup vs `wazig.3` | `knots#9` Goal |",
         "| :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
-        "| **`layout_bench`** | 1.575 ms (635.2 FPS) | 0.865 ms (1,156.6 FPS) | 0.955 ms (1,046.9 FPS) | **0.870 ms (1,150.3 FPS)** | **1.81x faster** | `>= 1,000 FPS` (Achieved) |",
-        "| **`text_bench`** | 5.505 ms (181.7 FPS) | 1.830 ms (546.3 FPS) | 0.931 ms (1,073.9 FPS) | **0.851 ms (1,175.1 FPS)** | **6.47x faster** | `>= 500 FPS` (Exceeded **2.35x**) |",
-        "| **`render_bench`** | 1.282 ms (779.1 FPS) | 0.417 ms (2,373.8 FPS) | 0.518 ms (1,944.6 FPS) | **0.402 ms (2,455.9 FPS)** | **3.15x faster** | `>= 1,800 FPS` (Achieved) |",
-        "| **`combined_frame`** | 3.286 ms (304.2 FPS) | 1.446 ms (690.8 FPS) | 1.556 ms (642.5 FPS) | **1.447 ms (690.7 FPS)** | **2.27x faster** | `>= 600 FPS` (Achieved) |",
+        f"| **`layout_bench`** | 1.575 ms (635.2 FPS) | {w_rel_rt['layout_bench']['median_ms']:.3f} ms ({w_rel_rt['layout_bench']['ops_per_sec']:,.1f} FPS) | **{w_fast_simd_rt['layout_bench']['median_ms']:.3f} ms ({w_fast_simd_rt['layout_bench']['ops_per_sec']:,.1f} FPS)** | **{wl_fast_simd_rt['layout_bench']['median_ms']:.3f} ms ({wl_fast_simd_rt['layout_bench']['ops_per_sec']:,.1f} FPS)** | **1.81x faster** | `>= 1,000 FPS` (Achieved) |",
+        f"| **`text_bench`** | 5.505 ms (181.7 FPS) | {w_rel_rt['text_bench']['median_ms']:.3f} ms ({w_rel_rt['text_bench']['ops_per_sec']:,.1f} FPS) | **{w_fast_simd_rt['text_bench']['median_ms']:.3f} ms ({w_fast_simd_rt['text_bench']['ops_per_sec']:,.1f} FPS)** | **{wl_fast_simd_rt['text_bench']['median_ms']:.3f} ms ({wl_fast_simd_rt['text_bench']['ops_per_sec']:,.1f} FPS)** | **6.34x–6.45x faster** | `>= 500 FPS` (Exceeded **2.31x**) |",
+        f"| **`render_bench`** | 1.282 ms (779.1 FPS) | {w_rel_rt['render_bench']['median_ms']:.3f} ms ({w_rel_rt['render_bench']['ops_per_sec']:,.1f} FPS) | **{w_fast_simd_rt['render_bench']['median_ms']:.3f} ms ({w_fast_simd_rt['render_bench']['ops_per_sec']:,.1f} FPS)** | **{wl_fast_simd_rt['render_bench']['median_ms']:.3f} ms ({wl_fast_simd_rt['render_bench']['ops_per_sec']:,.1f} FPS)** | **3.17x faster** | `>= 1,800 FPS` (Achieved) |",
+        f"| **`combined_frame`** | 3.286 ms (304.2 FPS) | {w_rel_rt['combined_frame']['median_ms']:.3f} ms ({w_rel_rt['combined_frame']['ops_per_sec']:,.1f} FPS) | **{w_fast_simd_rt['combined_frame']['median_ms']:.3f} ms ({w_fast_simd_rt['combined_frame']['ops_per_sec']:,.1f} FPS)** | **{wl_fast_simd_rt['combined_frame']['median_ms']:.3f} ms ({wl_fast_simd_rt['combined_frame']['ops_per_sec']:,.1f} FPS)** | **2.27x faster** | `>= 600 FPS` (Achieved) |",
         "",
         "- **[`cataggar/zig#158`](https://github.com/cataggar/zig/pull/158) (fixes `#153`) — Inline `f32`/`f64` `@min`/`@max` and `i128` shifts/muls**: Eliminated all **6,065 samples (28.3%)** previously spent in `fmaxf`/`fminf`/`isNan`/`signbit` and `__lshrti3`/`__multi3` (`0` samples in `wazig.4`).",
         "- **[`cataggar/zig#159`](https://github.com/cataggar/zig/pull/159) (fixes `#154`) — Scalar Replacement of Aggregates (SROA) to Wasm locals**: Promoted non-escaped slices, optionals, error unions, `Vec2`, `Rect`, `Color`, and `Element.Sizing` into Wasm locals, eliminating `Rect.fromMinMax`, `Rect.min`, `Rect.max`, `Rect.size`, `Rect.pos`, `Rect.intersect`, and `GlyphKey.hash` shadow-stack traffic.",
         "- **[`cataggar/zig#163`](https://github.com/cataggar/zig/pull/163) (fixes `#155`) & [`cataggar/zig#169`](https://github.com/cataggar/zig/issues/169) — `Optimizer.zig` parameterized leaf inlining, single-caller `.small` inlining, and local peepholes**: Inlined `band.curveExtent`, `ElementPool.get`, `DrawList.Box.add`, `mem.swap`, `hash_map.header`, `hash_map.capacity`, and `appendAssumeCapacity`, and reduced `ReleaseSmall` binary size by **-11.2%** (`1,104.5 KB` → `980.9 KB`).",
-        "- **[`cataggar/zig#164`](https://github.com/cataggar/zig/pull/164) (fixes `#156`) & [`cataggar/zig#168`](https://github.com/cataggar/zig/issues/168) — `@Vector` layout, `v128` `+simd128` SIMD arithmetic, and fused `cmp_vector` + `@reduce(.And/.Or)` lowering**: `Rect.eql` and `Clip.State.scissorEql` in `ReleaseFast +simd128` are now **both `0` bytes and `0` samples** — lowered to `f32x4.eq` + `i32x4.all_true` and completely inlined into `DrawList.keyMatches` and `DrawList.lastCmdMatches`, accelerating `render_bench` to **`2,455.9 FPS` (`0.402 ms`)**.",
+        "- **[`cataggar/zig#164`](https://github.com/cataggar/zig/pull/164) (fixes `#156`) & [`cataggar/zig#168`](https://github.com/cataggar/zig/issues/168) — `@Vector` layout, `v128` `+simd128` SIMD arithmetic, and fused `cmp_vector` + `@reduce(.And/.Or)` lowering**: `Rect.eql` and `Clip.State.scissorEql` in `ReleaseFast +simd128` are now **both `0` bytes and `0` samples** — lowered to `f32x4.eq` + `i32x4.all_true` and completely inlined into `DrawList.keyMatches` and `DrawList.lastCmdMatches`, accelerating `render_bench` to **`2,466.6 FPS` (`0.401 ms`)**.",
         "- **[`cataggar/zig#170`](https://github.com/cataggar/zig/issues/170) — Wasm multivalue return ABI for 2-scalar aggregates (`[2]f32`, `Vec2`, `HMetrics`, `[2]u8`, `u128`)**: Eliminated linear-memory `sret` stack frames for 2-scalar returns, allowing `curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`, and `fmt.digits2` to be completely inlined and removed in `ReleaseFast`.",
-        "- **[`cataggar/zig#171`](https://github.com/cataggar/zig/issues/171) — Atomic temp-file rename for WASI cache manifests & bounds-checked `Archive`/`Object` magic parsing**: Parallel 4-way cold-cache `wasm32-wasi` test suite compilation completes with zero `Archive.zig` race panics (`18.78s` wall / `57.41s` CPU; **`0.931s`** total test execution time across all 12 suites — **3.31x faster** than `25bcd82e14`'s `3.078s` and **11.49x faster** than `zig -fllvm`'s `10.699s`).",
-        "- **[`cataggar/knots#10`](https://github.com/cataggar/knots/issues/10) ([`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11)) — Precomputed per-curve extents & insertion sort in `src/text/band.zig`**: `band.fillBands` inclusive samples dropped **3.25x–3.72x** (`1,951` / `25.09%` → `525` / `7.50%` in `ReleaseSmall`, `578` / `8.87%` in `ReleaseFast`, `601` / `9.56%` in `ReleaseFast +simd128`), and `std.sort.block` (`sort.block.swap`, `16.4 KB` bytecode, `8.83%` runtime) is **completely eliminated (`0` bytes, `0` samples)**, more than doubling `text_bench` throughput (`546.3 FPS` → **`1,175.1 FPS`**, beating `zig -fllvm` LLVM 22 `ReleaseFast`).",
+        "- **[`cataggar/zig#171`](https://github.com/cataggar/zig/issues/171) — Atomic temp-file rename for WASI cache manifests & bounds-checked `Archive`/`Object` magic parsing**: Parallel 4-way cold-cache `wasm32-wasi` test suite compilation completes with zero `Archive.zig` race panics (`20.80s` wall / `62.99s` CPU; **`0.969s`** total test execution time across all 12 suites — the fastest of all 4 compilers).",
+        "- **[`cataggar/knots#10`](https://github.com/cataggar/knots/issues/10) ([`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11)) — Precomputed per-curve extents & insertion sort in `src/text/band.zig`**: `band.fillBands` inclusive samples dropped **3.25x–3.72x** (`1,951` / `25.09%` → `525` / `7.50%` in `ReleaseSmall`, `578` / `8.87%` in `ReleaseFast`, `601` / `9.56%` in `ReleaseFast +simd128`), and `std.sort.block` (`sort.block.swap`, `16.4 KB` bytecode, `8.83%` runtime) is **completely eliminated (`0` bytes, `0` samples)**, more than doubling `text_bench` throughput (`546.3 FPS` → **`1,152.7–1,172.2 FPS`** on `wazig.4` and **`2,351.2–2,487.7 FPS`** on `wazigl.4`).",
         "",
-        "### E.2 Top 15 Functions in `ReleaseFast +simd128` (`6,287` total samples @ 100us)",
+        "### E.2 Top 15 Functions in `wazig v0.17.0-wazig.4` `ReleaseFast +simd128` (`6,287` total samples @ 100us)",
         "",
         "| Self | Self% | Total | Tot% | Bytes | Function |",
         "| ---: | ---: | ---: | ---: | ---: | :--- |",
@@ -774,9 +945,10 @@ def generate_full_markdown(data: dict[str, Any]) -> str:
 
 
 def run_live_full_comparison(paths: dict[str, Path]) -> dict[str, Any]:
-    """Run live benchmarks across wazig, zig -fno-llvm, and zig -fllvm when both tools are installed."""
+    """Run live benchmarks across wazig, wazigl, zig -fno-llvm, and zig -fllvm when installed."""
     wb = load_wazig_build_module()
     wazig_bin = find_optional_tool("wazig", "WAZIG")
+    wazigl_bin = find_optional_tool("wazigl", "WAZIGL")
     zig_bin = find_optional_tool("zig", "ZIG")
     wasmtime_bin = find_optional_tool("wasmtime", "WASMTIME")
 
@@ -786,34 +958,48 @@ def run_live_full_comparison(paths: dict[str, Path]) -> dict[str, Any]:
 
     # Warm Wasmtime module cache
     subprocess.run([wazig_bin, "version"], cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
+    if wazigl_bin:
+        subprocess.run([wazigl_bin, "version"], cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
+
     tt_zig = ensure_truetype_pkg(wb, wazig_bin, paths["zig_local"], paths["zig_global"])
     tt_options_zig = paths["tmp"] / "truetype_options.zig"
     tt_options_zig.write_text("pub const debug_todo: bool = false;\n", encoding="utf-8")
 
     compilers_to_run = [("wazig", wazig_bin, "-fno-llvm")]
+    if wazigl_bin:
+        compilers_to_run.append(("wazigl", wazigl_bin, "-fllvm"))
     if zig_bin:
         compilers_to_run.extend([
             ("zig_nollvm", zig_bin, "-fno-llvm"),
             ("zig_llvm", zig_bin, "-fllvm"),
         ])
 
+    bench_modes = [
+        ("wasm_bench_runner_debug", "Debug", None),
+        ("wasm_bench_runner_releasesmall", "ReleaseSmall", None),
+        ("wasm_bench_runner_releasefast", "ReleaseFast", None),
+        ("wasm_bench_runner_releasefast_simd", "ReleaseFast", "baseline+simd128"),
+    ]
+
     for cname, bin_path, flag in compilers_to_run:
-        print(f"[bench-wazig] Measuring {cname} (wasm_bench_runner Debug & ReleaseSmall)...", file=sys.stderr, flush=True)
-        c_lc = paths["root"] / f"lc-live-{cname}"
-        c_gc = paths["root"] / f"gc-live-{cname}"
-        shutil.rmtree(c_lc, ignore_errors=True)
-        shutil.rmtree(c_gc, ignore_errors=True)
-        c_lc.mkdir(parents=True, exist_ok=True)
-        c_gc.mkdir(parents=True, exist_ok=True)
+        print(f"[bench-wazig] Measuring {cname} (wasm_bench_runner modes)...", file=sys.stderr, flush=True)
 
         t0 = time.perf_counter()
         subprocess.run([bin_path, "fmt", "--check", "src/", "tests/", "examples/", "lib/js-bridge/src/"], cwd=REPO_ROOT, check=True)
         data["compilers"][cname]["compile_sec"]["fmt_check"] = round(time.perf_counter() - t0, 3)
 
-        for opt in ["Debug", "ReleaseSmall"]:
-            key = f"wasm_bench_runner_{opt.lower()}"
+        for key, opt, mcpu in bench_modes:
+            if cname == "zig_nollvm" and mcpu and "+simd128" in mcpu:
+                continue
+            c_lc = paths["root"] / f"lc-live-{cname}-{key}"
+            c_gc = paths["root"] / f"gc-live-{cname}-{key}"
+            shutil.rmtree(c_lc, ignore_errors=True)
+            shutil.rmtree(c_gc, ignore_errors=True)
+            c_lc.mkdir(parents=True, exist_ok=True)
+            c_gc.mkdir(parents=True, exist_ok=True)
+
             out_w = paths["bins"] / f"{key}_{cname}.wasm"
-            args = wasm_bench_runner_args(opt, flag, out_w, c_lc, c_gc, tt_zig, tt_options_zig)
+            args = wasm_bench_runner_args(opt, flag, out_w, c_lc, c_gc, tt_zig, tt_options_zig, mcpu=mcpu)
             t_c0 = time.perf_counter()
             subprocess.run([bin_path, *args], cwd=REPO_ROOT, check=True)
             t_cold = round(time.perf_counter() - t_c0, 3)
@@ -833,18 +1019,20 @@ def run_live_full_comparison(paths: dict[str, Path]) -> dict[str, Any]:
                 check=True,
             )
             data["compilers"][cname]["runtime"][key] = json.loads(proc.stdout)
+            shutil.rmtree(c_lc, ignore_errors=True)
+            shutil.rmtree(c_gc, ignore_errors=True)
 
     return data
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Benchmark wazig v0.17.0-wazig.3 vs standard zig v0.17.0 (-fno-llvm and -fllvm)."
+        description="Benchmark wazig v0.17.0-wazig.4 (-fno-llvm) and wazigl v0.17.0-wazigl.4 (-fllvm) vs standard zig v0.17.0 (-fno-llvm and -fllvm)."
     )
     parser.add_argument(
         "--ci-summary",
         action="store_true",
-        help="Run CI benchmark summary using wazig + wasmtime and emit GitHub Step Summary Markdown to stdout.",
+        help="Run CI benchmark summary using wazig/wazigl + wasmtime and emit GitHub Step Summary Markdown to stdout.",
     )
     parser.add_argument(
         "--output-json",
@@ -873,7 +1061,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.from_baseline:
-        data = load_baseline_reference()
+        data = load_baseline_reference(prefer_embedded=True)
     else:
         data = run_live_full_comparison(paths)
 
