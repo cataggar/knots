@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const memory_initial = 16 * 1024 * 1024;
 pub const memory_max = 2 * 1024 * 1024 * 1024;
+pub const memory_max_wasm64: u64 = 8 * 1024 * 1024 * 1024;
 
 pub const bridge_export_symbol_names = [_][]const u8{
     "js_bridge_alloc",
@@ -32,12 +33,13 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
     std.debug.assert(executable.root_module.resolved_target != null);
     configureWasmTarget(&root_module.resolved_target.?, threads);
     configureWasmTarget(&executable.root_module.resolved_target.?, threads);
+    const target = executable.root_module.resolved_target.?;
     executable.import_memory = threads;
     executable.export_memory = true;
     executable.export_table = threads;
     executable.shared_memory = threads;
     executable.initial_memory = memory_initial;
-    executable.max_memory = memory_max;
+    executable.max_memory = if (target.result.cpu.arch == .wasm64) memory_max_wasm64 else memory_max;
 
     // Zig's own wasm backend rebuilds a debug app in a fraction of a second
     // under `zig build --watch -fincremental`; LLVM takes seconds.

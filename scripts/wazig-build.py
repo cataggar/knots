@@ -395,13 +395,17 @@ def main(argv: list[str]) -> int:
     install_prefix: Path | None = None
     steps: list[str] = []
     d_options: list[str] = []
+    run_extra_args: list[str] = []
     use_wasmtime = False
     verbose = False
 
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg == "--build-root":
+        if arg == "--":
+            run_extra_args = argv[i + 1 :]
+            break
+        elif arg == "--build-root":
             i += 1
             build_root = (REPO_ROOT / argv[i]).resolve()
         elif arg.startswith("--build-root="):
@@ -472,8 +476,17 @@ def main(argv: list[str]) -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
         elif kind == "run":
-            if use_wasmtime or "test" in steps or "bench" in steps:
-                wt_cmd = [wasmtime, "--dir=.", "-Sinherit-env", *step["args"]]
+            if use_wasmtime or any(s in ("test", "bench", "wasm-bench") for s in steps):
+                wt_cmd = [
+                    wasmtime,
+                    "run",
+                    "-W",
+                    "memory64=y",
+                    "--dir=.",
+                    "-Sinherit-env",
+                    *step["args"],
+                    *run_extra_args,
+                ]
                 if verbose:
                     print("+", " ".join(wt_cmd), file=sys.stderr)
                 subprocess.run(wt_cmd, cwd=REPO_ROOT, check=True)

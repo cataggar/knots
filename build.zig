@@ -498,9 +498,15 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    if (target.result.cpu.arch.isWasm() and target.result.os.tag == .freestanding) {
+        bench_exe.entry = .{ .symbol_name = "_start" };
+        bench_exe.export_memory = true;
+    }
     const run_bench = b.addRunArtifact(bench_exe);
     const bench_step = b.step("bench", "Run headless UI/layout/text/render benchmark suite");
     bench_step.dependOn(&run_bench.step);
+    const wasm_bench_step = b.step("wasm-bench", "Run headless UI/layout/text/render benchmark suite");
+    wasm_bench_step.dependOn(&run_bench.step);
     if (platform == .native) {
         const snapshot_exe = b.addExecutable(.{
             .name = "knots-snapshots",

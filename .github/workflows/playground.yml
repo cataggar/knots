@@ -63,8 +63,12 @@ jobs:
       - name: Build playground (ReleaseSmall)
         run: |
           ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+          cp examples/playground/zig-out/web/app.wasm "$RUNNER_TEMP/app-wasm32.wasm"
+          ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Doptimize=ReleaseSmall
+          cp "$RUNNER_TEMP/app-wasm32.wasm" examples/playground/zig-out/web/app-wasm32.wasm
           test -s examples/playground/zig-out/web/index.html
           test -s examples/playground/zig-out/web/app.wasm
+          test -s examples/playground/zig-out/web/app-wasm32.wasm
           test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
           cp examples/playground/_headers examples/playground/zig-out/web/
@@ -77,6 +81,7 @@ jobs:
           set -euo pipefail
           test -s examples/playground/zig-out/web/index.html
           test -s examples/playground/zig-out/web/app.wasm
+          test -s examples/playground/zig-out/web/app-wasm32.wasm
           test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
           rm -rf "$PUBLISH_DIR"
@@ -97,7 +102,7 @@ jobs:
           if ! git -C "$PUBLISH_DIR" rev-parse --verify HEAD >/dev/null 2>&1 || \
              ! git -C "$PUBLISH_DIR" diff --cached --quiet; then
             git -C "$PUBLISH_DIR" commit --quiet \
-              -m "Publish playground web from $GITHUB_SHA" \
+              -m "Deploy playground (wasm64-freestanding) from ${GITHUB_SHA::7}" \
               -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
             git -C "$PUBLISH_DIR" push origin HEAD:refs/heads/web
           fi

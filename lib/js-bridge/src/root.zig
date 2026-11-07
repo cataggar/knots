@@ -372,4 +372,8 @@ test "reserved handles match the JS runtime" {
 test "usize arguments preserve the native pointer width" {
     const arg = Arg.usize(std.math.maxInt(usize));
     try std.testing.expectEqual(@as(u64, std.math.maxInt(usize)), arg.a);
+    const slice: []const u8 = "wasm64";
+    const str_arg = Arg.string(slice);
+    try std.testing.expectEqual(@as(u64, @intFromPtr(slice.ptr)), str_arg.a);
+    try std.testing.expectEqual(@as(u64, slice.len), str_arg.b);
 }
