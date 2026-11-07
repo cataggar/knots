@@ -200,13 +200,11 @@ fn ensureAtlasCapacity(self: *GlyphBuilder, curve_count: usize, band_texel_count
     if (band_end > texture_texel_count_max) return error.GlyphBuilderFull;
 }
 
-fn appendCurveTexels(self: *GlyphBuilder, curves: []const Curve, curve_locations: []u32) DirtyRange {
-    std.debug.assert(curves.len == curve_locations.len);
+fn appendCurveTexels(self: *GlyphBuilder, curves: []const Curve) DirtyRange {
     std.debug.assert(self.curve_data.capacity - self.curve_data.items.len >= curves.len * 2);
 
     const y_start: u32 = @intCast(self.curve_data.items.len >> texture_width_log2);
-    for (curves, curve_locations) |curve, *location| {
-        location.* = @intCast(self.curve_data.items.len);
+    for (curves) |curve| {
         self.curve_data.appendAssumeCapacity(.{
             .x = curve.p1[0],
             .y = curve.p1[1],
@@ -229,7 +227,7 @@ fn appendBandLists(
     header_start: usize,
     header_offset: usize,
     glyph_location: u32,
-    curve_locations: []const u32,
+    curve_base: u32,
 ) void {
     for (bands, 0..) |entries, band_index| {
         const list_location: u32 = @intCast(self.band_data.items.len);
@@ -238,7 +236,7 @@ fn appendBandLists(
             .y = list_location - glyph_location,
         };
         for (entries) |curve_index| {
-            const curve_location = curve_locations[curve_index];
+            const curve_location = curve_base + curve_index * 2;
             self.band_data.appendAssumeCapacity(.{
                 .x = curve_location & (texture_width - 1),
                 .y = curve_location >> texture_width_log2,
@@ -247,7 +245,7 @@ fn appendBandLists(
     }
 }
 
-fn appendBandTexels(self: *GlyphBuilder, partition_result: *const band.PartitionResult, curve_locations: []const u32) BandAppendResult {
+fn appendBandTexels(self: *GlyphBuilder, partition_result: *const band.PartitionResult, curve_base: u32) BandAppendResult {
     const glyph_location: u32 = @intCast(self.band_data.items.len);
     const y_start: u32 = glyph_location >> texture_width_log2;
     const header_count =
@@ -260,14 +258,14 @@ fn appendBandTexels(self: *GlyphBuilder, partition_result: *const band.Partition
         header_start,
         0,
         glyph_location,
-        curve_locations,
+        curve_base,
     );
     self.appendBandLists(
         partition_result.vertical_bands,
         header_start,
         partition_result.horizontal_bands.len,
         glyph_location,
-        curve_locations,
+        curve_base,
     );
 
     return .{
@@ -291,11 +289,9 @@ pub fn addCurves(self: *GlyphBuilder, curves: []const Curve) !glyph.GlyphRecord 
         @intCast(band_texel_count),
     );
 
-    const curve_locations = try self.allocator.alloc(u32, curves.len);
-    defer self.allocator.free(curve_locations);
-
-    const curve_dirty_range = self.appendCurveTexels(curves, curve_locations);
-    const band_result = self.appendBandTexels(&partition_result, curve_locations);
+    const curve_base: u32 = @intCast(self.curve_data.items.len);
+    const curve_dirty_range = self.appendCurveTexels(curves);
+    const band_result = self.appendBandTexels(&partition_result, curve_base);
     self.markCurveDirty(curve_dirty_range.y_start, curve_dirty_range.y_end);
     self.markBandDirty(band_result.dirty_range.y_start, band_result.dirty_range.y_end);
 

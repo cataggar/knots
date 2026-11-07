@@ -8,9 +8,12 @@ const band_epsilon: f32 = 1.0 / 65536.0;
 const curves_per_band_target: f32 = 4.0;
 const stack_curve_capacity: usize = 256;
 const insertion_sort_limit: usize = 32;
+// Sentinel byte where first_band (15) > last_band (0), which cannot occur for any valid overlap.
+const no_band_overlap: u8 = 0xF0;
 
 comptime {
     std.debug.assert(bands_per_axis_max > 0);
+    std.debug.assert(bands_per_axis_max <= 16);
     std.debug.assert(bands_per_axis_max - 1 <= std.math.maxInt(u8));
 }
 
@@ -20,46 +23,40 @@ pub const PartitionResult = struct {
     band_offset: [2]f32,
     horizontal_bands: [][]u32,
     vertical_bands: [][]u32,
+    backing_indices: []u32 = &.{},
     bounding_box_min: [2]f32,
     bounding_box_max: [2]f32,
 
     pub fn deinit(self: *PartitionResult, allocator: std.mem.Allocator) void {
-        for (self.horizontal_bands) |band| allocator.free(band);
-        for (self.vertical_bands) |band| allocator.free(band);
-        allocator.free(self.horizontal_bands);
-        allocator.free(self.vertical_bands);
+        if (self.backing_indices.len > 0) allocator.free(self.backing_indices);
+        const all_bands = self.horizontal_bands.ptr[0 .. self.horizontal_bands.len + self.vertical_bands.len];
+        allocator.free(all_bands);
+        self.* = undefined;
     }
 };
 
-const Bounds = struct {
+const Bounds = extern struct {
     min: [2]f32,
     max: [2]f32,
 };
 
-const FillOptions = struct {
-    bands: [][]u32,
-    origin: f32,
-    span: f32,
-    slab_axis: u1,
-    sort_axis: u1,
-};
+comptime {
+    std.debug.assert(@sizeOf(Bounds) == 4 * @sizeOf(u32));
+    std.debug.assert(@alignOf(Bounds) == @alignOf(u32));
+}
 
 fn emptyPartition(allocator: std.mem.Allocator) !PartitionResult {
-    const horizontal_bands = try allocator.alloc([]u32, 1);
-    errdefer allocator.free(horizontal_bands);
-    horizontal_bands[0] = try allocator.alloc(u32, 0);
-    errdefer allocator.free(horizontal_bands[0]);
-
-    const vertical_bands = try allocator.alloc([]u32, 1);
-    errdefer allocator.free(vertical_bands);
-    vertical_bands[0] = try allocator.alloc(u32, 0);
+    const all_bands = try allocator.alloc([]u32, 2);
+    all_bands[0] = &.{};
+    all_bands[1] = &.{};
 
     return .{
         .band_index_max = .{ 0, 0 },
         .band_scale = .{ 0, 0 },
         .band_offset = .{ 0, 0 },
-        .horizontal_bands = horizontal_bands,
-        .vertical_bands = vertical_bands,
+        .horizontal_bands = all_bands[0..1],
+        .vertical_bands = all_bands[1..2],
+        .backing_indices = &.{},
         .bounding_box_min = .{ 0, 0 },
         .bounding_box_max = .{ 0, 0 },
     };
@@ -102,19 +99,39 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
     if (curves.len == 0) return emptyPartition(allocator);
     if (curves.len > std.math.maxInt(u32)) return error.TooManyCurves;
 
+    const n = curves.len;
     var stack_extents: [stack_curve_capacity]Bounds = undefined;
-    const extents: []Bounds = if (curves.len <= stack_extents.len)
-        stack_extents[0..curves.len]
-    else
-        try allocator.alloc(Bounds, curves.len);
-    defer if (curves.len > stack_extents.len) allocator.free(extents);
+    var stack_scratch_indices: [stack_curve_capacity]u32 = undefined;
+    var stack_sorted_indices: [stack_curve_capacity]u32 = undefined;
+    var stack_h_ranges: [stack_curve_capacity]u8 = undefined;
+    var stack_v_ranges: [stack_curve_capacity]u8 = undefined;
 
-    var stack_indices: [stack_curve_capacity]u32 = undefined;
-    const curve_indices: []u32 = if (curves.len <= stack_indices.len)
-        stack_indices[0..curves.len]
+    const heap_scratch: []u32 = if (n > stack_curve_capacity)
+        try allocator.alloc(u32, n * 7)
     else
-        try allocator.alloc(u32, curves.len);
-    defer if (curves.len > stack_indices.len) allocator.free(curve_indices);
+        &.{};
+    defer if (heap_scratch.len > 0) allocator.free(heap_scratch);
+
+    const extents: []Bounds = if (n <= stack_curve_capacity)
+        stack_extents[0..n]
+    else
+        @as([*]Bounds, @ptrCast(heap_scratch.ptr))[0..n];
+    const scratch_indices: []u32 = if (n <= stack_curve_capacity)
+        stack_scratch_indices[0..n]
+    else
+        heap_scratch[n * 4 .. n * 5];
+    const sorted_indices: []u32 = if (n <= stack_curve_capacity)
+        stack_sorted_indices[0..n]
+    else
+        heap_scratch[n * 5 .. n * 6];
+    const h_ranges: []u8 = if (n <= stack_curve_capacity)
+        stack_h_ranges[0..n]
+    else
+        std.mem.sliceAsBytes(heap_scratch[n * 6 .. n * 7])[0..n];
+    const v_ranges: []u8 = if (n <= stack_curve_capacity)
+        stack_v_ranges[0..n]
+    else
+        std.mem.sliceAsBytes(heap_scratch[n * 6 .. n * 7])[n .. n * 2];
 
     const bounds = computeCurveExtents(curves, extents);
     var span = [2]f32{
@@ -141,27 +158,55 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
         -bounds.min[1] * band_scale[1],
     };
 
-    const horizontal_bands = try allocator.alloc([]u32, band_count_y);
-    errdefer allocator.free(horizontal_bands);
-    const vertical_bands = try allocator.alloc([]u32, band_count_x);
-    errdefer allocator.free(vertical_bands);
+    var h_counts: [bands_per_axis_max]usize = undefined;
+    const h_refs = computeAxisBandRanges(
+        extents,
+        band_count_y,
+        bounds.min[1],
+        span[1],
+        1,
+        h_ranges,
+        &h_counts,
+    );
 
-    try fillBands(allocator, extents, curve_indices, .{
-        .bands = horizontal_bands,
-        .origin = bounds.min[1],
-        .span = span[1],
-        .slab_axis = 1,
-        .sort_axis = 0,
-    });
-    errdefer for (horizontal_bands) |band| allocator.free(band);
+    var v_counts: [bands_per_axis_max]usize = undefined;
+    const v_refs = computeAxisBandRanges(
+        extents,
+        band_count_x,
+        bounds.min[0],
+        span[0],
+        0,
+        v_ranges,
+        &v_counts,
+    );
 
-    try fillBands(allocator, extents, curve_indices, .{
-        .bands = vertical_bands,
-        .origin = bounds.min[0],
-        .span = span[0],
-        .slab_axis = 0,
-        .sort_axis = 1,
-    });
+    const total_bands: usize = band_count_y + band_count_x;
+    const all_bands = try allocator.alloc([]u32, total_bands);
+    errdefer allocator.free(all_bands);
+    const horizontal_bands = all_bands[0..band_count_y];
+    const vertical_bands = all_bands[band_count_y..total_bands];
+
+    const total_refs = h_refs + v_refs;
+    const backing_indices: []u32 = if (total_refs > 0)
+        try allocator.alloc(u32, total_refs)
+    else
+        &.{};
+
+    var offset: usize = 0;
+    for (horizontal_bands, 0..) |*band_slice, b| {
+        const len = h_counts[b];
+        band_slice.* = backing_indices[offset .. offset + len];
+        offset += len;
+    }
+    for (vertical_bands, 0..) |*band_slice, b| {
+        const len = v_counts[b];
+        band_slice.* = backing_indices[offset .. offset + len];
+        offset += len;
+    }
+    std.debug.assert(offset == total_refs);
+
+    scatterAxisBands(extents, h_ranges, 0, scratch_indices, sorted_indices, horizontal_bands);
+    scatterAxisBands(extents, v_ranges, 1, scratch_indices, sorted_indices, vertical_bands);
 
     return .{
         .band_index_max = .{
@@ -172,6 +217,7 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
         .band_offset = band_offset,
         .horizontal_bands = horizontal_bands,
         .vertical_bands = vertical_bands,
+        .backing_indices = backing_indices,
         .bounding_box_min = bounds.min,
         .bounding_box_max = bounds.max,
     };
@@ -233,46 +279,105 @@ fn sortBandIndices(
     }
 }
 
-fn fillBands(
-    allocator: std.mem.Allocator,
+fn computeAxisBandRanges(
     extents: []const Bounds,
-    curve_indices: []u32,
-    options: FillOptions,
-) !void {
-    std.debug.assert(options.bands.len > 0);
-    std.debug.assert(options.bands.len <= bands_per_axis_max);
-    std.debug.assert(options.span > 0);
-    std.debug.assert(curve_indices.len >= extents.len);
+    num_bands: usize,
+    origin: f32,
+    span: f32,
+    slab_axis: u1,
+    out_ranges: []u8,
+    out_counts: *[bands_per_axis_max]usize,
+) usize {
+    std.debug.assert(num_bands > 0 and num_bands <= bands_per_axis_max);
+    std.debug.assert(span > 0);
+    std.debug.assert(out_ranges.len == extents.len);
 
-    const band_height = options.span / @as(f32, @floatFromInt(options.bands.len));
+    out_counts.* = @splat(0);
 
-    var filled: u32 = 0;
-    errdefer {
-        for (options.bands[0..filled]) |band| allocator.free(band);
+    const num_bands_f: f32 = @floatFromInt(num_bands);
+    const band_height = span / num_bands_f;
+    const inv_band_height = num_bands_f / span;
+
+    var band_mins: [bands_per_axis_max]f32 = undefined;
+    var band_maxs: [bands_per_axis_max]f32 = undefined;
+    for (0..num_bands) |b| {
+        band_mins[b] = origin + @as(f32, @floatFromInt(b)) * band_height - band_epsilon;
+        band_maxs[b] = origin + @as(f32, @floatFromInt(b + 1)) * band_height + band_epsilon;
     }
 
-    const slab_axis = options.slab_axis;
-    const sort_axis = options.sort_axis;
+    const max_band_f: f32 = @floatFromInt(num_bands - 1);
+    var total_refs: usize = 0;
 
-    for (options.bands, 0..) |*band, band_index| {
-        const band_min = options.origin +
-            @as(f32, @floatFromInt(band_index)) * band_height - band_epsilon;
-        const band_max = options.origin +
-            @as(f32, @floatFromInt(band_index + 1)) * band_height + band_epsilon;
+    for (extents, out_ranges) |extent, *range_out| {
+        const min_v = extent.min[slab_axis];
+        const max_v = extent.max[slab_axis];
 
-        var count: usize = 0;
-        for (extents, 0..) |extent, curve_index| {
-            if (extent.max[slab_axis] < band_min) continue;
-            if (extent.min[slab_axis] > band_max) continue;
-            curve_indices[count] = @intCast(curve_index);
-            count += 1;
+        const raw_first = @floor((min_v - band_epsilon - origin) * inv_band_height);
+        var first_band: usize = if (!(raw_first > 0.0))
+            0
+        else if (raw_first >= max_band_f)
+            num_bands - 1
+        else
+            @intFromFloat(raw_first);
+        while (first_band > 0 and min_v <= band_maxs[first_band - 1]) first_band -= 1;
+        while (first_band < num_bands and min_v > band_maxs[first_band]) first_band += 1;
+
+        const raw_last = @floor((max_v + band_epsilon - origin) * inv_band_height);
+        var last_band: usize = if (!(raw_last > 0.0))
+            0
+        else if (raw_last >= max_band_f)
+            num_bands - 1
+        else
+            @intFromFloat(raw_last);
+        while (last_band + 1 < num_bands and max_v >= band_mins[last_band + 1]) last_band += 1;
+        while (last_band > 0 and max_v < band_mins[last_band]) last_band -= 1;
+
+        if (first_band <= last_band and !(max_v < band_mins[first_band]) and !(min_v > band_maxs[last_band])) {
+            range_out.* = (@as(u8, @intCast(first_band)) << 4) | @as(u8, @intCast(last_band));
+            for (first_band..last_band + 1) |b| {
+                out_counts[b] += 1;
+            }
+            total_refs += (last_band - first_band + 1);
+        } else {
+            range_out.* = no_band_overlap;
         }
+    }
 
-        const band_slice = try allocator.alloc(u32, count);
-        band.* = band_slice;
-        filled += 1;
+    return total_refs;
+}
 
-        sortBandIndices(extents, sort_axis, curve_indices[0..count], band_slice);
+fn scatterAxisBands(
+    extents: []const Bounds,
+    ranges: []const u8,
+    sort_axis: u1,
+    scratch_indices: []u32,
+    sorted_indices: []u32,
+    bands: [][]u32,
+) void {
+    const curve_count = extents.len;
+    std.debug.assert(ranges.len == curve_count);
+    std.debug.assert(scratch_indices.len == curve_count);
+    std.debug.assert(sorted_indices.len == curve_count);
+
+    for (scratch_indices, 0..) |*slot, i| {
+        slot.* = @intCast(i);
+    }
+    sortBandIndices(extents, sort_axis, scratch_indices, sorted_indices);
+
+    var write_pos: [bands_per_axis_max]usize = @splat(0);
+    for (sorted_indices) |curve_idx| {
+        const packed_range = ranges[curve_idx];
+        if (packed_range == no_band_overlap) continue;
+        const first_band: usize = packed_range >> 4;
+        const last_band: usize = packed_range & 0x0F;
+        for (first_band..last_band + 1) |b| {
+            bands[b][write_pos[b]] = curve_idx;
+            write_pos[b] += 1;
+        }
+    }
+
+    for (bands, 0..) |band_slice, b| {
+        std.debug.assert(write_pos[b] == band_slice.len);
     }
 }
 
@@ -370,4 +475,99 @@ test "partition empty curves returns sentinel band" {
     try std.testing.expectEqual(0, result.band_index_max[0]);
     try std.testing.expectEqual(1, result.horizontal_bands.len);
     try std.testing.expectEqual(0, result.horizontal_bands[0].len);
+    try std.testing.expectEqual(0, result.backing_indices.len);
+}
+
+test "partition direct band-range indexing matches brute-force boundary overlap and uses single backing slice" {
+    const allocator = std.testing.allocator;
+
+    // 64 curves -> 16 bands per axis (bands_per_axis_max).
+    // Include curves spanning single bands (including band 15 = 0xFF packed),
+    // multiple bands, and exact band_epsilon boundaries.
+    var curves: [64]Curve = undefined;
+    curves[0] = .{ .p1 = .{ 0.0, 0.0 }, .p2 = .{ 0.01, 0.01 }, .p3 = .{ 0.02, 0.02 } };
+    // Curve only in the last band (band 15 on both axes -> packed 0xFF).
+    curves[1] = .{ .p1 = .{ 0.98, 0.98 }, .p2 = .{ 0.99, 0.99 }, .p3 = .{ 1.0, 1.0 } };
+    // Curves right around band boundaries +/- band_epsilon.
+    const band_step: f32 = 1.0 / 16.0;
+    for (2..curves.len) |i| {
+        const b: f32 = @floatFromInt(i % 16);
+        const edge = b * band_step;
+        const delta: f32 = switch (i % 4) {
+            0 => -band_epsilon,
+            1 => band_epsilon,
+            2 => -band_epsilon * 0.5,
+            else => band_epsilon * 2.0,
+        };
+        const lo = @max(0.0, edge + delta);
+        const hi = @min(1.0, lo + band_step * @as(f32, @floatFromInt((i % 3) + 1)));
+        curves[i] = .{
+            .p1 = .{ lo, hi * 0.5 },
+            .p2 = .{ (lo + hi) * 0.5, lo },
+            .p3 = .{ hi, hi },
+        };
+    }
+
+    var result = try partition(allocator, &curves);
+    defer result.deinit(allocator);
+
+    try std.testing.expectEqual(bands_per_axis_max, result.horizontal_bands.len);
+    try std.testing.expectEqual(bands_per_axis_max, result.vertical_bands.len);
+
+    // Verify all horizontal and vertical band slices point contiguously into backing_indices.
+    var expected_offset: usize = 0;
+    for (result.horizontal_bands) |b_slice| {
+        try std.testing.expectEqual(@intFromPtr(result.backing_indices.ptr + expected_offset), @intFromPtr(b_slice.ptr));
+        expected_offset += b_slice.len;
+    }
+    for (result.vertical_bands) |b_slice| {
+        try std.testing.expectEqual(@intFromPtr(result.backing_indices.ptr + expected_offset), @intFromPtr(b_slice.ptr));
+        expected_offset += b_slice.len;
+    }
+    try std.testing.expectEqual(result.backing_indices.len, expected_offset);
+
+    // Verify exact membership and sort order against brute-force per-band overlap check.
+    var extents: [curves.len]Bounds = undefined;
+    const bounds = computeCurveExtents(&curves, &extents);
+    const span = [2]f32{ bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1] };
+
+    inline for (.{
+        .{ .bands = result.horizontal_bands, .origin = bounds.min[1], .span = span[1], .slab_axis = @as(u1, 1), .sort_axis = @as(u1, 0) },
+        .{ .bands = result.vertical_bands, .origin = bounds.min[0], .span = span[0], .slab_axis = @as(u1, 0), .sort_axis = @as(u1, 1) },
+    }) |axis| {
+        const band_h = axis.span / @as(f32, @floatFromInt(axis.bands.len));
+        for (axis.bands, 0..) |actual_band, b_idx| {
+            const band_min = axis.origin + @as(f32, @floatFromInt(b_idx)) * band_h - band_epsilon;
+            const band_max = axis.origin + @as(f32, @floatFromInt(b_idx + 1)) * band_h + band_epsilon;
+
+            var expected_count: usize = 0;
+            for (extents) |ext| {
+                if (!(ext.max[axis.slab_axis] < band_min or ext.min[axis.slab_axis] > band_max)) {
+                    expected_count += 1;
+                }
+            }
+            try std.testing.expectEqual(expected_count, actual_band.len);
+
+            for (actual_band, 0..) |c_idx, pos| {
+                const ext = extents[c_idx];
+                try std.testing.expect(!(ext.max[axis.slab_axis] < band_min or ext.min[axis.slab_axis] > band_max));
+                if (pos > 0) {
+                    const prev_idx = actual_band[pos - 1];
+                    const prev_max = extents[prev_idx].max[axis.sort_axis];
+                    const curr_max = ext.max[axis.sort_axis];
+                    try std.testing.expect(prev_max > curr_max or (prev_max == curr_max and prev_idx < c_idx));
+                }
+            }
+        }
+    }
+
+    // Extreme finite coordinates whose span overflows f32 to +inf must not trap or drop curves.
+    const extreme_curves = [_]Curve{
+        .{ .p1 = .{ -3e38, -3e38 }, .p2 = .{ -2e38, -2e38 }, .p3 = .{ -1e38, -1e38 } },
+        .{ .p1 = .{ 1e38, 1e38 }, .p2 = .{ 2e38, 2e38 }, .p3 = .{ 3e38, 3e38 } },
+    };
+    var extreme_res = try partition(allocator, &extreme_curves);
+    defer extreme_res.deinit(allocator);
+    try std.testing.expectEqual(@as(usize, 2), extreme_res.horizontal_bands[0].len);
+    try std.testing.expectEqual(@as(usize, 2), extreme_res.vertical_bands[0].len);
 }
