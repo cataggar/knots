@@ -9,71 +9,71 @@ const Rect = @This();
 
 pub const zero: Rect = .{ .v = .{ 0, 0, 0, 0 } };
 
-pub fn init(x_: f32, y_: f32, w_: f32, h_: f32) Rect {
+pub inline fn init(x_: f32, y_: f32, w_: f32, h_: f32) Rect {
     return .{ .v = .{ x_, y_, w_, h_ } };
 }
 
-pub fn fromVec4(v: Vec4) Rect {
+pub inline fn fromVec4(v: Vec4) Rect {
     return .{ .v = v };
 }
 
-pub fn fromMinMax(lo: Vec2, hi: Vec2) Rect {
+pub inline fn fromMinMax(lo: Vec2, hi: Vec2) Rect {
     return .{ .v = .{ lo[0], lo[1], hi[0] - lo[0], hi[1] - lo[1] } };
 }
 
-pub fn x(self: Rect) f32 {
+pub inline fn x(self: *const Rect) f32 {
     return self.v[0];
 }
 
-pub fn y(self: Rect) f32 {
+pub inline fn y(self: *const Rect) f32 {
     return self.v[1];
 }
 
-pub fn w(self: Rect) f32 {
+pub inline fn w(self: *const Rect) f32 {
     return self.v[2];
 }
 
-pub fn h(self: Rect) f32 {
+pub inline fn h(self: *const Rect) f32 {
     return self.v[3];
 }
 
-pub fn eql(self: Rect, b: Rect) bool {
+pub inline fn eql(self: Rect, b: Rect) bool {
     return @reduce(.And, self.v == b.v);
 }
 
-pub fn setX(self: *Rect, val: f32) void {
+pub inline fn setX(self: *Rect, val: f32) void {
     self.v[0] = val;
 }
 
-pub fn setY(self: *Rect, val: f32) void {
+pub inline fn setY(self: *Rect, val: f32) void {
     self.v[1] = val;
 }
 
-pub fn setW(self: *Rect, val: f32) void {
+pub inline fn setW(self: *Rect, val: f32) void {
     self.v[2] = val;
 }
 
-pub fn setH(self: *Rect, val: f32) void {
+pub inline fn setH(self: *Rect, val: f32) void {
     self.v[3] = val;
 }
 
-pub fn pos(self: Rect) Vec2 {
+pub inline fn pos(self: *const Rect) Vec2 {
     return .{ self.v[0], self.v[1] };
 }
 
-pub fn size(self: Rect) Vec2 {
+pub inline fn size(self: *const Rect) Vec2 {
     return .{ self.v[2], self.v[3] };
 }
 
-pub fn min(self: Rect) Vec2 {
+pub inline fn min(self: *const Rect) Vec2 {
     return .{ self.v[0], self.v[1] };
 }
 
-pub fn max(self: Rect) Vec2 {
+pub inline fn max(self: *const Rect) Vec2 {
     return .{ self.v[0] + self.v[2], self.v[1] + self.v[3] };
 }
 
-pub fn isEmpty(self: Rect) bool {
+pub inline fn isEmpty(self: *const Rect) bool {
     return self.v[2] <= 0 or self.v[3] <= 0;
 }
 
