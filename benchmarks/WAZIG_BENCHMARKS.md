@@ -27,11 +27,11 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 | Workload | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` (LLVM 22) |
 | :--- | ---: | ---: | ---: | ---: |
-| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **0.487s** | 1.793s | 0.044s | 0.044s |
-| `wasm_bench_runner.zig` (`Debug`) | 12.71s (cold) / 6.10s (warm) | 32.50s (cold) / 16.63s (warm) | 3.70s (cold) / 0.29s (warm) | 6.00s (cold) / 2.53s (warm) |
-| `wasm_bench_runner.zig` (`ReleaseSmall`) | 10.91s (cold) / 4.49s (warm) | 25.89s (cold) / 15.12s (warm) | 2.25s (cold) / 0.23s (warm) | 6.79s (cold) / 4.68s (warm) |
-| `wasm_bench_runner.zig` (`ReleaseFast`) | 11.67s (cold) / 5.01s (warm) | 43.54s (cold) / 27.77s (warm) | 3.46s (cold) / 0.24s (warm) | 12.77s (cold) / 9.19s (warm) |
-| `wasm_bench_runner.zig` (`ReleaseFast +simd128`) | 11.84s (cold) / 5.20s (warm) | 44.32s (cold) / 28.30s (warm) | FAIL (`IllDefinedMemoryLayout`)* | 14.20s (cold) / 10.28s (warm) |
+| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **0.461s** | 1.699s | 0.044s | 0.044s |
+| `wasm_bench_runner.zig` (`Debug`) | 13.43s (cold) / 6.79s (warm) | 32.42s (cold) / 16.79s (warm) | 3.38s (cold) / 0.27s (warm) | 5.75s (cold) / 2.47s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseSmall`) | 11.10s (cold) / 4.88s (warm) | 25.52s (cold) / 14.87s (warm) | 2.21s (cold) / 0.23s (warm) | 6.61s (cold) / 4.69s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseFast`) | 12.27s (cold) / 5.74s (warm) | 40.94s (cold) / 25.31s (warm) | 3.36s (cold) / 0.23s (warm) | 12.34s (cold) / 8.88s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseFast +simd128`) | 12.22s (cold) / 5.76s (warm) | 43.35s (cold) / 26.55s (warm) | FAIL (`IllDefinedMemoryLayout`)* | 12.61s (cold) / 9.20s (warm) |
 | All 12 `wasm32-wasi` Test Suites (`js-bridge` + 11 `knots` suites) | 20.80s wall (63.0s CPU) | 62.42s wall (203.8s CPU) | 4.30s wall (16.3s CPU) | 10.45s wall (34.5s CPU) |
 | `examples/triangle` (`Debug`) | 10.30s (cold) / 7.58s (warm) | 31.75s (cold) / 18.31s (warm) | 2.76s (cold) / 0.30s (warm) | 5.58s (cold) / 2.73s (warm) |
 | `examples/triangle` (`ReleaseSmall`) | 8.05s (cold) / 5.74s (warm) | 24.61s (cold) / 18.44s (warm) | 2.11s (cold) / 0.25s (warm) | 7.58s (cold) / 5.99s (warm) |
@@ -69,10 +69,10 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 | `embedded` (`ReleaseSmall`) | 1,070.2 KB / 413.5 KB / **355.9 KB** | 734.4 KB / 337.6 KB / **302.4 KB** | 1,250.9 KB / 424.8 KB / **359.8 KB** | 734.4 KB / 337.6 KB / **302.4 KB** | `wazig`: **-14.4%** / `wazigl`: **0 B (same raw size)** |
 | `benchmark` (`Debug`) | 1,515.6 KB / 552.1 KB / **457.9 KB** | 3,878.1 KB / 1,287.9 KB / **1,036.4 KB** | 1,889.3 KB / 604.6 KB / **487.1 KB** | 3,878.3 KB / 1,287.6 KB / **1,035.4 KB** | `wazig`: **-19.8%** / `wazigl`: **-0.01%** |
 | `benchmark` (`ReleaseSmall`) | 1,211.2 KB / 463.5 KB / **395.4 KB** | 807.3 KB / 366.9 KB / **328.7 KB** | 1,438.2 KB / 478.4 KB / **401.1 KB** | 807.3 KB / 366.9 KB / **328.7 KB** | `wazig`: **-15.8%** / `wazigl`: **0 B (same raw size)** |
-| `wasm_bench_runner` (`Debug`) | 1,206.5 KB / 474.2 KB / **404.9 KB** | 3,588.3 KB / 1,193.7 KB / **977.1 KB** | 1,611.2 KB / 540.4 KB / **443.3 KB** | 3,584.9 KB / 1,192.1 KB / **974.4 KB** | `wazig`: **-25.1%** / `wazigl`: **+0.10%** |
-| `wasm_bench_runner` (`ReleaseSmall`) | 902.4 KB / 390.0 KB / **340.3 KB** | 679.7 KB / 332.5 KB / **297.5 KB** | 1,171.1 KB / 418.0 KB / **356.7 KB** | 679.7 KB / 332.5 KB / **297.5 KB** | `wazig`: **-22.9%** / `wazigl`: **0 B (same raw size)** |
-| `wasm_bench_runner` (`ReleaseFast`) | 1,076.6 KB / 441.0 KB / **381.3 KB** | 2,846.2 KB / 976.9 KB / **827.3 KB** | 1,309.8 KB / 450.3 KB / **386.6 KB** | 2,846.5 KB / 977.0 KB / **828.1 KB** | `wazig`: **-17.8%** / `wazigl`: **-0.01%** |
-| `wasm_bench_runner` (`ReleaseFast +simd128`) | 1,077.9 KB / 441.9 KB / **381.8 KB** | 2,830.2 KB / 978.2 KB / **828.9 KB** | FAIL (`IllDefinedMemoryLayout`)* | 2,830.6 KB / 978.3 KB / **829.4 KB** | **`wazig` succeeds** / `wazigl`: **-0.01%** |
+| `wasm_bench_runner` (`Debug`) | 1,207.0 KB / 481.5 KB / **412.9 KB** | 3,630.2 KB / 1,219.7 KB / **1,000.4 KB** | 1,641.8 KB / 552.9 KB / **452.4 KB** | 3,626.8 KB / 1,218.2 KB / **998.4 KB** | `wazig`: **-26.5%** / `wazigl`: **+0.09%** |
+| `wasm_bench_runner` (`ReleaseSmall`) | 898.5 KB / 390.8 KB / **342.3 KB** | 685.9 KB / 333.9 KB / **298.6 KB** | 1,188.9 KB / 428.6 KB / **363.2 KB** | 685.9 KB / 333.9 KB / **298.6 KB** | `wazig`: **-24.4%** / `wazigl`: **0 B (same raw size)** |
+| `wasm_bench_runner` (`ReleaseFast`) | 1,055.6 KB / 441.6 KB / **383.5 KB** | 2,827.3 KB / 969.9 KB / **824.2 KB** | 1,322.3 KB / 460.4 KB / **392.8 KB** | 2,827.6 KB / 970.1 KB / **825.0 KB** | `wazig`: **-20.2%** / `wazigl`: **-0.01%** |
+| `wasm_bench_runner` (`ReleaseFast +simd128`) | 1,061.0 KB / 442.8 KB / **384.2 KB** | 2,787.2 KB / 967.3 KB / **822.5 KB** | FAIL (`IllDefinedMemoryLayout`)* | 2,787.6 KB / 967.5 KB / **823.1 KB** | **`wazig` succeeds** / `wazigl`: **-0.01%** |
 | All 12 `wasm32-wasi` Test Binaries (`Debug` Total) | 7,814.4 KB / 2,630.8 KB / **2,133.7 KB** | 29,118.9 KB / 8,867.0 KB / **7,192.6 KB** | 10,404.0 KB / 3,053.4 KB / **2,418.1 KB** | 29,079.3 KB / 8,847.2 KB / **7,162.3 KB** | `wazig`: **-24.9%** / `wazigl`: **+0.14%** |
 
 **Key Binary Size Takeaways:**
@@ -90,10 +90,10 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 | Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.154 ms** / 0.159 ms (**6,461.7 FPS**) | **0.113 ms** / 0.117 ms (**8,799.2 FPS**) | 0.414 ms / 0.417 ms (2,415.8 FPS) | 0.113 ms / 0.117 ms (8,803.0 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.663 ms** / 0.673 ms (**1,508.7 FPS**) | **0.485 ms** / 0.491 ms (**2,067.1 FPS**) | 1.642 ms / 1.651 ms (608.8 FPS) | 0.488 ms / 0.494 ms (2,053.2 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.493 ms** / 0.500 ms (**2,034.6 FPS**) | **0.270 ms** / 0.283 ms (**3,661.0 FPS**) | 0.988 ms / 0.996 ms (1,011.8 FPS) | 0.270 ms / 0.286 ms (3,642.3 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **1.121 ms** / 1.131 ms (**890.5 FPS**) | **0.701 ms** / 0.709 ms (**1,428.9 FPS**) | 2.501 ms / 2.516 ms (399.6 FPS) | 0.700 ms / 0.707 ms (1,430.8 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.106 ms** / 0.110 ms (**9,362.6 FPS**) | **0.107 ms** / 0.111 ms (**9,262.3 FPS**) | 0.267 ms / 0.271 ms (3,736.0 FPS) | 0.107 ms / 0.112 ms (9,274.3 FPS) | `417689973924794692` |
+| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.421 ms** / 0.434 ms (**2,358.1 FPS**) | **0.371 ms** / 0.385 ms (**2,674.0 FPS**) | 1.022 ms / 1.047 ms (976.2 FPS) | 0.369 ms / 0.378 ms (2,689.7 FPS) | `12606774574179943755` / `7686275582076872382` |
+| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.171 ms** / 0.183 ms (**5,785.7 FPS**) | **0.100 ms** / 0.115 ms (**9,778.3 FPS**) | 0.457 ms / 0.469 ms (2,183.9 FPS) | 0.101 ms / 0.115 ms (9,748.6 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.542 ms** / 0.553 ms (**1,847.1 FPS**) | **0.408 ms** / 0.438 ms (**2,417.6 FPS**) | 1.449 ms / 1.493 ms (688.1 FPS) | 0.409 ms / 0.424 ms (2,429.5 FPS) | `8133605907336869050` |
 
 ### D.2 `wasm_bench_runner.wasm` — `ReleaseFast` & `ReleaseFast (+simd128)`
 
@@ -101,33 +101,33 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 | Workload | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.134 ms** / 0.140 ms (**7,415.9 FPS**) | **0.100 ms** / 0.104 ms (**9,925.0 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.100 ms / 0.105 ms (9,919.8 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.578 ms** / 0.584 ms (**1,734.8 FPS**) | **0.383 ms** / 0.394 ms (**2,591.5 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.386 ms / 0.392 ms (2,582.0 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | **0.362 ms** / 0.374 ms (**2,730.7 FPS**) | **0.162 ms** / 0.172 ms (**6,115.4 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.162 ms / 0.172 ms (6,114.7 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | **0.996 ms** / 1.003 ms (**1,003.1 FPS**) | **0.437 ms** / 0.446 ms (**2,272.7 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.439 ms / 0.447 ms (2,271.5 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.093 ms** / 0.098 ms (**10,673.3 FPS**) | **0.101 ms** / 0.105 ms (**9,837.8 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.100 ms / 0.105 ms (9,917.2 FPS) | `417689973924794692` |
+| **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.380 ms** / 0.390 ms (**2,611.6 FPS**) | **0.327 ms** / 0.336 ms (**3,040.7 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.327 ms / 0.338 ms (3,037.8 FPS) | `12606774574179943755` / `7686275582076872382` |
+| **3. Render Command & Batch Gen (`render_bench`)** | **0.117 ms** / 0.132 ms (**8,421.1 FPS**) | **0.089 ms** / 0.101 ms (**11,122.0 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.090 ms / 0.103 ms (10,931.3 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | **0.439 ms** / 0.449 ms (**2,276.9 FPS**) | **0.271 ms** / 0.282 ms (**3,655.8 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.272 ms / 0.285 ms (3,638.6 FPS) | `8133605907336869050` |
 
 #### `ReleaseFast` (Baseline Wasm CPU without `+simd128`)
 
 | Workload | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.133 ms** / 0.137 ms (**7,484.7 FPS**) | **0.108 ms** / 0.112 ms (**9,221.6 FPS**) | 0.415 ms / 0.418 ms (2,409.0 FPS) | 0.107 ms / 0.112 ms (9,251.0 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.577 ms** / 0.585 ms (**1,736.1 FPS**) | **0.363 ms** / 0.373 ms (**2,738.2 FPS**) | 1.636 ms / 1.648 ms (611.1 FPS) | 0.363 ms / 0.374 ms (2,740.3 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | **0.448 ms** / 0.457 ms (**2,220.5 FPS**) | **0.169 ms** / 0.181 ms (**5,857.1 FPS**) | 1.014 ms / 1.022 ms (985.2 FPS) | 0.168 ms / 0.181 ms (5,886.9 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | **1.019 ms** / 1.026 ms (**979.9 FPS**) | **0.444 ms** / 0.455 ms (**2,235.7 FPS**) | 2.499 ms / 2.513 ms (400.0 FPS) | 0.445 ms / 0.459 ms (2,232.4 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.093 ms** / 0.097 ms (**10,726.0 FPS**) | **0.104 ms** / 0.108 ms (**9,566.6 FPS**) | 0.264 ms / 0.269 ms (3,777.9 FPS) | 0.104 ms / 0.108 ms (9,546.6 FPS) | `417689973924794692` |
+| **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.383 ms** / 0.393 ms (**2,587.5 FPS**) | **0.303 ms** / 0.320 ms (**3,259.1 FPS**) | 1.007 ms / 1.019 ms (991.1 FPS) | 0.300 ms / 0.312 ms (3,302.8 FPS) | `12606774574179943755` / `7686275582076872382` |
+| **3. Render Command & Batch Gen (`render_bench`)** | **0.143 ms** / 0.156 ms (**6,892.0 FPS**) | **0.094 ms** / 0.106 ms (**10,498.4 FPS**) | 0.434 ms / 0.450 ms (2,275.7 FPS) | 0.094 ms / 0.110 ms (10,395.6 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | **0.446 ms** / 0.451 ms (**2,249.0 FPS**) | **0.289 ms** / 0.304 ms (**3,416.8 FPS**) | 1.454 ms / 1.476 ms (687.1 FPS) | 0.291 ms / 0.307 ms (3,397.5 FPS) | `8133605907336869050` |
 
 **`ReleaseFast` & `+simd128` vs `ReleaseSmall` Analysis:**
-- **`wazigl v0.17.0-wazigl.4` (`-fllvm`) matches native `zig v0.17.0 -fllvm` runtime throughput across every mode:** In `ReleaseSmall`, `wazigl.4` achieves `8,799.2 FPS` (`layout_bench`), `2,067.1 FPS` (`text_bench`), `3,661.0 FPS` (`render_bench`), and `1,428.9 FPS` (`combined_frame`) — matching native `zig -fllvm` (`8,803.0`, `2,053.2`, `3,642.3`, `1,430.8 FPS`). In `ReleaseFast +simd128`, `wazigl.4` reaches **`9,925.0 FPS` (`0.100 ms`)** on `layout_bench`, **`6,115.4 FPS` (`0.162 ms`)** on `render_bench`, **`2,591.5 FPS` (`0.383 ms`)** on `text_bench`, and **`2,272.7 FPS` (`0.437 ms`)** on `combined_frame`.
-- **`wazig v0.17.0-wazig.4` (`-fno-llvm`) vs `zig v0.17.0 -fno-llvm`**: With `cataggar/zig#158`–`#188` (inline `@min`/`@max`, SROA to Wasm locals, parameterized leaf & single-call wrapper inlining, by-value scalar parameter ABI, read-only load & alloc alias elision, `v128` `+simd128` vector & `@reduce` lowering, multivalue 2-scalar returns) and `cataggar/knots#11`, `#15` (`#13`), `#16` (`#12`, `#14`), `#17`, `wazig.4` is **2.51x–3.11x faster** than upstream `zig 0.17.0 -fno-llvm` on the exact same `knots` source (`7,415.9–7,484.7 FPS` vs `2,409.0 FPS` on `layout_bench`, `1,734.8–1,736.1 FPS` vs `611.1 FPS` on `text_bench`, `2,730.7 FPS` vs `985.2 FPS` on `render_bench`, and `1,003.1 FPS` vs `400.0 FPS` on `combined_frame`), and **3.30x–11.68x faster** than `wazig v0.17.0-wazig.3`.
-- **`wazig v0.17.0-wazig.4` `ReleaseFast +simd128` vs `ReleaseSmall`**: Parameterized leaf and single-call wrapper inlining in `.fast` mode (`band.curveExtent`, `ElementPool.get`, `DrawList.Box.add`, `mem.swap`, `hash_map.header`, `appendAssumeCapacity`, `Wyhash.round`/`mum`), Wasm multivalue 2-scalar returns (`curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`), and `v128` SIMD boost `wazig.4` `render_bench` from `2,034.6 FPS` (`ReleaseSmall`) to **`2,730.7 FPS` (+34.2%)**, `layout_bench` from `6,461.7 FPS` to **`7,415.9 FPS` (+14.8% SIMD / `7,484.7 FPS` +15.8% `ReleaseFast`)**, `text_bench` from `1,508.7 FPS` to **`1,734.8–1,736.1 FPS` (+15.0%–15.1%)**, and `combined_frame` from `890.5 FPS` to **`1,003.1 FPS` (+12.6%)**.
+- **`wazig v0.17.0-wazig.4` (`-fno-llvm`, `ReleaseFast +simd128`) exceeds all `cataggar/knots#19` FPS targets and beats the pre-`#19` `zig v0.17.0 -fllvm` baseline (`9,919.8` / `2,582.0` / `6,114.7` / `2,271.5 FPS`) across all 4 workloads, while surpassing post-`#19` `zig v0.17.0 -fllvm` on `layout_bench`:** With `cataggar/zig#189`–`#217` and `cataggar/knots#20`–`#26`, `wazig.4` reaches **`10,673.3 FPS` (`0.093 ms`)** on `layout_bench` (faster than `9,917.2 FPS` / `0.100 ms` in post-`#19` `zig -fllvm`), **`8,421.1 FPS` (`0.117 ms`)** on `render_bench` (vs `10,931.3 FPS` / `0.090 ms` in post-`#19` `zig -fllvm`), **`2,611.6 FPS` (`0.380 ms`)** on `text_bench` (vs `3,037.8 FPS` / `0.327 ms` in post-`#19` `zig -fllvm`), and **`2,276.9 FPS` (`0.439 ms`)** on `combined_frame` (vs `3,638.6 FPS` / `0.272 ms` in post-`#19` `zig -fllvm`) — while compiling in a **2.63x smaller** `.wasm` binary (`1,061.0 KB` vs `2,787.6 KB`).
+- **`wazig v0.17.0-wazig.4` (`-fno-llvm`) vs `zig v0.17.0 -fno-llvm`**: With `cataggar/zig#158`–`#217` and `cataggar/knots#11`–`#26`, `wazig.4` is **2.63x–3.70x faster** than upstream `zig 0.17.0 -fno-llvm` on the exact same `knots` source (`10,673.3 FPS` vs `3,777.9 FPS` on `layout_bench`, `2,611.6 FPS` vs `991.1 FPS` on `text_bench`, `8,421.1 FPS` vs `2,275.7 FPS` on `render_bench`, and `2,276.9 FPS` vs `687.1 FPS` on `combined_frame`), and **7.48x–16.80x faster** than `wazig v0.17.0-wazig.3`.
+- **`wazigl v0.17.0-wazigl.4` (`-fllvm`) matches native `zig v0.17.0 -fllvm` runtime throughput across every mode:** In `ReleaseSmall`, `wazigl.4` achieves `9,262.3 FPS` (`layout_bench`), `2,674.0 FPS` (`text_bench`), `9,778.3 FPS` (`render_bench`), and `2,417.6 FPS` (`combined_frame`). In `ReleaseFast +simd128`, `wazigl.4` reaches **`9,837.8 FPS` (`0.101 ms`)** on `layout_bench`, **`11,122.0 FPS` (`0.089 ms`)** on `render_bench`, **`3,040.7 FPS` (`0.327 ms`)** on `text_bench`, and **`3,655.8 FPS` (`0.271 ms`)** on `combined_frame`.
 
 ### D.3 `wasm_bench_runner.wasm` — `Debug`
 
 | Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.4` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.339 ms** / 0.343 ms (**2,946.3 FPS**) | 0.717 ms / 0.721 ms (1,395.2 FPS) | 0.794 ms / 0.798 ms (1,259.2 FPS) | 0.718 ms / 0.721 ms (1,393.8 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.911 ms** / 0.919 ms (**1,097.7 FPS**) | 1.755 ms / 1.765 ms (569.8 FPS) | 2.145 ms / 2.157 ms (465.9 FPS) | 1.757 ms / 1.768 ms (569.1 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.561 ms** / 0.565 ms (**1,793.9 FPS**) | 1.045 ms / 1.054 ms (955.8 FPS) | 1.170 ms / 1.178 ms (853.9 FPS) | 1.046 ms / 1.054 ms (955.6 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **1.384 ms** / 1.397 ms (**722.6 FPS**) | 2.738 ms / 2.750 ms (365.3 FPS) | 2.869 ms / 2.877 ms (348.6 FPS) | 2.733 ms / 2.744 ms (365.9 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.275 ms** / 0.280 ms (**3,624.1 FPS**) | 0.611 ms / 0.615 ms (1,638.0 FPS) | 0.657 ms / 0.662 ms (1,521.1 FPS) | 0.615 ms / 0.620 ms (1,627.3 FPS) | `417689973924794692` |
+| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.617 ms** / 0.624 ms (**1,627.8 FPS**) | 1.141 ms / 1.153 ms (875.1 FPS) | 1.657 ms / 1.669 ms (603.2 FPS) | 1.142 ms / 1.155 ms (873.9 FPS) | `12606774574179943755` / `7686275582076872382` |
+| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.214 ms** / 0.228 ms (**4,601.1 FPS**) | 0.440 ms / 0.459 ms (2,245.0 FPS) | 0.629 ms / 0.635 ms (1,598.0 FPS) | 0.440 ms / 0.457 ms (2,246.9 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.700 ms** / 0.704 ms (**1,434.0 FPS**) | 1.742 ms / 1.754 ms (574.2 FPS) | 1.798 ms / 1.806 ms (556.1 FPS) | 1.739 ms / 1.756 ms (574.8 FPS) | `8133605907336869050` |
 
 **`Debug` Runtime Highlight:** In `Debug` builds, `wazig v0.17.0-wazig.4` (`-fno-llvm`) is **1.88x–2.11x faster at runtime than both `wazigl v0.17.0-wazigl.4` and `zig v0.17.0 -fllvm` (LLVM 22)** across all four workloads (`2,946.3 FPS` vs `1,395.2` / `1,393.8 FPS` on `layout_bench`, `1,097.7 FPS` vs `569.8` / `569.1 FPS` on `text_bench`, `1,793.9 FPS` vs `955.8` / `955.6 FPS` on `render_bench`, and `722.6 FPS` vs `365.3` / `365.9 FPS` on `combined_frame`) while producing **2.97x smaller** `.wasm` binaries (`1,206.5 KB` vs `3,588.3 KB`).
 
@@ -146,16 +146,16 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 ## E. Guest Profiling Verification (`wasmtime-profile.py` @ `100us`)
 
-### E.1 Verified Impact of `cataggar/zig#158`–`#188` & `cataggar/knots#11`–`#17` (`#9`)
+### E.1 Verified Impact of `cataggar/zig#158`–`#217` & `cataggar/knots#11`–`#26` (`#9` & `#19`)
 
-Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **6.69x** from `21,457` (`v0.17.0-wazig.3`) → `6,984`/`6,513`/`6,287` (initial `wazig.4`) → **`3,209` (`ReleaseFast +simd128`)** in **`wazig v0.17.0-wazig.4`** (`cataggar/zig@1820f5885e`) + `cataggar/knots#11`, `#15` (`#13`), `#16` (`#12`, `#14`), `#17`, with all `cataggar/knots#9` and `#14` targets exceeded by **1.52x–7.42x**:
+Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **12.82x** from `21,457` (`v0.17.0-wazig.3`) → `6,984`/`6,513`/`6,287` (initial `wazig.4`) → `3,209` (post-`#9`) → **`1,674` (`ReleaseFast +simd128`)** in **`wazig v0.17.0-wazig.4`** (`cataggar/zig@e40a592d8b`) + `cataggar/knots#11`–`#26`, exceeding all `cataggar/knots#9`, `#14`, and `#19` targets:
 
-| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.4` (`ReleaseSmall`) | `wazig.4` (`ReleaseFast +simd128`) | `wazigl.4` (`ReleaseFast +simd128`) | `wazig.4` Speedup vs `wazig.3` | `knots#9` & `#14` Goal |
+| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.4` (`ReleaseSmall`) | `wazig.4` (`ReleaseFast +simd128`) | `wazigl.4` (`ReleaseFast +simd128`) | `wazig.4` Speedup vs `wazig.3` | `knots#19` Goal |
 | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
-| **`layout_bench`** | 1.575 ms (635.2 FPS) | 0.154 ms (6,461.7 FPS) | **0.134 ms (7,415.9 FPS)** | **0.100 ms (9,925.0 FPS)** | **11.68x faster** | `>= 1,000 FPS` (`#9`) / `>= 4,805 FPS` (`#14`, Exceeded **1.54x**) |
-| **`text_bench`** | 5.505 ms (181.7 FPS) | 0.663 ms (1,508.7 FPS) | **0.578 ms (1,734.8 FPS)** | **0.383 ms (2,591.5 FPS)** | **9.55x faster** | `>= 500 FPS` (Exceeded **3.47x**) |
-| **`render_bench`** | 1.282 ms (779.1 FPS) | 0.493 ms (2,034.6 FPS) | **0.362 ms (2,730.7 FPS)** | **0.162 ms (6,115.4 FPS)** | **3.50x faster** | `>= 1,800 FPS` (Exceeded **1.52x**) |
-| **`combined_frame`** | 3.286 ms (304.2 FPS) | 1.121 ms (890.5 FPS) | **0.996 ms (1,003.1 FPS)** | **0.437 ms (2,272.7 FPS)** | **3.30x faster** | `>= 600 FPS` (Exceeded **1.67x**) |
+| **`layout_bench`** | 1.575 ms (635.2 FPS) | 0.106 ms (9,362.6 FPS) | **0.093 ms (10,673.3 FPS)** | **0.101 ms (9,837.8 FPS)** | **16.80x faster** | `>= 9,500–10,000+ FPS` (**Exceeded**) |
+| **`text_bench`** | 5.505 ms (181.7 FPS) | 0.421 ms (2,358.1 FPS) | **0.380 ms (2,611.6 FPS)** | **0.327 ms (3,040.7 FPS)** | **14.37x faster** | `>= 2,300–2,600+ FPS` (**Exceeded**) |
+| **`render_bench`** | 1.282 ms (779.1 FPS) | 0.171 ms (5,785.7 FPS) | **0.117 ms (8,421.1 FPS)** | **0.089 ms (11,122.0 FPS)** | **10.81x faster** | `>= 5,000–6,100+ FPS` (**Exceeded**) |
+| **`combined_frame`** | 3.286 ms (304.2 FPS) | 0.542 ms (1,847.1 FPS) | **0.439 ms (2,276.9 FPS)** | **0.271 ms (3,655.8 FPS)** | **7.48x faster** | `>= 1,800–2,270+ FPS` (**Exceeded**) |
 
 - **[`cataggar/zig#158`](https://github.com/cataggar/zig/pull/158) (fixes `#153`) — Inline `f32`/`f64` `@min`/`@max` and `i128` shifts/muls**: Eliminated all **6,065 samples (28.3%)** previously spent in `fmaxf`/`fminf`/`isNan`/`signbit` and `__lshrti3`/`__multi3` (`0` samples in `wazig.4`).
 - **[`cataggar/zig#159`](https://github.com/cataggar/zig/pull/159) (fixes `#154`) — Scalar Replacement of Aggregates (SROA) to Wasm locals**: Promoted non-escaped slices, optionals, error unions, `Vec2`, `Rect`, `Color`, and `Element.Sizing` into Wasm locals, eliminating `Rect.fromMinMax`, `Rect.min`, `Rect.max`, `Rect.size`, `Rect.pos`, `Rect.intersect`, and `GlyphKey.hash` shadow-stack traffic.
@@ -163,35 +163,41 @@ Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wa
 - **[`cataggar/zig#164`](https://github.com/cataggar/zig/pull/164) (fixes `#156`) & [`cataggar/zig#168`](https://github.com/cataggar/zig/issues/168) — `@Vector` layout, `v128` `+simd128` SIMD arithmetic, and fused `cmp_vector` + `@reduce(.And/.Or)` lowering**: Lowered `Rect.eql` to `f32x4.eq` + `i32x4.all_true` (`12 B`).
 - **[`cataggar/zig#170`](https://github.com/cataggar/zig/issues/170) — Wasm multivalue return ABI for 2-scalar aggregates (`[2]f32`, `Vec2`, `HMetrics`, `[2]u8`, `u128`)**: Eliminated linear-memory `sret` stack frames for 2-scalar returns, allowing `curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`, and `fmt.digits2` to be completely inlined and removed in `ReleaseFast`.
 - **[`cataggar/zig#171`](https://github.com/cataggar/zig/issues/171) — Atomic temp-file rename for WASI cache manifests & bounds-checked `Archive`/`Object` magic parsing**: Parallel 4-way cold-cache `wasm32-wasi` test suite compilation completes with zero `Archive.zig` race panics (`20.80s` wall / `62.99s` CPU; **`0.969s`** total test execution time across all 12 suites — the fastest of all 4 compilers).
-- **[`cataggar/zig#174`](https://github.com/cataggar/zig/issues/174)–[`#188`](https://github.com/cataggar/zig/pull/188) — By-value scalar parameter ABI (`classifyAutoParam`), read-only by-ref load & alloc alias elision, `umulh` (`Wyhash.mum`) inline lowering, `tryElideMemcpyStackFrame` / `tryElideLeafStackFrame`, and single-call wrapper inlining**: Eliminated `memory.copy` aggregate parameter staging, inlined `Wyhash.round`/`mum`, and cut `wasm_bench_runner` binary sizes by another ~9% (`902.4 KB` `ReleaseSmall`, `1,077.9 KB` `ReleaseFast +simd128`).
-- **[`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11) (`#10`), [`cataggar/knots#15`](https://github.com/cataggar/knots/pull/15) (`#13`), [`cataggar/knots#16`](https://github.com/cataggar/knots/pull/16) (`#12`, `#14`), & [`cataggar/knots#17`](https://github.com/cataggar/knots/pull/17) (`#14`) — Precomputed curve extents & insertion/merge sort (`#11`), direct `O(curves + overlaps)` band-range indexing, pre-sorted curve scatter & single contiguous backing allocation (`#15`), 2-pass child layout, leaf fast paths, in-place element init, lazy `id_to_slot` & compact `buildZOrder` (`#16`), and `inline` `Rect`/`Padding`/`AxisInfo` scalar accessors + capacity fast paths (`#17`)**: Boosted `wazig.4` `layout_bench` by **6.45x** over initial `wazig.4` (`1,150.0` → **`7,415.9–7,484.7 FPS` / `0.133–0.134 ms`**, **11.68x** over `wazig.3`), `text_bench` by **1.51x** (`1,152.7` → **`1,734.8–1,736.1 FPS` / `0.577–0.578 ms`**), `render_bench` to **`2,730.7 FPS` (`0.362 ms`)**, and `combined_frame` by **1.45x** (`690.8` → **`1,003.1 FPS` / `0.996 ms`**).
+- **[`cataggar/zig#174`](https://github.com/cataggar/zig/issues/174)–[`#217`](https://github.com/cataggar/zig/issues/217) — By-value scalar parameter ABI (`classifyAutoParam`), read-only by-ref load & alloc alias elision, `umulh` (`Wyhash.mum`) inline lowering, `tryElideMemcpyStackFrame` / `tryElideLeafStackFrame`, single-call wrapper inlining, `0xfd` SIMD stack deltas (`#193`), `@Vector` lane SROA (`#194`), post-inlining shadow-stack scalarization (`#195`), large copy-modify-pass SROA heuristics (`#196`), and single-scalar payload union SROA (`#213`)**: Eliminated `memory.copy` aggregate parameter staging, inlined `Wyhash.round`/`mum`, and promoted `sizing.Axis` tagged unions to scalar locals.
+- **[`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11)–[`#17`](https://github.com/cataggar/knots/pull/17) (`#9`) & [`cataggar/knots#20`](https://github.com/cataggar/knots/pull/20)–[`#26`](https://github.com/cataggar/knots/pull/26) (`#19`) — Precomputed curve extents & scatter-first per-band sort (`#11`, `#15`, `#20`, `#25`, `#26`), 2-pass child layout, `comptime is_row` flex layout, O(1) `grow_main_total`, `IdContext`/`CodepointContext` integer hash contexts, compact 2-scalar `Key`, settled transition & `Style.resolve` fast paths (`#16`, `#17`, `#21`, `#25`), and in-place `DrawList` writes, single-pass `commandBounds` + grid insertion, and `comptime std.mem.zeroes` instance templates (`#22`, `#23`, `#26`)**: Boosted `wazig.4` `ReleaseFast +simd128` to **`10,673.3 FPS` (`layout_bench`)**, **`2,611.6 FPS` (`text_bench`)**, **`8,421.1 FPS` (`render_bench`)**, and **`2,276.9 FPS` (`combined_frame`)**.
 
-### E.2 Top 15 Functions in `wazig v0.17.0-wazig.4` `ReleaseFast +simd128` (`3,209` total samples @ 100us)
+### E.2 Top 15 Functions in `wazig v0.17.0-wazig.4` `ReleaseFast +simd128` (`1,674` total samples @ 100us)
 
 | Self | Self% | Total | Tot% | Bytes | Function |
 | ---: | ---: | ---: | ---: | ---: | :--- |
-| 276 | 8.60% | 872 | 27.17% | 3,905 | `wasm_bench_runner.buildRenderFrame` |
-| 156 | 4.86% | 156 | 4.86% | 2,471 | `hash.wyhash.Wyhash.update` |
-| 154 | 4.80% | 154 | 4.80% | 1,067 | `band.sortBandIndices` |
-| 148 | 4.61% | 148 | 4.61% | 2,248 | `DrawList.commandBounds` |
-| 114 | 3.55% | 114 | 3.55% | 1,164 | `band.computeAxisBandRanges` |
-| 107 | 3.33% | 130 | 4.05% | 647 | `DrawList.pushTextInstance` |
-| 100 | 3.12% | 117 | 3.65% | 864 | `DrawList.pushInstances` |
-| 92 | 2.87% | 161 | 5.02% | 2,712 | `Context.positionChildren` |
-| 90 | 2.80% | 313 | 9.75% | 4,792 | `DrawList.emitBatched` |
-| 80 | 2.49% | 234 | 7.29% | 454 | `band.scatterAxisBands` |
-| 74 | 2.31% | 311 | 9.69% | 4,009 | `Context.computeLayoutNode` |
-| 69 | 2.15% | 118 | 3.68% | 6,003 | `TrueType.glyphShapeTT` |
-| 62 | 1.93% | 236 | 7.35% | 1,416 | `wasm_bench_runner.buildDashboardLayoutFrame` |
-| 61 | 1.90% | 112 | 3.49% | 1,546 | `Context.open` |
-| 60 | 1.87% | 69 | 2.15% | 67 | `Clip.State.scissorEql` |
+| 360 | 21.51% | 360 | 21.51% | 6,857 | `band.partitionWithBuffer` |
+| 163 | 9.74% | 176 | 10.51% | 9,070 | `DrawList.emitBatched` |
+| 124 | 7.41% | 317 | 18.94% | 5,062 | `wasm_bench_runner.buildRenderFrame` |
+| 91 | 5.44% | 248 | 14.81% | 10,351 | `wasm_bench_runner.buildDashboardLayoutFrame` |
+| 73 | 4.36% | 73 | 4.36% | 7,860 | `Context.computeLayoutNode` |
+| 69 | 4.12% | 85 | 5.08% | 5,854 | `TrueType.glyphShapeTT` |
+| 57 | 3.41% | 59 | 3.52% | 2,207 | `Context.open` |
+| 44 | 2.63% | 423 | 25.27% | 3,543 | `GlyphBuilder.addCurves` |
+| 34 | 2.03% | 45 | 2.69% | 1,206 | `DrawList.pushInstances` |
+| 34 | 2.03% | 34 | 2.03% | 2,035 | `Context.computeSizes` |
+| 29 | 1.73% | 74 | 4.42% | 4,933 | `Context.tessellateLayer` |
+| 21 | 1.25% | 21 | 1.25% | 467 | `hash_map.Custom(u32,GlyphRecord,Face.CodepointContext,80).getIndex` |
+| 20 | 1.19% | 20 | 1.19% | 620 | `curve.decomposeVerticesInto` |
+| 19 | 1.14% | 54 | 3.23% | 2,436 | `Face.shape` |
+| 19 | 1.14% | 31 | 1.85% | 1,228 | `Style.resolve` |
 
 ### E.3 Follow-Up `cataggar/zig` Self-Hosted Wasm Backend Optimization Issues Filed
 
-- **[`cataggar/zig#189`](https://github.com/cataggar/zig/issues/189)**: `wasm: Optimizer.zig classifyTrivialFunc sets depth0_stack_exact = false on all 0xfd SIMD instructions` (blocks inlining trivial SIMD leaf helpers such as `Rect.eql` / `Clip.State.scissorEql`).
-- **[`cataggar/zig#190`](https://github.com/cataggar/zig/issues/190)**: `wasm: CodeGen.zig SroaAnalysis and ReadOnlyAllocAliasAnalysis reject vector_index != .none, spilling v128/@Vector lane accesses to shadow stack`.
-- **[`cataggar/zig#191`](https://github.com/cataggar/zig/issues/191)**: `wasm: CodeGen.zig SroaAnalysis over-promotes large (>16B) copy-modify-pass aggregates into scalar locals that immediately spill back to shadow stack` (`SlugInstance` in `DrawList.pushTextInstance` and `Instance` in `DrawList.pushInstances`).
-- **[`cataggar/zig#192`](https://github.com/cataggar/zig/issues/192)**: `wasm: Optimizer.zig post-inlining shadow-stack slot scalarization (SROA) for small aggregates whose address only escaped to inlined leaf methods` (`var box: Box` in `DrawList.commandBounds` and `DrawList.emitBatched`).
+- **[`cataggar/zig#189`](https://github.com/cataggar/zig/issues/189)** (fixed in `#193`): `wasm: Optimizer.zig classifyTrivialFunc sets depth0_stack_exact = false on all 0xfd SIMD instructions`.
+- **[`cataggar/zig#190`](https://github.com/cataggar/zig/issues/190)** (fixed in `#194`): `wasm: CodeGen.zig SroaAnalysis and ReadOnlyAllocAliasAnalysis reject vector_index != .none, spilling v128/@Vector lane accesses to shadow stack`.
+- **[`cataggar/zig#191`](https://github.com/cataggar/zig/issues/191)** (fixed in `#196`): `wasm: CodeGen.zig SroaAnalysis over-promotes large (>16B) copy-modify-pass aggregates into scalar locals that immediately spill back to shadow stack`.
+- **[`cataggar/zig#192`](https://github.com/cataggar/zig/issues/192)** (fixed in `#195`): `wasm: Optimizer.zig post-inlining shadow-stack slot scalarization (SROA) for small aggregates whose address only escaped to inlined leaf methods`.
+- **[`cataggar/zig#213`](https://github.com/cataggar/zig/issues/213)**: `wasm(CodeGen): SROA support for tagged unions with single-scalar payloads (e.g. union(enum) { f32, void })`.
+- **[`cataggar/zig#215`](https://github.com/cataggar/zig/issues/215)**: `wasm(CodeGen): ReadOnlyAllocAliasAnalysis rejects get_union_tag on by-value union parameters, forcing shadow-stack copies on every switch`.
+- **[`cataggar/zig#216`](https://github.com/cataggar/zig/issues/216)**: `wasm(CodeGen/Sema): std.mem.zeroes(T) at runtime emits 50+ scalar zero stores instead of comptime aggregate constant or memory.fill`.
+- **[`cataggar/zig#217`](https://github.com/cataggar/zig/issues/217)**: `wasm(Optimizer): inline medium-sized single-call or hot loop-body helpers (<= 240B) in ReleaseFast mode`.
+- **[`cataggar/zig#218`](https://github.com/cataggar/zig/issues/218)**: `wasm: SroaAnalysis does not forward .bit_cast on layout-compatible byref values (e.g. []T -> []const T slice coercions), and all-zero >16B @splat(0) arrays load from .rodata instead of v128.const 0`.
+- **[`cataggar/zig#219`](https://github.com/cataggar/zig/issues/219)**: `aarch64: self-hosted backend (-Denable-llvm=false) miscompiles std.Build runner (maker) into an infinite loop`.
 
 ---
 

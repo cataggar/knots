@@ -551,7 +551,7 @@ fn buildRenderFrame(
         var row_instances: [40]render_types.Instance = undefined;
         for (0..40) |col| {
             const x: f32 = 12.0 + @as(f32, @floatFromInt(col)) * 38.0 + (f_offset * 0.25);
-            var inst = std.mem.zeroes(render_types.Instance);
+            var inst = comptime std.mem.zeroes(render_types.Instance);
             inst.pos = .{ x, y };
             inst.size = .{ 34.0, 13.0 };
             inst.color = .{ 0.15, 0.25, 0.45, 1.0 };
@@ -566,7 +566,7 @@ fn buildRenderFrame(
         if (try draw_list.beginTextBatch(40, clip_state)) |batch| {
             for (0..40) |col| {
                 const x: f32 = 16.0 + @as(f32, @floatFromInt(col)) * 38.0;
-                var glyph_inst = std.mem.zeroes(render_types.SlugInstance);
+                var glyph_inst = comptime std.mem.zeroes(render_types.SlugInstance);
                 glyph_inst.bounds = .{ 0.0, 0.0, 0.65, 0.85 };
                 glyph_inst.origin_size = .{ x, y + 10.0, 12.0, 1.0 / 12.0 };
                 glyph_inst.col = .{ 0.92, 0.95, 0.98, 1.0 };
@@ -582,7 +582,7 @@ fn buildRenderFrame(
     for (0..200) |vi| {
         const vx: f32 = @floatFromInt((vi * 23) % 1400);
         const vy: f32 = @floatFromInt((vi * 17) % 900);
-        var verts: [4]render_types.Vertex = @splat(std.mem.zeroes(render_types.Vertex));
+        var verts: [4]render_types.Vertex = comptime @splat(std.mem.zeroes(render_types.Vertex));
         verts[0].pos = .{ vx, vy };
         verts[1].pos = .{ vx + 18.0, vy };
         verts[2].pos = .{ vx + 18.0, vy + 10.0 };
@@ -606,7 +606,7 @@ fn buildRenderFrame(
     }
     var overlay_insts: [96]render_types.Instance = undefined;
     for (0..96) |oi| {
-        var inst = std.mem.zeroes(render_types.Instance);
+        var inst = comptime std.mem.zeroes(render_types.Instance);
         inst.pos = .{ 310.0 + @as(f32, @floatFromInt((oi % 16) * 52)), 130.0 + @as(f32, @floatFromInt((oi / 16) * 20)) };
         inst.size = .{ 48.0, 16.0 };
         inst.color = .{ 0.25, 0.30, 0.40, 0.95 };
