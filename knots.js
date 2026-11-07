@@ -4,6 +4,7 @@ import { createWebGL2Backend } from "./knots-webgl2.js";
 
 const WASM_MEMORY_INITIAL_PAGES = 256;
 const WASM_MEMORY_MAX_PAGES = 32768;
+const WASM_MEMORY64_MAX_PAGES = 131072;
 const textDecoder = new TextDecoder("utf-8");
 
 function resolveGpuBackendOption(option) {
@@ -840,7 +841,7 @@ async function instantiateThreadedWasm(module, imports) {
 
 async function instantiateThreadedWasmWithPointerSize(module, imports, pointerSize) {
   const initial = pointerSize === 8 ? BigInt(WASM_MEMORY_INITIAL_PAGES) : WASM_MEMORY_INITIAL_PAGES;
-  const maximum = pointerSize === 8 ? BigInt(WASM_MEMORY_MAX_PAGES) : WASM_MEMORY_MAX_PAGES;
+  const maximum = pointerSize === 8 ? BigInt(WASM_MEMORY64_MAX_PAGES) : WASM_MEMORY_MAX_PAGES;
   const memory = new WebAssembly.Memory({
     initial,
     maximum,
