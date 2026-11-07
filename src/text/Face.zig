@@ -6,7 +6,7 @@ const GlyphBuilder = @import("GlyphBuilder.zig");
 
 true_type: TrueType,
 glyph_builder: *GlyphBuilder,
-glyph_cache: std.AutoHashMap(u32, glyph.GlyphRecord),
+glyph_cache: GlyphMap,
 shaped_cache: ShapedMap,
 wrap_cache: WrapMap,
 stale_shaped_keys: std.ArrayList(ShapedKey),
@@ -30,6 +30,26 @@ comptime {
     std.debug.assert(cache_evict_age_frames > 0);
     std.debug.assert(cache_evictions_per_frame_max <= cache_entry_count_max);
 }
+
+const CodepointContext = struct {
+    pub inline fn hash(_: CodepointContext, key: u32) u64 {
+        var x: u64 = key;
+        x = (x ^ (x >> 16)) *% 0x45d9f3b;
+        x = (x ^ (x >> 16)) *% 0x45d9f3b;
+        return x ^ (x >> 16);
+    }
+
+    pub inline fn eql(_: CodepointContext, a: u32, b: u32) bool {
+        return a == b;
+    }
+};
+
+const GlyphMap = std.HashMapUnmanaged(
+    u32,
+    glyph.GlyphRecord,
+    CodepointContext,
+    std.hash_map.default_max_load_percentage,
+);
 
 const ShapedKey = struct {
     text: []const u8,
@@ -138,7 +158,7 @@ pub fn init(allocator: std.mem.Allocator, font_data: []const u8, glyph_builder: 
     return .{
         .true_type = true_type,
         .glyph_builder = glyph_builder,
-        .glyph_cache = .init(allocator),
+        .glyph_cache = .empty,
         .shaped_cache = .empty,
         .wrap_cache = .empty,
         .stale_shaped_keys = stale_shaped_keys,
@@ -169,12 +189,15 @@ pub fn deinit(self: *Face) void {
     self.wrap_cache.deinit(self.allocator);
     self.stale_wrap_keys.deinit(self.allocator);
 
-    self.glyph_cache.deinit();
+    self.glyph_cache.deinit(self.allocator);
 }
 
-pub fn getGlyph(self: *Face, codepoint: u21) !glyph.GlyphRecord {
-    if (self.glyph_cache.get(codepoint)) |record| return record;
+inline fn getGlyphPtr(self: *Face, codepoint: u21) !*const glyph.GlyphRecord {
+    if (self.glyph_cache.getPtr(codepoint)) |ptr| return ptr;
+    return self.loadAndCacheGlyph(codepoint);
+}
 
+fn loadAndCacheGlyph(self: *Face, codepoint: u21) !*const glyph.GlyphRecord {
     const glyph_id = self.true_type.codepointGlyphIndex(codepoint);
     const horizontal_metrics = self.true_type.glyphHMetrics(glyph_id);
     const advance_em =
@@ -184,19 +207,25 @@ pub fn getGlyph(self: *Face, codepoint: u21) !glyph.GlyphRecord {
         const vertices = try self.true_type.glyphShape(self.allocator, glyph_id);
         defer self.allocator.free(vertices);
 
-        const curves = try curve.decomposeVertices(
-            self.allocator,
-            vertices,
-            self.units_per_em,
-        );
-        defer self.allocator.free(curves);
+        var stack_curves: [256]curve.Curve = undefined;
+        const curve_count = curve.countDecomposedCurves(vertices);
+        const curves = if (curve_count <= stack_curves.len)
+            curve.decomposeVerticesInto(stack_curves[0..curve_count], vertices, self.units_per_em)
+        else
+            try curve.decomposeVertices(self.allocator, vertices, self.units_per_em);
+        defer if (curve_count > stack_curves.len) self.allocator.free(curves);
 
         break :block try self.glyph_builder.addCurves(curves);
     };
     record.advance_em = advance_em;
 
-    try self.glyph_cache.put(codepoint, record);
-    return record;
+    const gop = try self.glyph_cache.getOrPut(self.allocator, codepoint);
+    gop.value_ptr.* = record;
+    return gop.value_ptr;
+}
+
+pub fn getGlyph(self: *Face, codepoint: u21) !glyph.GlyphRecord {
+    return (try self.getGlyphPtr(codepoint)).*;
 }
 
 fn quantizePixels(value: f32) !u32 {
@@ -245,14 +274,13 @@ pub fn shape(self: *Face, text: []const u8, size_px: f32) !glyph.ShapedView {
             break :blk byte;
         } else iterator.nextCodepoint() orelse unreachable;
 
-        const record = try self.getGlyph(codepoint);
-        const advance_px = record.advance_em * size_px;
-        shaped_glyphs.appendAssumeCapacity(.{
-            .record = record,
-            .x = pen_x,
-            .advance = advance_px,
-            .cluster = cluster,
-        });
+        const record_ptr = try self.getGlyphPtr(codepoint);
+        const advance_px = record_ptr.advance_em * size_px;
+        const dst = shaped_glyphs.addOneAssumeCapacity();
+        dst.record = record_ptr.*;
+        dst.x = pen_x;
+        dst.advance = advance_px;
+        dst.cluster = cluster;
         pen_x += advance_px;
     }
 
@@ -309,13 +337,13 @@ const WrapBuffer = struct {
         const target_start = self.glyph_count;
         const glyph_count = glyph_end - glyph_start;
         const x_start = if (glyph_count > 0) self.source_glyphs[glyph_start].x else 0;
-        for (self.source_glyphs[glyph_start..glyph_end], 0..) |*source, index| {
-            self.glyphs[target_start + index] = .{
-                .record = source.record,
-                .x = source.x - x_start,
-                .advance = source.advance,
-                .cluster = source.cluster - byte_start,
-            };
+        const dst_slice = self.glyphs[target_start .. target_start + glyph_count];
+        @memcpy(dst_slice, self.source_glyphs[glyph_start..glyph_end]);
+        if (x_start != 0 or byte_start != 0) {
+            for (dst_slice) |*dst| {
+                dst.x -= x_start;
+                dst.cluster -= byte_start;
+            }
         }
         self.glyph_count += glyph_count;
 

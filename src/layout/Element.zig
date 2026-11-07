@@ -27,19 +27,19 @@ pub const sizing = struct {
 
         const Self = @This();
 
-        pub fn fixed(v: f32) Self {
+        pub inline fn fixed(v: f32) Self {
             return .{ .kind = .fixed, .value = v };
         }
 
-        pub fn grow() Self {
+        pub inline fn grow() Self {
             return .{ .kind = .grow };
         }
 
-        pub fn fit() Self {
+        pub inline fn fit() Self {
             return .{ .kind = .fit };
         }
 
-        pub fn percent(v: f32) Self {
+        pub inline fn percent(v: f32) Self {
             return .{ .kind = .percent, .value = v };
         }
     };
@@ -212,7 +212,7 @@ pub const Config = struct {
 
     /// Absolutely positioned at parent-local (x, y) with a fixed size: overlays such
     /// as carets, selections and drag handles that sit on top of sibling content.
-    pub fn at(x: f32, y: f32, w: f32, h: f32) Config {
+    pub inline fn at(x: f32, y: f32, w: f32, h: f32) Config {
         return .{ .width = .fixed(w), .height = .fixed(h), .position = .absolute, .offset = .{ x, y } };
     }
 

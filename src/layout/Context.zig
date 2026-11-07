@@ -7,10 +7,10 @@ const Grid = @import("Grid.zig");
 // Element.Id is a well-distributed Wyhash output (see Key.hash), so
 // identity-hashing is correct here.
 const IdContext = struct {
-    pub fn hash(_: IdContext, id: Element.Id) u64 {
+    pub inline fn hash(_: IdContext, id: Element.Id) u64 {
         return id;
     }
-    pub fn eql(_: IdContext, a: Element.Id, b: Element.Id) bool {
+    pub inline fn eql(_: IdContext, a: Element.Id, b: Element.Id) bool {
         return a == b;
     }
 };
@@ -31,9 +31,7 @@ inline fn clearList(list: anytype) void {
 }
 
 inline fn fclamp(val: f32, lower: f32, upper: f32) f32 {
-    if (comptime std.debug.runtime_safety) std.debug.assert(lower <= upper);
-    const hi = if (val < upper) val else upper;
-    return if (hi > lower) hi else lower;
+    return @max(lower, @min(val, upper));
 }
 
 allocator: std.mem.Allocator,
@@ -113,15 +111,15 @@ pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slo
     else
         Element.INVALID_SLOT;
 
-    const slot = try self.pool.appendConfig(self.allocator, id, parent_slot, config);
+    const slot = try self.pool.appendConfig(self.allocator, id, parent_slot, &config);
     if (comptime builtin.mode == .debug) {
         if (id != Element.INVALID_ID) {
             self.id_to_slot.putAssumeCapacity(id, slot);
         }
         self.id_to_slot_populated = @intCast(self.pool.elements.items.len);
     }
-    if (config.grid_template) |t| try self.grid_templates.put(self.allocator, slot, t);
-    if (config.grid_placement) |p| try self.grid_placements.put(self.allocator, slot, p);
+    if (config.grid_template != null) try self.grid_templates.put(self.allocator, slot, config.grid_template.?);
+    if (config.grid_placement != null) try self.grid_placements.put(self.allocator, slot, config.grid_placement.?);
 
     const elements = self.pool.elements.items;
     const slot_el = blk: {
@@ -181,7 +179,7 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
         }
     }
 
-    const slot = try self.pool.appendConfig(self.allocator, id, Element.INVALID_SLOT, config);
+    const slot = try self.pool.appendConfig(self.allocator, id, Element.INVALID_SLOT, &config);
     if (comptime builtin.mode == .debug) {
         if (id != Element.INVALID_ID) {
             self.id_to_slot.putAssumeCapacity(id, slot);
@@ -189,8 +187,8 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
         self.id_to_slot_populated = @intCast(self.pool.elements.items.len);
     }
     self.has_extra_roots = true;
-    if (config.grid_template) |t| try self.grid_templates.put(self.allocator, slot, t);
-    if (config.grid_placement) |p| try self.grid_placements.put(self.allocator, slot, p);
+    if (config.grid_template != null) try self.grid_templates.put(self.allocator, slot, config.grid_template.?);
+    if (config.grid_placement != null) try self.grid_placements.put(self.allocator, slot, config.grid_placement.?);
     const el = self.pool.get(slot);
     self.z_used.set(el.z_index);
     if (el.overflow.isScroll()) {
@@ -283,12 +281,11 @@ pub fn computeSizes(self: *Context) void {
                 .percent => 0,
                 .grow => 0,
                 .fit => if (el.first_child == Element.INVALID_SLOT and el.direction != .grid)
-                    (if (el.intrinsic_w > 0) el.intrinsic_w else 0) + el.padding.value[3] + el.padding.value[1]
+                    @max(0, el.intrinsic_w) + el.padding.value[3] + el.padding.value[1]
                 else
                     fitWidth(self, i, el),
             };
-            const w_hi = if (initial < el.width.max) initial else el.width.max;
-            el.box.v[2] = if (w_hi > el.width.min) w_hi else el.width.min;
+            el.box.v[2] = fclamp(initial, el.width.min, el.width.max);
         }
 
         {
@@ -297,12 +294,11 @@ pub fn computeSizes(self: *Context) void {
                 .percent => 0,
                 .grow => 0,
                 .fit => if (el.first_child == Element.INVALID_SLOT and el.direction != .grid)
-                    (if (el.intrinsic_h > 0) el.intrinsic_h else 0) + el.padding.value[0] + el.padding.value[2]
+                    @max(0, el.intrinsic_h) + el.padding.value[0] + el.padding.value[2]
                 else
                     fitHeight(self, i, el),
             };
-            const h_hi = if (initial < el.height.max) initial else el.height.max;
-            el.box.v[3] = if (h_hi > el.height.min) h_hi else el.height.min;
+            el.box.v[3] = fclamp(initial, el.height.min, el.height.max);
         }
     }
 }
@@ -334,10 +330,7 @@ inline fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
             const cw = child.box.v[2];
             switch (el.direction) {
                 .row => total += cw,
-                .column, .layer => {
-                    const cand = cw + pad_w;
-                    if (cand > total) total = cand;
-                },
+                .column, .layer => total = @max(total, cw + pad_w),
                 .grid => unreachable,
             }
         }
@@ -375,10 +368,7 @@ inline fn fitHeight(self: *Context, slot: Element.Slot, el: *Element) f32 {
             const ch = child.box.v[3];
             switch (el.direction) {
                 .column => total += ch,
-                .row, .layer => {
-                    const cand = ch + pad_h;
-                    if (cand > total) total = cand;
-                },
+                .row, .layer => total = @max(total, ch + pad_h),
                 .grid => unreachable,
             }
         }
@@ -432,10 +422,26 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
     switch (el.direction) {
         .grid => return self.computeGridLayout(root_slot, el, scroll, scrollbar_thickness),
         .layer => return self.computeLayerLayout(el, scroll, scrollbar_thickness),
-        .row, .column => {},
+        .row => return self.computeFlexLayout(true, el, x, y, scroll, scrollbar_thickness),
+        .column => return self.computeFlexLayout(false, el, x, y, scroll, scrollbar_thickness),
     }
+}
 
-    const is_row = el.direction == .row;
+inline fn computeFlexLayout(
+    self: *Context,
+    comptime is_row: bool,
+    el: *Element,
+    x: f32,
+    y: f32,
+    scroll: ScrollLookup,
+    scrollbar_thickness: f32,
+) LayoutError!void {
+    const main_idx: usize = if (is_row) 2 else 3;
+    const cross_idx: usize = if (is_row) 3 else 2;
+    const elements = self.pool.elements.items;
+
+    const box_w = el.box.v[2];
+    const box_h = el.box.v[3];
     const pad_top = el.padding.value[0];
     const pad_right = el.padding.value[1];
     const pad_bottom = el.padding.value[2];
@@ -450,9 +456,8 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
     const static_count = el.child_count;
     const gaps: f32 = if (static_count > 1) el.gap * @as(f32, @floatFromInt(static_count - 1)) else 0;
     const avail = main_size - pad_main_start - pad_main_end;
-    const raw_main_base = avail - gaps;
-    const main_base: f32 = if (raw_main_base > 0) raw_main_base else 0;
-    const cross_base: f32 = if (cross_size > 0) cross_size else 0;
+    const main_base: f32 = @max(0, avail - gaps);
+    const cross_base: f32 = @max(0, cross_size);
 
     var used: f32 = 0;
     var grow_count: u32 = 0;
@@ -468,18 +473,14 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
         const cross_axis = if (is_row) &child.height else &child.width;
         switch (cross_axis.kind) {
             .percent => {
-                const raw = cross_axis.value * cross_base;
-                const hi = if (raw < cross_axis.max) raw else cross_axis.max;
-                const s = if (hi > cross_axis.min) hi else cross_axis.min;
-                if (is_row) child.box.v[3] = s else child.box.v[2] = s;
+                child.box.v[cross_idx] = fclamp(cross_axis.value * cross_base, cross_axis.min, cross_axis.max);
             },
             .grow => {
-                if (is_row) child.box.v[3] = cross_size else child.box.v[2] = cross_size;
+                child.box.v[cross_idx] = cross_size;
             },
             .fixed, .fit => {},
         }
-        const child_cross_sz = if (is_row) child.box.v[3] else child.box.v[2];
-        if (child_cross_sz > children_cross) children_cross = child_cross_sz;
+        children_cross = @max(children_cross, child.box.v[cross_idx]);
 
         const main_axis = if (is_row) &child.width else &child.height;
         switch (main_axis.kind) {
@@ -490,26 +491,25 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
                 }
             },
             .percent => {
-                const raw = main_axis.value * main_base;
-                const hi = if (raw < main_axis.max) raw else main_axis.max;
-                const s = if (hi > main_axis.min) hi else main_axis.min;
-                if (is_row) child.box.v[2] = s else child.box.v[3] = s;
+                const s = fclamp(main_axis.value * main_base, main_axis.min, main_axis.max);
+                child.box.v[main_idx] = s;
                 used += s;
             },
             .fixed, .fit => {
-                used += if (is_row) child.box.v[2] else child.box.v[3];
+                used += child.box.v[main_idx];
             },
         }
     }
 
-    const raw_free = avail - (used + gaps);
-    const free: f32 = if (raw_free > 0) raw_free else 0;
+    const free: f32 = @max(0, avail - (used + gaps));
     var unclamped_grow_unit: ?f32 = null;
+    var grow_main_total: f32 = 0;
     if (grow_count > 0) {
         if (has_grow_minmax) {
-            self.distributeGrow(el, is_row, free, grow_count);
+            grow_main_total = self.distributeGrow(is_row, el, free, grow_count);
         } else {
             unclamped_grow_unit = free / @as(f32, @floatFromInt(grow_count));
+            grow_main_total = free;
         }
     }
 
@@ -518,28 +518,8 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
     var scroll_offset: [2]f32 = .{ 0, 0 };
 
     if (el.justify != .start or el.overflow.isScroll()) {
-        var children_main: f32 = used;
-        if (grow_count > 0) {
-            children_main = 0;
-            var cs = el.first_child;
-            while (cs != Element.INVALID_SLOT) {
-                const c = &elements[cs];
-                cs = c.next_sibling;
-                if (c.position != .absolute) {
-                    if (unclamped_grow_unit) |grow_unit| {
-                        const c_main_kind = if (is_row) c.width.kind else c.height.kind;
-                        if (c_main_kind == .grow) {
-                            if (is_row) c.box.v[2] = grow_unit else c.box.v[3] = grow_unit;
-                        }
-                    }
-                    children_main += if (is_row) c.box.v[2] else c.box.v[3];
-                }
-            }
-            unclamped_grow_unit = null;
-        }
-
-        const raw_justify_free = avail - children_main - gaps;
-        const justify_free: f32 = if (raw_justify_free > 0) raw_justify_free else 0;
+        const children_main: f32 = used + grow_main_total;
+        const justify_free: f32 = @max(0, avail - children_main - gaps);
         cursor = switch (el.justify) {
             .start, .space_between, .space_around => pad_main_start,
             .end => pad_main_start + justify_free,
@@ -590,7 +570,7 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
         if (unclamped_grow_unit) |grow_unit| {
             const c_main_kind = if (is_row) child.width.kind else child.height.kind;
             if (c_main_kind == .grow) {
-                if (is_row) child.box.v[2] = grow_unit else child.box.v[3] = grow_unit;
+                child.box.v[main_idx] = grow_unit;
             }
         }
 
@@ -652,10 +632,8 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
 
 fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup, scrollbar_thickness: f32) LayoutError!void {
     const elements = self.pool.elements.items;
-    const raw_w = el.box.v[2] - el.padding.value[3] - el.padding.value[1];
-    const raw_h = el.box.v[3] - el.padding.value[0] - el.padding.value[2];
-    const content_w: f32 = if (raw_w > 0) raw_w else 0;
-    const content_h: f32 = if (raw_h > 0) raw_h else 0;
+    const content_w: f32 = @max(0, el.box.v[2] - el.padding.value[3] - el.padding.value[1]);
+    const content_h: f32 = @max(0, el.box.v[3] - el.padding.value[0] - el.padding.value[2]);
     const origin_x = el.box.v[0] + el.padding.value[3];
     const origin_y = el.box.v[1] + el.padding.value[0];
 
@@ -717,8 +695,7 @@ inline fn resolveGridTracks(tracks: []const Grid.Track, available: f32, gap: f32
         .fixed => |v| fixed_total += v,
         .fr => |v| fr_total += v,
     };
-    const raw_fr_pool = available - fixed_total - gap_total;
-    const fr_pool: f32 = if (raw_fr_pool > 0) raw_fr_pool else 0;
+    const fr_pool: f32 = @max(0, available - fixed_total - gap_total);
     for (tracks, 0..) |t, i| {
         sizes_out[i] = switch (t) {
             .fixed => |v| v,
@@ -736,10 +713,8 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     if (cols.len == 0 or rows.len == 0) return;
 
     const elements = self.pool.elements.items;
-    const raw_w = el.box.v[2] - el.padding.value[3] - el.padding.value[1];
-    const raw_h = el.box.v[3] - el.padding.value[0] - el.padding.value[2];
-    const content_w: f32 = if (raw_w > 0) raw_w else 0;
-    const content_h: f32 = if (raw_h > 0) raw_h else 0;
+    const content_w: f32 = @max(0, el.box.v[2] - el.padding.value[3] - el.padding.value[1]);
+    const content_h: f32 = @max(0, el.box.v[3] - el.padding.value[0] - el.padding.value[2]);
 
     var stack_col_sizes: [GRID_INLINE_TRACKS]f32 = undefined;
     var stack_col_offsets: [GRID_INLINE_TRACKS + 1]f32 = undefined;
@@ -844,7 +819,8 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     }
 }
 
-inline fn distributeGrow(self: *Context, el: *const Element, is_row: bool, initial_free: f32, initial_grow_count: u32) void {
+inline fn distributeGrow(self: *Context, comptime is_row: bool, el: *const Element, initial_free: f32, initial_grow_count: u32) f32 {
+    const main_idx: usize = if (is_row) 2 else 3;
     const elements = self.pool.elements.items;
     var remaining_free = initial_free;
     var grow_count: f32 = @floatFromInt(initial_grow_count);
@@ -862,7 +838,7 @@ inline fn distributeGrow(self: *Context, el: *const Element, is_row: bool, initi
             if (child.position != .absolute and main_axis.kind == .grow) {
                 const clamped = fclamp(grow_unit, main_axis.min, main_axis.max);
                 if (clamped != grow_unit) {
-                    if (is_row) child.box.v[2] = clamped else child.box.v[3] = clamped;
+                    child.box.v[main_idx] = clamped;
                     clamped_space += clamped;
                 } else still_growing += 1;
             }
@@ -875,15 +851,20 @@ inline fn distributeGrow(self: *Context, el: *const Element, is_row: bool, initi
     }
 
     const final_grow_unit = if (grow_count > 0) remaining_free / grow_count else 0;
+    var total_grow: f32 = 0;
     var child_slot = el.first_child;
     while (child_slot != Element.INVALID_SLOT) {
         const child = &elements[child_slot];
         child_slot = child.next_sibling;
         const main_axis = if (is_row) &child.width else &child.height;
-        const main_sz = if (is_row) child.box.v[2] else child.box.v[3];
-        if (child.position != .absolute and main_axis.kind == .grow and main_sz == 0) {
-            const clamped = fclamp(final_grow_unit, main_axis.min, main_axis.max);
-            if (is_row) child.box.v[2] = clamped else child.box.v[3] = clamped;
+        if (child.position != .absolute and main_axis.kind == .grow) {
+            var s = child.box.v[main_idx];
+            if (s == 0) {
+                s = fclamp(final_grow_unit, main_axis.min, main_axis.max);
+                child.box.v[main_idx] = s;
+            }
+            total_grow += s;
         }
     }
+    return total_grow;
 }
