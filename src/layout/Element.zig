@@ -163,6 +163,7 @@ first_child: Slot = INVALID_SLOT,
 next_sibling: Slot = INVALID_SLOT,
 last_child: Slot = INVALID_SLOT,
 child_count: u32 = 0,
+has_absolute_child: bool = false,
 
 // config
 width: sizing.Axis,

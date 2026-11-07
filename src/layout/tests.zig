@@ -481,3 +481,233 @@ test "grow children fill parent independently" {
     try expectRect(ctx.pool.get(1), 0, 0, 300, 200);
     try expectRect(ctx.pool.get(2), 0, 0, 300, 200);
 }
+
+test "buildZOrder: single-layer fast path (z=0 and z=5) and multi-layer counting sort" {
+    var ctx = initCtx();
+    defer ctx.deinit();
+
+    // Default single layer (z_index = 0)
+    {
+        const s0 = try ctx.open(10, .{ .width = .fixed(100), .height = .fixed(100) });
+        defer ctx.close();
+        {
+            const s1 = try ctx.open(11, .{ .width = .fixed(50), .height = .fixed(50) });
+            defer ctx.close();
+            _ = s1;
+        }
+        {
+            const s2 = try ctx.open(12, .{ .width = .fixed(50), .height = .fixed(50) });
+            defer ctx.close();
+            _ = s2;
+        }
+        _ = s0;
+    }
+    try ctx.buildZOrder();
+    try std.testing.expectEqualSlices(Element.Slot, &.{ 0, 1, 2 }, ctx.zSlots(0));
+    try std.testing.expectEqual(@as(usize, 0), ctx.zSlots(1).len);
+    try std.testing.expectEqual(@as(usize, 0), ctx.zSlots(255).len);
+
+    // Custom single layer (z_index = 5)
+    ctx.reset();
+    {
+        _ = try ctx.open(20, .{ .width = .fixed(100), .height = .fixed(100), .z_index = 5 });
+        defer ctx.close();
+        {
+            _ = try ctx.open(21, .{ .width = .fixed(50), .height = .fixed(50) });
+            defer ctx.close();
+        }
+    }
+    try ctx.buildZOrder();
+    try std.testing.expectEqual(@as(usize, 0), ctx.zSlots(0).len);
+    try std.testing.expectEqual(@as(usize, 0), ctx.zSlots(4).len);
+    try std.testing.expectEqualSlices(Element.Slot, &.{ 0, 1 }, ctx.zSlots(5));
+    try std.testing.expectEqual(@as(usize, 0), ctx.zSlots(6).len);
+
+    // Multi-layer counting sort
+    ctx.reset();
+    {
+        _ = try ctx.open(30, .{ .width = .fixed(100), .height = .fixed(100), .z_index = 0 });
+        defer ctx.close();
+        {
+            _ = try ctx.open(31, .{ .width = .fixed(50), .height = .fixed(50), .z_index = 10 });
+            defer ctx.close();
+        }
+        {
+            _ = try ctx.open(32, .{ .width = .fixed(50), .height = .fixed(50), .z_index = 0 });
+            defer ctx.close();
+        }
+        {
+            _ = try ctx.open(33, .{ .width = .fixed(50), .height = .fixed(50), .z_index = 200 });
+            defer ctx.close();
+        }
+    }
+    try ctx.buildZOrder();
+    try std.testing.expectEqualSlices(Element.Slot, &.{ 0, 2 }, ctx.zSlots(0));
+    try std.testing.expectEqualSlices(Element.Slot, &.{1}, ctx.zSlots(10));
+    try std.testing.expectEqualSlices(Element.Slot, &.{3}, ctx.zSlots(200));
+    try std.testing.expectEqual(@as(usize, 0), ctx.zSlots(1).len);
+}
+
+test "slotForId: lazy population after open, openRoot, and reset" {
+    var ctx = initCtx();
+    defer ctx.deinit();
+
+    const s0 = try ctx.open(100, .{ .width = .fixed(200), .height = .fixed(100) });
+    const s1 = try ctx.open(101, .{ .width = .fixed(50), .height = .fixed(50) });
+    ctx.close();
+    ctx.close();
+
+    const s2 = try ctx.openRoot(102, .{ .width = .fixed(80), .height = .fixed(40) });
+    ctx.close();
+    ctx.pool.get(s2).box.setX(15);
+    ctx.pool.get(s2).box.setY(25);
+
+    // Also exercise the lazy population loop explicitly even in Debug builds.
+    ctx.id_to_slot.clearRetainingCapacity();
+    try ctx.id_to_slot.ensureTotalCapacity(ctx.allocator, @intCast(ctx.pool.elements.capacity));
+    ctx.id_to_slot_populated = 0;
+
+    try std.testing.expectEqual(@as(?Element.Slot, null), ctx.slotForId(Element.INVALID_ID));
+    try std.testing.expectEqual(@as(?Element.Slot, s0), ctx.slotForId(100));
+    try std.testing.expectEqual(@as(?Element.Slot, s1), ctx.slotForId(101));
+    try std.testing.expectEqual(@as(?Element.Slot, s2), ctx.slotForId(102));
+    try std.testing.expectEqual(@as(?Element.Slot, null), ctx.slotForId(999));
+
+    try runLayout(&ctx);
+    try expectRect(ctx.pool.get(s2), 15, 25, 80, 40);
+
+    ctx.reset();
+    try std.testing.expectEqual(@as(?Element.Slot, null), ctx.slotForId(100));
+    try std.testing.expectEqual(@as(?Element.Slot, null), ctx.slotForId(102));
+    try std.testing.expect(!ctx.has_extra_roots);
+
+    // Stress-test lazy capacity across all HashMap 80% load-factor windows (1..100 elements).
+    for (1..100) |count| {
+        ctx.reset();
+        const root_s = try ctx.open(1000, .{ .width = .fixed(100), .height = .fixed(100) });
+        for (1..count) |k| {
+            _ = try ctx.open(@intCast(1000 + k), .{ .width = .fixed(10), .height = .fixed(10) });
+            ctx.close();
+        }
+        ctx.close();
+        // Simulate non-Debug lazy state by clearing entries while keeping open()'s reserved capacity.
+        ctx.id_to_slot.clearRetainingCapacity();
+        ctx.id_to_slot_populated = 0;
+
+        try std.testing.expectEqual(@as(?Element.Slot, root_s), ctx.slotForId(1000));
+        for (1..count) |k| {
+            try std.testing.expectEqual(@as(?Element.Slot, @intCast(k)), ctx.slotForId(@intCast(1000 + k)));
+        }
+    }
+}
+
+test "row: combined percent, grow (unclamped and clamped), fit, and absolute children across alignments" {
+    var ctx = initCtx();
+    defer ctx.deinit();
+
+    const justifications = [_]Element.Justify{ .start, .center, .end };
+    for (justifications) |justify| {
+        ctx.reset();
+
+        // Total width 500, padding 10 left/right => available 480.
+        // 4 static children => 3 gaps of 10 = 30 => main_base = 450.
+        // Child 1 (.percent 0.2): 0.2 * 450 = 90.
+        // Child 2 (.fit wrapping 60x20 child): 60.
+        // Remaining free for 2 grow children = 480 - (90 + 60 + 30) = 300.
+        // Child 3 (.grow clamped to max 100): 100.
+        // Child 4 (.grow unclamped): gets remaining 200.
+        // Child 5 (.absolute at offset (12, 8) with 25% width/50% height): does not affect static count or gaps!
+        const root = try ctx.open(1, .{
+            .width = .fixed(500),
+            .height = .fixed(100),
+            .padding = .init(10, 10, 10, 10),
+            .gap = 10,
+            .direction = .row,
+            .justify = justify,
+        });
+        {
+            _ = try ctx.open(2, .{ .width = .percent(0.2), .height = .percent(0.5) });
+            ctx.close();
+
+            _ = try ctx.open(3, .{ .width = .fit(), .height = .fit(), .direction = .row });
+            {
+                _ = try ctx.open(30, .{ .width = .fixed(60), .height = .fixed(20) });
+                ctx.close();
+            }
+            ctx.close();
+
+            _ = try ctx.open(4, .{ .width = .{ .kind = .grow, .max = 100 }, .height = .grow() });
+            ctx.close();
+
+            _ = try ctx.open(5, .{ .width = .grow(), .height = .grow() });
+            ctx.close();
+
+            _ = try ctx.open(6, .{
+                .width = .percent(0.25),
+                .height = .percent(0.5),
+                .position = .absolute,
+                .offset = .{ 12, 8 },
+            });
+            ctx.close();
+        }
+        ctx.close();
+
+        try std.testing.expectEqual(@as(u32, 4), ctx.pool.get(root).child_count);
+        try std.testing.expect(ctx.pool.get(root).has_absolute_child);
+
+        try runLayout(&ctx);
+
+        // Cross size = 100 - 20 = 80.
+        try expectRect(ctx.pool.get(1), 10, 10, 90, 40);
+        try expectRect(ctx.pool.get(2), 110, 10, 60, 20);
+        try expectRect(ctx.pool.get(4), 180, 10, 100, 80);
+        try expectRect(ctx.pool.get(5), 290, 10, 200, 80);
+        // Absolute child: content_w = 480, content_h = 80 => w = 120, h = 40, x = 10 + 12 = 22, y = 10 + 8 = 18.
+        try expectRect(ctx.pool.get(6), 22, 18, 120, 40);
+    }
+
+    // Also test non-grow children with .center and .end justify + absolute child
+    for (justifications) |justify| {
+        ctx.reset();
+        _ = try ctx.open(1, .{
+            .width = .fixed(400),
+            .height = .fixed(100),
+            .padding = .init(10, 10, 10, 10),
+            .gap = 20,
+            .direction = .row,
+            .justify = justify,
+        });
+        {
+            // Available = 380, 2 static children => 1 gap of 20 => main_base = 360.
+            // Child 1: 25% of 360 = 90.
+            // Child 2: fit (70).
+            // Total static main + gap = 90 + 70 + 20 = 180; justify_free = 380 - 180 = 200.
+            _ = try ctx.open(2, .{ .width = .percent(0.25), .height = .grow() });
+            ctx.close();
+            _ = try ctx.open(3, .{ .width = .fit(), .height = .fit() });
+            ctx.pool.get(2).intrinsic_w = 70;
+            ctx.pool.get(2).intrinsic_h = 30;
+            ctx.close();
+            _ = try ctx.open(4, .{
+                .width = .fixed(25),
+                .height = .fixed(15),
+                .position = .absolute,
+                .offset = .{ 5, 6 },
+            });
+            ctx.close();
+        }
+        ctx.close();
+
+        try runLayout(&ctx);
+
+        const base_x: f32 = switch (justify) {
+            .start => 10,
+            .center => 10 + 100,
+            .end => 10 + 200,
+            else => unreachable,
+        };
+        try expectRect(ctx.pool.get(1), base_x, 10, 90, 80);
+        try expectRect(ctx.pool.get(2), base_x + 110, 10, 70, 30);
+        try expectRect(ctx.pool.get(3), 15, 16, 25, 15);
+    }
+}
