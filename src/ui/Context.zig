@@ -30,6 +30,14 @@ const HitRecord = UI.HitRecord;
 
 const press_drag_threshold_sq: f64 = 9.0;
 
+inline fn clearList(list: anytype) void {
+    if (comptime std.debug.runtime_safety) {
+        list.clearRetainingCapacity();
+    } else {
+        list.items.len = 0;
+    }
+}
+
 pub const Config = struct {
     ui: UI.Config = .{},
     arena_reset_mode: std.heap.ArenaAllocator.ResetMode = .retain_capacity,
@@ -98,7 +106,7 @@ pub fn beginFrame(self: *Context, input: input_types.FrameInput) !Frame {
     if (self.generation == std.math.maxInt(u64)) return error.FrameGenerationExhausted;
     self.generation += 1;
     _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
-    self.packet_commands.clearRetainingCapacity();
+    clearList(&self.packet_commands);
     self.frame_input = input;
     try resolveWindow(&self.ui, input.input, input.now_ms, input.content_scale);
     const previous_nodes = self.ui.accessibility_nodes.items;
@@ -156,7 +164,7 @@ fn copyRequested(input: *const @import("Input.zig")) bool {
 
 fn clearAccessibilityActions(self: *Context, actions: *std.ArrayList(Accessibility.ActionRequest)) void {
     for (actions.items) |request| if (request.value_text) |value| self.allocator.free(value);
-    actions.clearRetainingCapacity();
+    clearList(actions);
 }
 
 /// Finish one frame for every backend. Output is borrowed until the next
@@ -397,21 +405,21 @@ fn reset(ui: *UI) void {
     ui.cull_depth = 0;
     ui.culled_count = 0;
     ui.layout_ctx.reset();
-    ui.decorations.clearRetainingCapacity();
-    ui.contents.clearRetainingCapacity();
-    ui.clip_shapes.clearRetainingCapacity();
-    ui.hit_records.clearRetainingCapacity();
-    ui.hit_region_marks.clearRetainingCapacity();
-    ui.focus_order.clearRetainingCapacity();
+    clearList(&ui.decorations);
+    clearList(&ui.contents);
+    clearList(&ui.clip_shapes);
+    clearList(&ui.hit_records);
+    clearList(&ui.hit_region_marks);
+    clearList(&ui.focus_order);
     Accessibility.freeNodes(ui.allocator, ui.accessibility_nodes.items);
-    ui.accessibility_nodes.clearRetainingCapacity();
-    ui.accessibility_children.clearRetainingCapacity();
-    ui.accessibility_node_indices.clearRetainingCapacity();
+    clearList(&ui.accessibility_nodes);
+    clearList(&ui.accessibility_children);
+    if (ui.accessibility_node_indices.size > 0) ui.accessibility_node_indices.clearRetainingCapacity();
     ui.hit_counter = 0;
-    ui.scroll_geoms.clearRetainingCapacity();
-    ui.slot_clips.clearRetainingCapacity();
-    ui.child_clips.clearRetainingCapacity();
-    ui.clip_nodes.clearRetainingCapacity();
+    clearList(&ui.scroll_geoms);
+    clearList(&ui.slot_clips);
+    clearList(&ui.child_clips);
+    clearList(&ui.clip_nodes);
     ui.input_scopes.resetFrame();
     ui.anim_active = false;
     ui.text_input_requested = false;
@@ -552,7 +560,7 @@ fn mouseHit(ui: *UI, pos: [2]f64) Element.Id {
 }
 
 fn captureHitAncestors(allocator: Allocator, layout_ctx: *layout.Context, id: Element.Id, out: *std.ArrayList(Element.Id)) !void {
-    out.clearRetainingCapacity();
+    clearList(out);
     var slot = layout_ctx.slotForId(id) orelse return;
     while (slot != Element.INVALID_SLOT) {
         const el = layout_ctx.pool.get(slot);
@@ -569,7 +577,7 @@ fn resolveWindow(ui: *UI, input: input_types.Input, now_ms: i64, content_scale: 
     if (ui.input.focus_lost or ui.input.pointer_cancelled) {
         ui.state.active = Element.INVALID_ID;
         ui.state.press_origin = Element.INVALID_ID;
-        ui.press_ancestors.clearRetainingCapacity();
+        clearList(&ui.press_ancestors);
         ui.state.press_drag = false;
     }
 
@@ -581,7 +589,7 @@ fn resolveWindow(ui: *UI, input: input_types.Input, now_ms: i64, content_scale: 
         if (!ui.acceptsInput(ui.state.active)) ui.state.active = Element.INVALID_ID;
         if (!ui.acceptsInput(ui.state.press_origin)) {
             ui.state.press_origin = Element.INVALID_ID;
-            ui.press_ancestors.clearRetainingCapacity();
+            clearList(&ui.press_ancestors);
         }
     }
 
@@ -834,9 +842,9 @@ fn tessellate(ui: *UI, allocator: Allocator, draw_list: *DrawList) !void {
 fn buildClipStates(ui: *UI) !void {
     const elements = ui.layout_ctx.pool.elements.items;
 
-    ui.slot_clips.clearRetainingCapacity();
-    ui.child_clips.clearRetainingCapacity();
-    ui.clip_nodes.clearRetainingCapacity();
+    clearList(&ui.slot_clips);
+    clearList(&ui.child_clips);
+    clearList(&ui.clip_nodes);
 
     try ui.slot_clips.resize(ui.allocator, elements.len);
     try ui.child_clips.resize(ui.allocator, elements.len);
@@ -912,12 +920,12 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
 
         switch (ui.decorations.items[slot]) {
             .none => {},
-            .rect => |r| {
+            .rect => |*r| {
                 // The backdrop filters what is already drawn; the fill then tints it.
                 if (r.backdrop.isActive() and r.backdrop.isValid()) try draw_list.pushBackdrop(el.box, r.corner_radius.value, r.backdrop, clip);
                 const inst = types.Instance{
-                    .pos = .{ el.box.x(), el.box.y() },
-                    .size = .{ el.box.w(), el.box.h() },
+                    .pos = .{ el.box.v[0], el.box.v[1] },
+                    .size = .{ el.box.v[2], el.box.v[3] },
                     .uv0 = .{ 0, 0 },
                     .uv1 = .{ 0, 0 },
                     .color = r.color,
@@ -928,9 +936,9 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
                 };
                 try draw_list.pushInstances(&[_]types.Instance{inst}, .atlas, clip);
             },
-            .text => |t| if (t.content.len > 0) {
+            .text => |*t| if (t.content.len > 0) {
                 const face = try ui.font.getFace(t.font);
-                const wrap_px: f32 = if (t.wrap) @max(0, el.box.w() * content_scale) else 0;
+                const wrap_px: f32 = if (t.wrap) @max(0, el.box.v[2] * content_scale) else 0;
                 const shaped = try face.shapeWrapped(t.content, t.size * content_scale, wrap_px);
                 if (shaped.lines.len > 0) {
                     const ascender = shaped.ascender / content_scale;
@@ -944,8 +952,8 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
                     if (total_glyphs == 0) continue;
 
                     const batch = (try draw_list.beginTextBatch(total_glyphs, clip)).?;
-                    const box_x = el.box.x();
-                    const box_y = el.box.y();
+                    const box_x = el.box.v[0];
+                    const box_y = el.box.v[1];
                     const dilation_margin = 2.0 / content_scale;
 
                     for (shaped.lines) |*line| {

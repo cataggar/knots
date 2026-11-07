@@ -654,10 +654,17 @@ pub fn measure(self: *Face, text: []const u8, size_px: f32) !glyph.TextMetrics {
 }
 
 fn evictShaped(self: *Face) void {
-    self.stale_shaped_keys.clearRetainingCapacity();
+    if (self.shaped_cache.count() == 0) return;
+    if (comptime std.debug.runtime_safety) {
+        self.stale_shaped_keys.clearRetainingCapacity();
+    } else {
+        self.stale_shaped_keys.items.len = 0;
+    }
     var iterator = self.shaped_cache.iterator();
     while (iterator.next()) |entry| {
-        std.debug.assert(self.stale_shaped_keys.items.len <= cache_evictions_per_frame_max);
+        if (comptime std.debug.runtime_safety) {
+            std.debug.assert(self.stale_shaped_keys.items.len <= cache_evictions_per_frame_max);
+        }
         if (self.stale_shaped_keys.items.len == cache_evictions_per_frame_max) break;
 
         const age = self.current_frame -% entry.value_ptr.last_used_frame;
@@ -675,10 +682,17 @@ fn evictShaped(self: *Face) void {
 }
 
 fn evictWrapped(self: *Face) void {
-    self.stale_wrap_keys.clearRetainingCapacity();
+    if (self.wrap_cache.count() == 0) return;
+    if (comptime std.debug.runtime_safety) {
+        self.stale_wrap_keys.clearRetainingCapacity();
+    } else {
+        self.stale_wrap_keys.items.len = 0;
+    }
     var iterator = self.wrap_cache.iterator();
     while (iterator.next()) |entry| {
-        std.debug.assert(self.stale_wrap_keys.items.len <= cache_evictions_per_frame_max);
+        if (comptime std.debug.runtime_safety) {
+            std.debug.assert(self.stale_wrap_keys.items.len <= cache_evictions_per_frame_max);
+        }
         if (self.stale_wrap_keys.items.len == cache_evictions_per_frame_max) break;
 
         const age = self.current_frame -% entry.value_ptr.last_used_frame;
@@ -698,8 +712,10 @@ fn evictWrapped(self: *Face) void {
 
 /// Advance the frame and evict a bounded batch of shaped text unused for two frames.
 pub fn endFrame(self: *Face) void {
-    std.debug.assert(self.shaped_cache.count() <= cache_entry_count_max);
-    std.debug.assert(self.wrap_cache.count() <= cache_entry_count_max);
+    if (comptime std.debug.runtime_safety) {
+        std.debug.assert(self.shaped_cache.count() <= cache_entry_count_max);
+        std.debug.assert(self.wrap_cache.count() <= cache_entry_count_max);
+    }
     self.evictShaped();
     self.evictWrapped();
     self.current_frame +%= 1;

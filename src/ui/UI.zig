@@ -209,10 +209,12 @@ pub fn openWith(self: *UI, key: Key, element: Element.Config, decoration: Decora
     if (cfg.focusable) try self.focus_order.ensureUnusedCapacity(self.allocator, 1);
     const content = options.content orelse self.parentContent();
     const slot = if (options.root != null) try self.layout_ctx.openRoot(id, cfg) else try self.layout_ctx.open(id, cfg);
-    const slot_index: usize = @intCast(slot);
-    std.debug.assert(self.decorations.items.len == slot_index);
-    std.debug.assert(self.contents.items.len == slot_index);
-    std.debug.assert(self.clip_shapes.items.len == slot_index);
+    if (comptime std.debug.runtime_safety) {
+        const slot_index: usize = @intCast(slot);
+        std.debug.assert(self.decorations.items.len == slot_index);
+        std.debug.assert(self.contents.items.len == slot_index);
+        std.debug.assert(self.clip_shapes.items.len == slot_index);
+    }
     self.decorations.appendAssumeCapacity(decoration_used);
     self.contents.appendAssumeCapacity(content);
     self.clip_shapes.appendAssumeCapacity(clipShapeFromDecoration(decoration_used));
@@ -271,8 +273,8 @@ fn cullEnabled(self: *const UI) bool {
 }
 
 pub fn recordCulling(self: *UI) !void {
-    self.cull_next.clearRetainingCapacity();
-    if (self.accessibility_enabled) return self.swapCullRecords();
+    if (self.cull_next.size > 0) self.cull_next.clearRetainingCapacity();
+    if (self.accessibility_enabled or !self.layout_ctx.has_scroll) return self.swapCullRecords();
     const elements = self.layout_ctx.pool.elements.items;
     try self.cull_ancestors.resize(self.allocator, elements.len);
     const ancestors = self.cull_ancestors.items;

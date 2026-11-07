@@ -45,9 +45,15 @@ pub fn deinit(self: *InputScope, allocator: std.mem.Allocator) void {
 }
 
 pub fn resetFrame(self: *InputScope) void {
-    self.stack.clearRetainingCapacity();
-    self.entries.clearRetainingCapacity();
-    self.chrome_building.clearRetainingCapacity();
+    if (comptime std.debug.runtime_safety) {
+        self.stack.clearRetainingCapacity();
+        self.entries.clearRetainingCapacity();
+        self.chrome_building.clearRetainingCapacity();
+    } else {
+        self.stack.items.len = 0;
+        self.entries.items.len = 0;
+        self.chrome_building.items.len = 0;
+    }
     self.next_order = 0;
 }
 
@@ -95,7 +101,11 @@ pub fn cancel(self: *InputScope, id: Element.Id) void {
 
 pub fn resolveActive(self: *InputScope) void {
     std.mem.swap(std.ArrayList(Element.Id), &self.chrome, &self.chrome_building);
-    self.chrome_building.clearRetainingCapacity();
+    if (comptime std.debug.runtime_safety) {
+        self.chrome_building.clearRetainingCapacity();
+    } else {
+        self.chrome_building.items.len = 0;
+    }
     self.active = .none;
     var has_best = false;
     var best_z: Layer = Layer.base;

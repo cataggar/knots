@@ -203,7 +203,12 @@ fn Pool(comptime T: type) type {
         }
 
         pub fn evictStale(self: *Self, allocator: std.mem.Allocator, frame: u32, ttl: u32, scratch: *std.ArrayList(Element.Id)) !void {
-            scratch.clearRetainingCapacity();
+            if (self.map.size == 0) return;
+            if (comptime std.debug.runtime_safety) {
+                scratch.clearRetainingCapacity();
+            } else {
+                scratch.items.len = 0;
+            }
             var it = self.map.iterator();
             while (it.next()) |kv| {
                 if (frame -% kv.value_ptr.last_seen >= ttl) {

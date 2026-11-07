@@ -9,8 +9,12 @@ pub fn deinit(self: *ElementPool, allocator: std.mem.Allocator) void {
     self.elements.deinit(allocator);
 }
 
-pub fn reset(self: *ElementPool) void {
-    self.elements.clearRetainingCapacity();
+pub inline fn reset(self: *ElementPool) void {
+    if (comptime std.debug.runtime_safety) {
+        self.elements.clearRetainingCapacity();
+    } else {
+        self.elements.items.len = 0;
+    }
 }
 
 pub fn append(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, el: Element) !Element.Slot {
@@ -21,7 +25,7 @@ pub fn append(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, 
     return slot;
 }
 
-pub inline fn appendConfig(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, parent: Element.Slot, config: *const Element.Config) !Element.Slot {
+pub inline fn appendConfig(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, parent: Element.Slot, config: Element.Config) !Element.Slot {
     const slot: Element.Slot = @intCast(self.elements.items.len);
     const ptr = if (self.elements.items.len < self.elements.capacity)
         self.elements.addOneAssumeCapacity()

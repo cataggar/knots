@@ -22,91 +22,19 @@ const IdToSlotMap = std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 );
 
-const AxisInfo = struct {
-    is_row: bool,
-    main_size: f32,
-    cross_size: f32,
-    pad_main_start: f32,
-    pad_main_end: f32,
-    pad_cross_start: f32,
-    pad_cross_end: f32,
-
-    inline fn init(el: *const Element) AxisInfo {
-        if (el.direction == .row) {
-            return .{
-                .is_row = true,
-                .main_size = el.box.w(),
-                .cross_size = el.box.h() - el.padding.top() - el.padding.bottom(),
-                .pad_main_start = el.padding.left(),
-                .pad_main_end = el.padding.right(),
-                .pad_cross_start = el.padding.top(),
-                .pad_cross_end = el.padding.bottom(),
-            };
-        } else {
-            return .{
-                .is_row = false,
-                .main_size = el.box.h(),
-                .cross_size = el.box.w() - el.padding.left() - el.padding.right(),
-                .pad_main_start = el.padding.top(),
-                .pad_main_end = el.padding.bottom(),
-                .pad_cross_start = el.padding.left(),
-                .pad_cross_end = el.padding.right(),
-            };
-        }
+inline fn clearList(list: anytype) void {
+    if (comptime std.debug.runtime_safety) {
+        list.clearRetainingCapacity();
+    } else {
+        list.items.len = 0;
     }
+}
 
-    inline fn available(self: AxisInfo) f32 {
-        return self.main_size - self.pad_main_start - self.pad_main_end;
-    }
-
-    inline fn childMainSize(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.box.w() else child.box.h();
-    }
-
-    inline fn setChildMainSize(self: AxisInfo, child: *Element, v: f32) void {
-        if (self.is_row) child.box.setW(v) else child.box.setH(v);
-    }
-
-    inline fn setChildCrossSize(self: AxisInfo, child: *Element, v: f32) void {
-        if (self.is_row) child.box.setH(v) else child.box.setW(v);
-    }
-
-    inline fn childMainKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
-        return if (self.is_row) child.width.kind else child.height.kind;
-    }
-
-    inline fn childCrossKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
-        return if (self.is_row) child.height.kind else child.width.kind;
-    }
-
-    inline fn childCrossSize(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.box.h() else child.box.w();
-    }
-
-    inline fn childMainMin(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.width.min else child.height.min;
-    }
-
-    inline fn childMainMax(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.width.max else child.height.max;
-    }
-
-    inline fn childCrossMin(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.height.min else child.width.min;
-    }
-
-    inline fn childCrossMax(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.height.max else child.width.max;
-    }
-
-    inline fn childMainPercent(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.width.value else child.height.value;
-    }
-
-    inline fn childCrossPercent(self: AxisInfo, child: *const Element) f32 {
-        return if (self.is_row) child.height.value else child.width.value;
-    }
-};
+inline fn fclamp(val: f32, lower: f32, upper: f32) f32 {
+    if (comptime std.debug.runtime_safety) std.debug.assert(lower <= upper);
+    const hi = if (val < upper) val else upper;
+    return if (hi > lower) hi else lower;
+}
 
 allocator: std.mem.Allocator,
 pool: ElementPool,
@@ -149,17 +77,19 @@ pub fn deinit(self: *Context) void {
 
 pub fn reset(self: *Context) void {
     self.pool.reset();
-    self.stack.clearRetainingCapacity();
-    self.z_slots.clearRetainingCapacity();
-    self.id_to_slot.clearRetainingCapacity();
-    self.id_to_slot_populated = 0;
+    clearList(&self.stack);
+    clearList(&self.z_slots);
+    if (self.id_to_slot_populated > 0 or self.id_to_slot.size > 0) {
+        self.id_to_slot.clearRetainingCapacity();
+        self.id_to_slot_populated = 0;
+    }
     self.has_extra_roots = false;
-    self.grid_templates.clearRetainingCapacity();
-    self.grid_placements.clearRetainingCapacity();
+    if (self.grid_templates.size > 0) self.grid_templates.clearRetainingCapacity();
+    if (self.grid_placements.size > 0) self.grid_placements.clearRetainingCapacity();
     self.root_slot = Element.INVALID_SLOT;
     self.z_used = .empty;
     self.has_scroll = false;
-    self.scroll_slots.clearRetainingCapacity();
+    clearList(&self.scroll_slots);
 }
 
 pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slot {
@@ -170,7 +100,7 @@ pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slo
         }
     } else {
         const needed_slots: u32 = @intCast(self.pool.elements.items.len + 1);
-        if (self.id_to_slot.count() + self.id_to_slot.available < needed_slots) {
+        if (self.id_to_slot.size + self.id_to_slot.available < needed_slots) {
             try self.id_to_slot.ensureTotalCapacity(
                 self.allocator,
                 @max(needed_slots, @as(u32, @intCast(self.pool.elements.capacity))),
@@ -183,7 +113,7 @@ pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slo
     else
         Element.INVALID_SLOT;
 
-    const slot = try self.pool.appendConfig(self.allocator, id, parent_slot, &config);
+    const slot = try self.pool.appendConfig(self.allocator, id, parent_slot, config);
     if (comptime builtin.mode == .debug) {
         if (id != Element.INVALID_ID) {
             self.id_to_slot.putAssumeCapacity(id, slot);
@@ -243,7 +173,7 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
         }
     } else {
         const needed_slots: u32 = @intCast(self.pool.elements.items.len + 1);
-        if (self.id_to_slot.count() + self.id_to_slot.available < needed_slots) {
+        if (self.id_to_slot.size + self.id_to_slot.available < needed_slots) {
             try self.id_to_slot.ensureTotalCapacity(
                 self.allocator,
                 @max(needed_slots, @as(u32, @intCast(self.pool.elements.capacity))),
@@ -251,7 +181,7 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
         }
     }
 
-    const slot = try self.pool.appendConfig(self.allocator, id, Element.INVALID_SLOT, &config);
+    const slot = try self.pool.appendConfig(self.allocator, id, Element.INVALID_SLOT, config);
     if (comptime builtin.mode == .debug) {
         if (id != Element.INVALID_ID) {
             self.id_to_slot.putAssumeCapacity(id, slot);
@@ -276,7 +206,7 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
 }
 
 pub fn close(self: *Context) void {
-    std.debug.assert(self.stack.items.len > 0);
+    if (comptime std.debug.runtime_safety) std.debug.assert(self.stack.items.len > 0);
     const next_len = self.stack.items.len - 1;
     const slot = self.stack.items[next_len];
     self.stack.items.len = next_len;
@@ -353,11 +283,12 @@ pub fn computeSizes(self: *Context) void {
                 .percent => 0,
                 .grow => 0,
                 .fit => if (el.first_child == Element.INVALID_SLOT and el.direction != .grid)
-                    (if (el.intrinsic_w > 0) el.intrinsic_w else 0) + el.padding.left() + el.padding.right()
+                    (if (el.intrinsic_w > 0) el.intrinsic_w else 0) + el.padding.value[3] + el.padding.value[1]
                 else
                     fitWidth(self, i, el),
             };
-            el.box.setW(std.math.clamp(initial, el.width.min, el.width.max));
+            const w_hi = if (initial < el.width.max) initial else el.width.max;
+            el.box.v[2] = if (w_hi > el.width.min) w_hi else el.width.min;
         }
 
         {
@@ -366,20 +297,20 @@ pub fn computeSizes(self: *Context) void {
                 .percent => 0,
                 .grow => 0,
                 .fit => if (el.first_child == Element.INVALID_SLOT and el.direction != .grid)
-                    (if (el.intrinsic_h > 0) el.intrinsic_h else 0) + el.padding.top() + el.padding.bottom()
+                    (if (el.intrinsic_h > 0) el.intrinsic_h else 0) + el.padding.value[0] + el.padding.value[2]
                 else
                     fitHeight(self, i, el),
             };
-            el.box.setH(std.math.clamp(initial, el.height.min, el.height.max));
+            const h_hi = if (initial < el.height.max) initial else el.height.max;
+            el.box.v[3] = if (h_hi > el.height.min) h_hi else el.height.min;
         }
     }
 }
 
 inline fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
+    const pad_w = el.padding.value[3] + el.padding.value[1];
     if (el.intrinsic_w > 0)
-        return el.intrinsic_w + el.padding.left() + el.padding.right();
-
-    const pad_w = el.padding.left() + el.padding.right();
+        return el.intrinsic_w + pad_w;
 
     if (el.direction == .grid) {
         const tpl = self.grid_templates.get(slot) orelse return pad_w;
@@ -400,9 +331,13 @@ inline fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
     while (child_slot != Element.INVALID_SLOT) {
         const child = &elements[child_slot];
         if (child.position != .absolute) {
+            const cw = child.box.v[2];
             switch (el.direction) {
-                .row => total += child.box.w(),
-                .column, .layer => total = @max(total, child.box.w() + pad_w),
+                .row => total += cw,
+                .column, .layer => {
+                    const cand = cw + pad_w;
+                    if (cand > total) total = cand;
+                },
                 .grid => unreachable,
             }
         }
@@ -414,10 +349,9 @@ inline fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
 }
 
 inline fn fitHeight(self: *Context, slot: Element.Slot, el: *Element) f32 {
+    const pad_h = el.padding.value[0] + el.padding.value[2];
     if (el.intrinsic_h > 0)
-        return el.intrinsic_h + el.padding.top() + el.padding.bottom();
-
-    const pad_h = el.padding.top() + el.padding.bottom();
+        return el.intrinsic_h + pad_h;
 
     if (el.direction == .grid) {
         const tpl = self.grid_templates.get(slot) orelse return pad_h;
@@ -438,9 +372,13 @@ inline fn fitHeight(self: *Context, slot: Element.Slot, el: *Element) f32 {
     while (child_slot != Element.INVALID_SLOT) {
         const child = &elements[child_slot];
         if (child.position != .absolute) {
+            const ch = child.box.v[3];
             switch (el.direction) {
-                .column => total += child.box.h(),
-                .row, .layer => total = @max(total, child.box.h() + pad_h),
+                .column => total += ch,
+                .row, .layer => {
+                    const cand = ch + pad_h;
+                    if (cand > total) total = cand;
+                },
                 .grid => unreachable,
             }
         }
@@ -466,7 +404,7 @@ pub fn computeLayout(self: *Context, scroll: ScrollLookup, scrollbar_thickness: 
         for (self.pool.elements.items, 0..) |*el, idx| {
             const slot: Element.Slot = @intCast(idx);
             if (slot != self.root_slot and el.parent == Element.INVALID_SLOT) {
-                try self.computeLayoutNode(slot, el.box.x(), el.box.y(), scroll, scrollbar_thickness);
+                try self.computeLayoutNode(slot, el.box.v[0], el.box.v[1], scroll, scrollbar_thickness);
             }
         }
     }
@@ -476,15 +414,17 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
     const elements = self.pool.elements.items;
     const el = &elements[root_slot];
 
-    el.box.setX(x);
-    el.box.setY(y);
-    el.content_w = el.box.w();
-    el.content_h = el.box.h();
+    const box_w = el.box.v[2];
+    const box_h = el.box.v[3];
+    el.box.v[0] = x;
+    el.box.v[1] = y;
+    el.content_w = box_w;
+    el.content_h = box_h;
 
     if (el.first_child == Element.INVALID_SLOT) {
         if (el.overflow.isScroll() and (el.direction == .row or el.direction == .column)) {
-            el.content_w = el.padding.left() + el.padding.right();
-            el.content_h = el.padding.top() + el.padding.bottom();
+            el.content_w = el.padding.value[3] + el.padding.value[1];
+            el.content_h = el.padding.value[0] + el.padding.value[2];
         }
         return;
     }
@@ -495,12 +435,24 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
         .row, .column => {},
     }
 
-    const axis = AxisInfo.init(el);
+    const is_row = el.direction == .row;
+    const pad_top = el.padding.value[0];
+    const pad_right = el.padding.value[1];
+    const pad_bottom = el.padding.value[2];
+    const pad_left = el.padding.value[3];
+    const main_size = if (is_row) box_w else box_h;
+    const cross_size = if (is_row) box_h - pad_top - pad_bottom else box_w - pad_left - pad_right;
+    const pad_main_start = if (is_row) pad_left else pad_top;
+    const pad_main_end = if (is_row) pad_right else pad_bottom;
+    const pad_cross_start = if (is_row) pad_top else pad_left;
+    const pad_cross_end = if (is_row) pad_bottom else pad_right;
+
     const static_count = el.child_count;
-    const gaps = gapTotal(el, static_count);
-    const avail = axis.available();
-    const main_base = @max(0, avail - gaps);
-    const cross_base = @max(0, axis.cross_size);
+    const gaps: f32 = if (static_count > 1) el.gap * @as(f32, @floatFromInt(static_count - 1)) else 0;
+    const avail = main_size - pad_main_start - pad_main_end;
+    const raw_main_base = avail - gaps;
+    const main_base: f32 = if (raw_main_base > 0) raw_main_base else 0;
+    const cross_base: f32 = if (cross_size > 0) cross_size else 0;
 
     var used: f32 = 0;
     var grow_count: u32 = 0;
@@ -513,55 +465,199 @@ fn computeLayoutNode(self: *Context, root_slot: Element.Slot, x: f32, y: f32, sc
         child_slot = child.next_sibling;
         if (child.position == .absolute) continue;
 
-        switch (axis.childCrossKind(child)) {
+        const cross_axis = if (is_row) &child.height else &child.width;
+        switch (cross_axis.kind) {
             .percent => {
-                const s = std.math.clamp(axis.childCrossPercent(child) * cross_base, axis.childCrossMin(child), axis.childCrossMax(child));
-                axis.setChildCrossSize(child, s);
+                const raw = cross_axis.value * cross_base;
+                const hi = if (raw < cross_axis.max) raw else cross_axis.max;
+                const s = if (hi > cross_axis.min) hi else cross_axis.min;
+                if (is_row) child.box.v[3] = s else child.box.v[2] = s;
             },
             .grow => {
-                axis.setChildCrossSize(child, axis.cross_size);
+                if (is_row) child.box.v[3] = cross_size else child.box.v[2] = cross_size;
             },
             .fixed, .fit => {},
         }
-        children_cross = @max(children_cross, axis.childCrossSize(child));
+        const child_cross_sz = if (is_row) child.box.v[3] else child.box.v[2];
+        if (child_cross_sz > children_cross) children_cross = child_cross_sz;
 
-        switch (axis.childMainKind(child)) {
+        const main_axis = if (is_row) &child.width else &child.height;
+        switch (main_axis.kind) {
             .grow => {
                 grow_count += 1;
-                if (axis.childMainMin(child) > 0 or axis.childMainMax(child) < std.math.floatMax(f32)) {
+                if (main_axis.min > 0 or main_axis.max < std.math.floatMax(f32)) {
                     has_grow_minmax = true;
                 }
             },
             .percent => {
-                const s = std.math.clamp(axis.childMainPercent(child) * main_base, axis.childMainMin(child), axis.childMainMax(child));
-                axis.setChildMainSize(child, s);
+                const raw = main_axis.value * main_base;
+                const hi = if (raw < main_axis.max) raw else main_axis.max;
+                const s = if (hi > main_axis.min) hi else main_axis.min;
+                if (is_row) child.box.v[2] = s else child.box.v[3] = s;
                 used += s;
             },
             .fixed, .fit => {
-                used += axis.childMainSize(child);
+                used += if (is_row) child.box.v[2] else child.box.v[3];
             },
         }
     }
 
-    const free = @max(0, avail - (used + gaps));
+    const raw_free = avail - (used + gaps);
+    const free: f32 = if (raw_free > 0) raw_free else 0;
     var unclamped_grow_unit: ?f32 = null;
     if (grow_count > 0) {
         if (has_grow_minmax) {
-            self.distributeGrow(el, axis, free, grow_count);
+            self.distributeGrow(el, is_row, free, grow_count);
         } else {
             unclamped_grow_unit = free / @as(f32, @floatFromInt(grow_count));
         }
     }
 
-    try self.positionChildren(el, axis, static_count, gaps, used, children_cross, grow_count, unclamped_grow_unit, scroll, scrollbar_thickness);
+    var cursor: f32 = pad_main_start;
+    var item_gap: f32 = el.gap;
+    var scroll_offset: [2]f32 = .{ 0, 0 };
+
+    if (el.justify != .start or el.overflow.isScroll()) {
+        var children_main: f32 = used;
+        if (grow_count > 0) {
+            children_main = 0;
+            var cs = el.first_child;
+            while (cs != Element.INVALID_SLOT) {
+                const c = &elements[cs];
+                cs = c.next_sibling;
+                if (c.position != .absolute) {
+                    if (unclamped_grow_unit) |grow_unit| {
+                        const c_main_kind = if (is_row) c.width.kind else c.height.kind;
+                        if (c_main_kind == .grow) {
+                            if (is_row) c.box.v[2] = grow_unit else c.box.v[3] = grow_unit;
+                        }
+                    }
+                    children_main += if (is_row) c.box.v[2] else c.box.v[3];
+                }
+            }
+            unclamped_grow_unit = null;
+        }
+
+        const raw_justify_free = avail - children_main - gaps;
+        const justify_free: f32 = if (raw_justify_free > 0) raw_justify_free else 0;
+        cursor = switch (el.justify) {
+            .start, .space_between, .space_around => pad_main_start,
+            .end => pad_main_start + justify_free,
+            .center => pad_main_start + justify_free * 0.5,
+        };
+
+        item_gap = switch (el.justify) {
+            .start, .end, .center => el.gap,
+            .space_between => if (static_count > 1)
+                justify_free / @as(f32, @floatFromInt(static_count - 1)) + el.gap
+            else
+                el.gap,
+            .space_around => if (static_count > 0)
+                justify_free / @as(f32, @floatFromInt(static_count)) + el.gap
+            else
+                el.gap,
+        };
+
+        if (el.overflow.isScroll()) {
+            const content_main = children_main + gaps + pad_main_start + pad_main_end;
+            const content_cross = children_cross + pad_cross_start + pad_cross_end;
+            const content_w = if (is_row) content_main else content_cross;
+            const content_h = if (is_row) content_cross else content_main;
+            const metrics = Element.scrollMetrics(el.overflow, el.box, content_w, content_h, scrollbar_thickness);
+            const raw = scroll.get(el.id);
+            scroll_offset = switch (el.overflow) {
+                .scroll_x => .{ fclamp(raw[0], 0, metrics.max_offset[0]), 0 },
+                .scroll_y => .{ 0, fclamp(raw[1], 0, metrics.max_offset[1]) },
+                .scroll => .{ fclamp(raw[0], 0, metrics.max_offset[0]), fclamp(raw[1], 0, metrics.max_offset[1]) },
+                else => unreachable,
+            };
+            el.content_w = content_w;
+            el.content_h = content_h;
+        }
+    }
+
+    const origin_x = x - scroll_offset[0];
+    const origin_y = y - scroll_offset[1];
+    const alignment = el.alignment;
+
+    child_slot = el.first_child;
+    while (child_slot != Element.INVALID_SLOT) {
+        const cur_slot = child_slot;
+        const child = &elements[cur_slot];
+        child_slot = child.next_sibling;
+        if (child.position == .absolute) continue;
+
+        if (unclamped_grow_unit) |grow_unit| {
+            const c_main_kind = if (is_row) child.width.kind else child.height.kind;
+            if (c_main_kind == .grow) {
+                if (is_row) child.box.v[2] = grow_unit else child.box.v[3] = grow_unit;
+            }
+        }
+
+        const child_w = child.box.v[2];
+        const child_h = child.box.v[3];
+        const child_main = if (is_row) child_w else child_h;
+        const child_cross = if (is_row) child_h else child_w;
+
+        const cross_offset = pad_cross_start + switch (alignment) {
+            .start, .stretch => @as(f32, 0),
+            .center => (cross_size - child_cross) * 0.5,
+            .end => cross_size - child_cross,
+        };
+
+        const cx = origin_x + if (is_row) cursor else cross_offset;
+        const cy = origin_y + if (is_row) cross_offset else cursor;
+        cursor += child_main + item_gap;
+
+        if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
+            child.box.v = .{ cx, cy, child_w, child_h };
+            child.content_w = child_w;
+            child.content_h = child_h;
+        } else {
+            try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
+        }
+    }
+
+    // Position absolute children: fill parent's content area and place at parent origin + padding + offset.
+    if (el.has_absolute_child) {
+        const abs_content_w = box_w - pad_left - pad_right;
+        const abs_content_h = box_h - pad_top - pad_bottom;
+        const abs_origin_x = x + pad_left;
+        const abs_origin_y = y + pad_top;
+        child_slot = el.first_child;
+        while (child_slot != Element.INVALID_SLOT) {
+            const cur_slot = child_slot;
+            const child = &elements[cur_slot];
+            child_slot = child.next_sibling;
+            if (child.position == .absolute) {
+                if (child.width.kind == .grow) child.box.v[2] = abs_content_w;
+                if (child.width.kind == .percent) child.box.v[2] = fclamp(child.width.value * abs_content_w, child.width.min, child.width.max);
+                if (child.height.kind == .grow) child.box.v[3] = abs_content_h;
+                if (child.height.kind == .percent) child.box.v[3] = fclamp(child.height.value * abs_content_h, child.height.min, child.height.max);
+                const cx = abs_origin_x + child.offset[0];
+                const cy = abs_origin_y + child.offset[1];
+                if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
+                    const cw = child.box.v[2];
+                    const ch = child.box.v[3];
+                    child.box.v = .{ cx, cy, cw, ch };
+                    child.content_w = cw;
+                    child.content_h = ch;
+                } else {
+                    try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
+                }
+            }
+        }
+    }
 }
 
 fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup, scrollbar_thickness: f32) LayoutError!void {
     const elements = self.pool.elements.items;
-    const content_w = @max(0, el.box.w() - el.padding.left() - el.padding.right());
-    const content_h = @max(0, el.box.h() - el.padding.top() - el.padding.bottom());
-    const origin_x = el.box.x() + el.padding.left();
-    const origin_y = el.box.y() + el.padding.top();
+    const raw_w = el.box.v[2] - el.padding.value[3] - el.padding.value[1];
+    const raw_h = el.box.v[3] - el.padding.value[0] - el.padding.value[2];
+    const content_w: f32 = if (raw_w > 0) raw_w else 0;
+    const content_h: f32 = if (raw_h > 0) raw_h else 0;
+    const origin_x = el.box.v[0] + el.padding.value[3];
+    const origin_y = el.box.v[1] + el.padding.value[0];
 
     var child_slot = el.first_child;
     while (child_slot != Element.INVALID_SLOT) {
@@ -571,45 +667,48 @@ fn computeLayerLayout(self: *Context, el: *Element, scroll: ScrollLookup, scroll
 
         const cx: f32, const cy: f32 = if (child.position != .absolute) blk: {
             if (child.width.kind == .grow)
-                child.box.setW(std.math.clamp(content_w, child.width.min, child.width.max));
+                child.box.v[2] = fclamp(content_w, child.width.min, child.width.max);
             if (child.width.kind == .percent)
-                child.box.setW(std.math.clamp(child.width.value * content_w, child.width.min, child.width.max));
+                child.box.v[2] = fclamp(child.width.value * content_w, child.width.min, child.width.max);
             if (child.height.kind == .grow)
-                child.box.setH(std.math.clamp(content_h, child.height.min, child.height.max));
+                child.box.v[3] = fclamp(content_h, child.height.min, child.height.max);
             if (child.height.kind == .percent)
-                child.box.setH(std.math.clamp(child.height.value * content_h, child.height.min, child.height.max));
+                child.box.v[3] = fclamp(child.height.value * content_h, child.height.min, child.height.max);
 
+            const cw = child.box.v[2];
+            const ch = child.box.v[3];
             const x_off: f32 = switch (el.justify) {
                 .start, .space_between, .space_around => 0,
-                .center => (content_w - child.box.w()) / 2,
-                .end => content_w - child.box.w(),
+                .center => (content_w - cw) * 0.5,
+                .end => content_w - cw,
             };
             const y_off: f32 = switch (el.alignment) {
                 .start, .stretch => 0,
-                .center => (content_h - child.box.h()) / 2,
-                .end => content_h - child.box.h(),
+                .center => (content_h - ch) * 0.5,
+                .end => content_h - ch,
             };
             break :blk .{ origin_x + x_off, origin_y + y_off };
         } else blk: {
-            if (child.width.kind == .grow) child.box.setW(content_w);
-            if (child.width.kind == .percent) child.box.setW(std.math.clamp(child.width.value * content_w, child.width.min, child.width.max));
-            if (child.height.kind == .grow) child.box.setH(content_h);
-            if (child.height.kind == .percent) child.box.setH(std.math.clamp(child.height.value * content_h, child.height.min, child.height.max));
+            if (child.width.kind == .grow) child.box.v[2] = content_w;
+            if (child.width.kind == .percent) child.box.v[2] = fclamp(child.width.value * content_w, child.width.min, child.width.max);
+            if (child.height.kind == .grow) child.box.v[3] = content_h;
+            if (child.height.kind == .percent) child.box.v[3] = fclamp(child.height.value * content_h, child.height.min, child.height.max);
             break :blk .{ origin_x + child.offset[0], origin_y + child.offset[1] };
         };
 
         if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
-            child.box.setX(cx);
-            child.box.setY(cy);
-            child.content_w = child.box.w();
-            child.content_h = child.box.h();
+            const cw = child.box.v[2];
+            const ch = child.box.v[3];
+            child.box.v = .{ cx, cy, cw, ch };
+            child.content_w = cw;
+            child.content_h = ch;
         } else {
             try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
         }
     }
 }
 
-fn resolveGridTracks(tracks: []const Grid.Track, available: f32, gap: f32, sizes_out: []f32) void {
+inline fn resolveGridTracks(tracks: []const Grid.Track, available: f32, gap: f32, sizes_out: []f32) void {
     if (tracks.len == 0) return;
     const gap_total = if (tracks.len > 1) gap * @as(f32, @floatFromInt(tracks.len - 1)) else 0;
     var fixed_total: f32 = 0;
@@ -618,7 +717,8 @@ fn resolveGridTracks(tracks: []const Grid.Track, available: f32, gap: f32, sizes
         .fixed => |v| fixed_total += v,
         .fr => |v| fr_total += v,
     };
-    const fr_pool = @max(0, available - fixed_total - gap_total);
+    const raw_fr_pool = available - fixed_total - gap_total;
+    const fr_pool: f32 = if (raw_fr_pool > 0) raw_fr_pool else 0;
     for (tracks, 0..) |t, i| {
         sizes_out[i] = switch (t) {
             .fixed => |v| v,
@@ -636,24 +736,28 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     if (cols.len == 0 or rows.len == 0) return;
 
     const elements = self.pool.elements.items;
-    const content_w = @max(0, el.box.w() - el.padding.left() - el.padding.right());
-    const content_h = @max(0, el.box.h() - el.padding.top() - el.padding.bottom());
+    const raw_w = el.box.v[2] - el.padding.value[3] - el.padding.value[1];
+    const raw_h = el.box.v[3] - el.padding.value[0] - el.padding.value[2];
+    const content_w: f32 = if (raw_w > 0) raw_w else 0;
+    const content_h: f32 = if (raw_h > 0) raw_h else 0;
 
-    var buf: [@sizeOf(f32) * GRID_INLINE_TRACKS * 4]u8 = undefined;
-    var bfa = std.heap.BufferFirstAllocator.init(&buf, self.allocator);
-    const allocator = bfa.allocator();
+    var stack_col_sizes: [GRID_INLINE_TRACKS]f32 = undefined;
+    var stack_col_offsets: [GRID_INLINE_TRACKS + 1]f32 = undefined;
+    var stack_row_sizes: [GRID_INLINE_TRACKS]f32 = undefined;
+    var stack_row_offsets: [GRID_INLINE_TRACKS + 1]f32 = undefined;
 
-    const col_sizes = try allocator.alloc(f32, cols.len);
-    defer allocator.free(col_sizes);
+    const need_heap = cols.len > GRID_INLINE_TRACKS or rows.len > GRID_INLINE_TRACKS;
+    const heap_buf: []f32 = if (need_heap)
+        try self.allocator.alloc(f32, (cols.len * 2 + 1) + (rows.len * 2 + 1))
+    else
+        &.{};
+    defer if (need_heap) self.allocator.free(heap_buf);
 
-    const col_offsets = try allocator.alloc(f32, cols.len + 1);
-    defer allocator.free(col_offsets);
-
-    const row_sizes = try allocator.alloc(f32, rows.len);
-    defer allocator.free(row_sizes);
-
-    const row_offsets = try allocator.alloc(f32, rows.len + 1);
-    defer allocator.free(row_offsets);
+    const col_sizes = if (!need_heap) stack_col_sizes[0..cols.len] else heap_buf[0..cols.len];
+    const col_offsets = if (!need_heap) stack_col_offsets[0 .. cols.len + 1] else heap_buf[cols.len..][0 .. cols.len + 1];
+    const row_base = cols.len * 2 + 1;
+    const row_sizes = if (!need_heap) stack_row_sizes[0..rows.len] else heap_buf[row_base..][0..rows.len];
+    const row_offsets = if (!need_heap) stack_row_offsets[0 .. rows.len + 1] else heap_buf[row_base + rows.len ..][0 .. rows.len + 1];
 
     resolveGridTracks(cols, content_w, el.gap, col_sizes);
     resolveGridTracks(rows, content_h, el.gap, row_sizes);
@@ -663,8 +767,8 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     row_offsets[0] = 0;
     for (row_sizes, 0..) |s, i| row_offsets[i + 1] = row_offsets[i] + s + el.gap;
 
-    const origin_x = el.box.x() + el.padding.left();
-    const origin_y = el.box.y() + el.padding.top();
+    const origin_x = el.box.v[0] + el.padding.value[3];
+    const origin_y = el.box.v[1] + el.padding.value[0];
     const ncols: u32 = @intCast(cols.len);
     const nrows: u32 = @intCast(rows.len);
 
@@ -678,10 +782,12 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
         // Children without explicit placement default to (0, 0, 1, 1).
         const placement = self.grid_placements.get(cur_slot) orelse Grid.Placement{};
 
-        std.debug.assert(placement.col < ncols);
-        std.debug.assert(placement.row < nrows);
-        std.debug.assert(placement.col_span >= 1 and placement.col + placement.col_span <= ncols);
-        std.debug.assert(placement.row_span >= 1 and placement.row + placement.row_span <= nrows);
+        if (comptime std.debug.runtime_safety) {
+            std.debug.assert(placement.col < ncols);
+            std.debug.assert(placement.row < nrows);
+            std.debug.assert(placement.col_span >= 1 and placement.col + placement.col_span <= ncols);
+            std.debug.assert(placement.row_span >= 1 and placement.row + placement.row_span <= nrows);
+        }
 
         const c = placement.col;
         const r = placement.row;
@@ -697,14 +803,15 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
 
         const cx = origin_x + col_offsets[c];
         const cy = origin_y + row_offsets[r];
-        child.box.setW(std.math.clamp(w, child.width.min, child.width.max));
-        child.box.setH(std.math.clamp(h, child.height.min, child.height.max));
+        const cw = fclamp(w, child.width.min, child.width.max);
+        const ch = fclamp(h, child.height.min, child.height.max);
+        child.box.v[2] = cw;
+        child.box.v[3] = ch;
 
         if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
-            child.box.setX(cx);
-            child.box.setY(cy);
-            child.content_w = child.box.w();
-            child.content_h = child.box.h();
+            child.box.v = .{ cx, cy, cw, ch };
+            child.content_w = cw;
+            child.content_h = ch;
         } else {
             try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
         }
@@ -717,17 +824,18 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
             const child = &elements[cur_slot];
             child_slot = child.next_sibling;
             if (child.position == .absolute) {
-                if (child.width.kind == .grow) child.box.setW(content_w);
-                if (child.width.kind == .percent) child.box.setW(std.math.clamp(child.width.value * content_w, child.width.min, child.width.max));
-                if (child.height.kind == .grow) child.box.setH(content_h);
-                if (child.height.kind == .percent) child.box.setH(std.math.clamp(child.height.value * content_h, child.height.min, child.height.max));
+                if (child.width.kind == .grow) child.box.v[2] = content_w;
+                if (child.width.kind == .percent) child.box.v[2] = fclamp(child.width.value * content_w, child.width.min, child.width.max);
+                if (child.height.kind == .grow) child.box.v[3] = content_h;
+                if (child.height.kind == .percent) child.box.v[3] = fclamp(child.height.value * content_h, child.height.min, child.height.max);
                 const cx = origin_x + child.offset[0];
                 const cy = origin_y + child.offset[1];
                 if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
-                    child.box.setX(cx);
-                    child.box.setY(cy);
-                    child.content_w = child.box.w();
-                    child.content_h = child.box.h();
+                    const cw = child.box.v[2];
+                    const ch = child.box.v[3];
+                    child.box.v = .{ cx, cy, cw, ch };
+                    child.content_w = cw;
+                    child.content_h = ch;
                 } else {
                     try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
                 }
@@ -736,14 +844,7 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     }
 }
 
-inline fn gapTotal(el: *const Element, count: u32) f32 {
-    return if (count > 1)
-        el.gap * @as(f32, @floatFromInt(count - 1))
-    else
-        0;
-}
-
-inline fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, initial_free: f32, initial_grow_count: u32) void {
+inline fn distributeGrow(self: *Context, el: *const Element, is_row: bool, initial_free: f32, initial_grow_count: u32) void {
     const elements = self.pool.elements.items;
     var remaining_free = initial_free;
     var grow_count: f32 = @floatFromInt(initial_grow_count);
@@ -757,10 +858,11 @@ inline fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, ini
         while (child_slot != Element.INVALID_SLOT) {
             const child = &elements[child_slot];
             child_slot = child.next_sibling;
-            if (child.position != .absolute and axis.childMainKind(child) == .grow) {
-                const clamped = std.math.clamp(grow_unit, axis.childMainMin(child), axis.childMainMax(child));
+            const main_axis = if (is_row) &child.width else &child.height;
+            if (child.position != .absolute and main_axis.kind == .grow) {
+                const clamped = fclamp(grow_unit, main_axis.min, main_axis.max);
                 if (clamped != grow_unit) {
-                    axis.setChildMainSize(child, clamped);
+                    if (is_row) child.box.v[2] = clamped else child.box.v[3] = clamped;
                     clamped_space += clamped;
                 } else still_growing += 1;
             }
@@ -777,154 +879,11 @@ inline fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, ini
     while (child_slot != Element.INVALID_SLOT) {
         const child = &elements[child_slot];
         child_slot = child.next_sibling;
-        if (child.position != .absolute and axis.childMainKind(child) == .grow and axis.childMainSize(child) == 0) {
-            axis.setChildMainSize(child, std.math.clamp(final_grow_unit, axis.childMainMin(child), axis.childMainMax(child)));
-        }
-    }
-}
-
-inline fn positionChildren(
-    self: *Context,
-    el: *Element,
-    axis: AxisInfo,
-    static_count: u32,
-    gaps: f32,
-    used: f32,
-    children_cross: f32,
-    grow_count: u32,
-    initial_unclamped_grow: ?f32,
-    scroll: ScrollLookup,
-    scrollbar_thickness: f32,
-) LayoutError!void {
-    const elements = self.pool.elements.items;
-    var unclamped_grow_unit = initial_unclamped_grow;
-    var cursor: f32 = axis.pad_main_start;
-    var item_gap: f32 = el.gap;
-    var scroll_offset: [2]f32 = .{ 0, 0 };
-
-    if (el.justify != .start or el.overflow.isScroll()) {
-        var children_main: f32 = used;
-        if (grow_count > 0) {
-            children_main = 0;
-            var cs = el.first_child;
-            while (cs != Element.INVALID_SLOT) {
-                const c = &elements[cs];
-                cs = c.next_sibling;
-                if (c.position != .absolute) {
-                    if (unclamped_grow_unit) |grow_unit| {
-                        if (axis.childMainKind(c) == .grow) {
-                            axis.setChildMainSize(c, grow_unit);
-                        }
-                    }
-                    children_main += axis.childMainSize(c);
-                }
-            }
-            unclamped_grow_unit = null;
-        }
-
-        const justify_free = @max(0, axis.available() - children_main - gaps);
-        cursor = switch (el.justify) {
-            .start, .space_between, .space_around => axis.pad_main_start,
-            .end => axis.pad_main_start + justify_free,
-            .center => axis.pad_main_start + justify_free / 2,
-        };
-
-        item_gap = switch (el.justify) {
-            .start, .end, .center => el.gap,
-            .space_between => if (static_count > 1)
-                justify_free / @as(f32, @floatFromInt(static_count - 1)) + el.gap
-            else
-                el.gap,
-            .space_around => if (static_count > 0)
-                justify_free / @as(f32, @floatFromInt(static_count)) + el.gap
-            else
-                el.gap,
-        };
-
-        if (el.overflow.isScroll()) {
-            const content_main = children_main + gaps + axis.pad_main_start + axis.pad_main_end;
-            const content_cross = children_cross + axis.pad_cross_start + axis.pad_cross_end;
-            const content_w = if (axis.is_row) content_main else content_cross;
-            const content_h = if (axis.is_row) content_cross else content_main;
-            const metrics = Element.scrollMetrics(el.overflow, el.box, content_w, content_h, scrollbar_thickness);
-            const raw = scroll.get(el.id);
-            scroll_offset = switch (el.overflow) {
-                .scroll_x => .{ std.math.clamp(raw[0], 0, metrics.max_offset[0]), 0 },
-                .scroll_y => .{ 0, std.math.clamp(raw[1], 0, metrics.max_offset[1]) },
-                .scroll => .{ std.math.clamp(raw[0], 0, metrics.max_offset[0]), std.math.clamp(raw[1], 0, metrics.max_offset[1]) },
-                else => unreachable,
-            };
-            el.content_w = content_w;
-            el.content_h = content_h;
-        }
-    }
-
-    const origin_x = el.box.x() - scroll_offset[0];
-    const origin_y = el.box.y() - scroll_offset[1];
-    const alignment = el.alignment;
-
-    var child_slot = el.first_child;
-    while (child_slot != Element.INVALID_SLOT) {
-        const cur_slot = child_slot;
-        const child = &elements[cur_slot];
-        child_slot = child.next_sibling;
-        if (child.position == .absolute) continue;
-
-        if (unclamped_grow_unit) |grow_unit| {
-            if (axis.childMainKind(child) == .grow) {
-                axis.setChildMainSize(child, grow_unit);
-            }
-        }
-
-        const child_w = child.box.w();
-        const child_h = child.box.h();
-        const child_main = if (axis.is_row) child_w else child_h;
-        const child_cross = if (axis.is_row) child_h else child_w;
-
-        const cross_offset = axis.pad_cross_start + switch (alignment) {
-            .start, .stretch => @as(f32, 0),
-            .center => (axis.cross_size - child_cross) / 2,
-            .end => axis.cross_size - child_cross,
-        };
-
-        const cx = origin_x + if (axis.is_row) cursor else cross_offset;
-        const cy = origin_y + if (axis.is_row) cross_offset else cursor;
-        cursor += child_main + item_gap;
-
-        if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
-            child.box.v = .{ cx, cy, child_w, child_h };
-            child.content_w = child_w;
-            child.content_h = child_h;
-        } else {
-            try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
-        }
-    }
-
-    // Position absolute children: fill parent's content area and place at parent origin + padding + offset.
-    if (el.has_absolute_child) {
-        child_slot = el.first_child;
-        while (child_slot != Element.INVALID_SLOT) {
-            const cur_slot = child_slot;
-            const child = &elements[cur_slot];
-            child_slot = child.next_sibling;
-            if (child.position == .absolute) {
-                const abs_content_w = el.box.w() - el.padding.left() - el.padding.right();
-                const abs_content_h = el.box.h() - el.padding.top() - el.padding.bottom();
-                if (child.width.kind == .grow) child.box.setW(abs_content_w);
-                if (child.width.kind == .percent) child.box.setW(std.math.clamp(child.width.value * abs_content_w, child.width.min, child.width.max));
-                if (child.height.kind == .grow) child.box.setH(abs_content_h);
-                if (child.height.kind == .percent) child.box.setH(std.math.clamp(child.height.value * abs_content_h, child.height.min, child.height.max));
-                const cx = el.box.x() + el.padding.left() + child.offset[0];
-                const cy = el.box.y() + el.padding.top() + child.offset[1];
-                if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
-                    child.box.setX(cx);
-                    child.box.setY(cy);
-                    child.content_w = child.box.w();
-                    child.content_h = child.box.h();
-                } else {
-                    try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
-                }
-            }
+        const main_axis = if (is_row) &child.width else &child.height;
+        const main_sz = if (is_row) child.box.v[2] else child.box.v[3];
+        if (child.position != .absolute and main_axis.kind == .grow and main_sz == 0) {
+            const clamped = fclamp(final_grow_unit, main_axis.min, main_axis.max);
+            if (is_row) child.box.v[2] = clamped else child.box.v[3] = clamped;
         }
     }
 }

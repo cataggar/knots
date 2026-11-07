@@ -16,6 +16,19 @@ pub const CustomDrawCallback = @import("Command.zig").CustomDrawCallback;
 
 const LayerRange = struct { start: u32 = 0, len: u32 = 0 };
 const BackdropGroup = struct { layer: u8, blur: f32 };
+const TextureTag = std.meta.Tag(TextureSource);
+const CmdMeta = struct {
+    kind: Command.Kind,
+    tex_tag: TextureTag = .atlas,
+};
+
+inline fn clearList(list: anytype) void {
+    if (comptime std.debug.runtime_safety) {
+        list.clearRetainingCapacity();
+    } else {
+        list.items.len = 0;
+    }
+}
 
 pub const TextBatch = struct {
     clip: Clip.State,
@@ -28,6 +41,7 @@ instances: std.ArrayList(types.Instance),
 text_instances: std.ArrayList(types.SlugInstance),
 clip_nodes: std.ArrayList(Clip.Node),
 layer_cmds: std.ArrayList(Command),
+layer_cmd_metas: std.ArrayList(CmdMeta),
 layer_ranges: [MAX_LAYERS]LayerRange,
 layers_dirty: std.StaticBitSet(MAX_LAYERS),
 current_layer: u8,
@@ -56,6 +70,7 @@ pub fn init(allocator: std.mem.Allocator) DrawList {
         .text_instances = .empty,
         .clip_nodes = .empty,
         .layer_cmds = .empty,
+        .layer_cmd_metas = .empty,
         .layer_ranges = @splat(.{}),
         .layers_dirty = .empty,
         .current_layer = 0,
@@ -79,6 +94,7 @@ pub fn deinit(self: *DrawList) void {
     self.text_instances.deinit(self.allocator);
     self.clip_nodes.deinit(self.allocator);
     self.layer_cmds.deinit(self.allocator);
+    self.layer_cmd_metas.deinit(self.allocator);
     self.backdrop_groups.deinit(self.allocator);
     self.packet_indices.deinit(self.allocator);
     self.packet_instances.deinit(self.allocator);
@@ -91,22 +107,23 @@ pub fn deinit(self: *DrawList) void {
 }
 
 pub fn reset(self: *DrawList) void {
-    self.vertices.clearRetainingCapacity();
-    self.indices.clearRetainingCapacity();
-    self.instances.clearRetainingCapacity();
-    self.text_instances.clearRetainingCapacity();
-    self.clip_nodes.clearRetainingCapacity();
-    self.layer_cmds.clearRetainingCapacity();
+    clearList(&self.vertices);
+    clearList(&self.indices);
+    clearList(&self.instances);
+    clearList(&self.text_instances);
+    clearList(&self.clip_nodes);
+    clearList(&self.layer_cmds);
+    clearList(&self.layer_cmd_metas);
     self.layers_dirty = .empty;
     self.current_layer = 0;
-    self.backdrop_groups.clearRetainingCapacity();
+    clearList(&self.backdrop_groups);
     self.clearPacketStreams();
 }
 
 fn clearPacketStreams(self: *DrawList) void {
-    self.packet_indices.clearRetainingCapacity();
-    self.packet_instances.clearRetainingCapacity();
-    self.packet_text_instances.clearRetainingCapacity();
+    clearList(&self.packet_indices);
+    clearList(&self.packet_instances);
+    clearList(&self.packet_text_instances);
     self.packet_layers = .empty;
 }
 
@@ -142,7 +159,7 @@ pub fn buildPacketRange(
     if (self.layer_cmds.items.len > Packet.commands_max) return error.TooManyDrawCommands;
     if (layer_min > layer_max) return error.InvalidLayerRange;
     if (layer_max > MAX_LAYERS) return error.InvalidLayerRange;
-    portable_commands.clearRetainingCapacity();
+    clearList(portable_commands);
     try portable_commands.ensureTotalCapacity(self.allocator, self.layer_cmds.items.len);
 
     var range_layers: std.StaticBitSet(MAX_LAYERS) = .empty;
@@ -164,7 +181,8 @@ pub fn buildPacketRange(
         if (end > self.layer_cmds.items.len) return error.CorruptDrawStream;
 
         const layer_commands = self.layer_cmds.items[start..end];
-        for (layer_commands) |*command| switch (std.meta.activeTag(command.payload)) {
+        const layer_metas = self.layer_cmd_metas.items[start..end];
+        for (layer_commands, layer_metas) |*command, meta| switch (meta.kind) {
             .vertex => {
                 const draw = &command.payload.vertex;
                 try validateRange(draw.offset, draw.count, self.indices.items.len);
@@ -182,15 +200,15 @@ pub fn buildPacketRange(
 
         // Custom draws and backdrops are barriers; batch the runs between them.
         var segment_start: usize = 0;
-        for (layer_commands, 0..) |*command, index| switch (std.meta.activeTag(command.payload)) {
+        for (layer_commands, layer_metas, 0..) |*command, meta, index| switch (meta.kind) {
             .custom_draw, .backdrop => {
-                try self.emitBatched(portable_commands, layer_commands[segment_start..index]);
+                try self.emitBatched(portable_commands, layer_commands[segment_start..index], layer_metas[segment_start..index]);
                 portable_commands.addOneAssumeCapacity().* = command.*;
                 segment_start = index + 1;
             },
             else => {},
         };
-        try self.emitBatched(portable_commands, layer_commands[segment_start..]);
+        try self.emitBatched(portable_commands, layer_commands[segment_start..], layer_metas[segment_start..]);
     }
 
     return .init(
@@ -206,6 +224,7 @@ pub fn buildPacketRange(
 
 const BatchKey = struct {
     command: *const Command,
+    meta: CmdMeta,
     /// Highest level assigned to the key so far.
     level: u32 = 0,
 };
@@ -227,17 +246,17 @@ const Box = struct {
     const empty: Box = .{ .x0 = std.math.inf(f32), .y0 = std.math.inf(f32), .x1 = -std.math.inf(f32), .y1 = -std.math.inf(f32) };
 
     inline fn add(self: *Box, x: f32, y: f32) void {
-        self.x0 = @min(self.x0, x);
-        self.y0 = @min(self.y0, y);
-        self.x1 = @max(self.x1, x);
-        self.y1 = @max(self.y1, y);
+        if (x < self.x0) self.x0 = x;
+        if (y < self.y0) self.y0 = y;
+        if (x > self.x1) self.x1 = x;
+        if (y > self.y1) self.y1 = y;
     }
 
     inline fn merge(self: *Box, other: Box) void {
-        self.x0 = @min(self.x0, other.x0);
-        self.y0 = @min(self.y0, other.y0);
-        self.x1 = @max(self.x1, other.x1);
-        self.y1 = @max(self.y1, other.y1);
+        if (other.x0 < self.x0) self.x0 = other.x0;
+        if (other.y0 < self.y0) self.y0 = other.y0;
+        if (other.x1 > self.x1) self.x1 = other.x1;
+        if (other.y1 > self.y1) self.y1 = other.y1;
     }
 
     inline fn overlaps(self: Box, other: Box) bool {
@@ -260,10 +279,10 @@ const bounds_padding: f32 = 2;
 const BatchLink = struct { entry: u32, next: u32 };
 const no_link = std.math.maxInt(u32);
 
-inline fn emitSingle(self: *DrawList, out: *std.ArrayList(Command), command: *const Command) void {
+inline fn emitSingle(self: *DrawList, out: *std.ArrayList(Command), command: *const Command, kind: Command.Kind) void {
     const out_cmd = out.addOneAssumeCapacity();
     out_cmd.* = command.*;
-    switch (std.meta.activeTag(out_cmd.payload)) {
+    switch (kind) {
         .vertex => {
             const draw = &out_cmd.payload.vertex;
             const src = self.indices.items[draw.offset..][0..draw.count];
@@ -291,14 +310,14 @@ inline fn emitSingle(self: *DrawList, out: *std.ArrayList(Command), command: *co
 /// earlier overlapping command of another key, and no lower than earlier
 /// overlapping commands of its own key; drawing by level keeps every
 /// overlapping pair in its original order.
-fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const Command) !void {
+fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const Command, metas: []const CmdMeta) !void {
     if (commands.len == 0) return;
     if (commands.len == 1) {
-        self.emitSingle(out, &commands[0]);
+        self.emitSingle(out, &commands[0], metas[0].kind);
         return;
     }
-    self.batch_entries.clearRetainingCapacity();
-    self.batch_keys.clearRetainingCapacity();
+    clearList(&self.batch_entries);
+    clearList(&self.batch_keys);
     try self.batch_entries.ensureTotalCapacity(self.allocator, commands.len);
 
     var ux0: f32 = std.math.inf(f32);
@@ -309,18 +328,18 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
     var extent_sum_x: f32 = 0;
     var extent_sum_y: f32 = 0;
     var finite_count: u32 = 0;
-    for (commands, 0..) |*command, index| {
-        const bounds = self.commandBounds(command);
+    for (commands, metas, 0..) |*command, meta, index| {
+        const bounds = self.commandBounds(command, meta.kind);
         if (bounds.isFinite()) {
-            ux0 = @min(ux0, bounds.x0);
-            uy0 = @min(uy0, bounds.y0);
-            ux1 = @max(ux1, bounds.x1);
-            uy1 = @max(uy1, bounds.y1);
+            if (bounds.x0 < ux0) ux0 = bounds.x0;
+            if (bounds.y0 < uy0) uy0 = bounds.y0;
+            if (bounds.x1 > ux1) ux1 = bounds.x1;
+            if (bounds.y1 > uy1) uy1 = bounds.y1;
             extent_sum_x += bounds.x1 - bounds.x0;
             extent_sum_y += bounds.y1 - bounds.y0;
             finite_count += 1;
         }
-        const key = try self.batchKey(command);
+        const key = try self.batchKey(command, meta);
         const dst_entry = self.batch_entries.addOneAssumeCapacity();
         dst_entry.* = .{
             .command = @intCast(index),
@@ -328,7 +347,7 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
             .level = 0,
             .bounds = bounds,
         };
-        key_end = @max(key_end, key + 1);
+        if (key + 1 > key_end) key_end = key + 1;
     }
     if (key_end > 1) {
         var union_box: Box = .{ .x0 = ux0, .y0 = uy0, .x1 = ux1, .y1 = uy1 };
@@ -339,8 +358,10 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
         }
 
         // Cells about the size of an average command keep buckets short.
-        const union_w = @max(union_box.x1 - union_box.x0, 1e-3);
-        const union_h = @max(union_box.y1 - union_box.y0, 1e-3);
+        const raw_w = union_box.x1 - union_box.x0;
+        const raw_h = union_box.y1 - union_box.y0;
+        const union_w = if (raw_w > 1e-3) raw_w else 1e-3;
+        const union_h = if (raw_h > 1e-3) raw_h else 1e-3;
         const count_f: f32 = @floatFromInt(@max(finite_count, 1));
         const cols = gridCells(union_w, extent_sum_x / count_f);
         const rows = gridCells(union_h, extent_sum_y / count_f);
@@ -351,7 +372,7 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
         var heads_buffer: [grid_cells_max]u32 = undefined;
         const heads = heads_buffer[0 .. cols * rows];
         @memset(heads, no_link);
-        self.batch_links.clearRetainingCapacity();
+        clearList(&self.batch_links);
         const entries = self.batch_entries.items;
         try self.batch_links.ensureTotalCapacity(self.allocator, entries.len * 4);
         var level_max: u32 = 0;
@@ -374,7 +395,7 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
             };
             if (tracked) self.batch_keys.items[entry.key].level = level;
             entry.level = level;
-            level_max = @max(level_max, level);
+            if (level > level_max) level_max = level;
             try self.batch_links.ensureUnusedCapacity(self.allocator, (cy1 - cy0 + 1) * (cx1 - cx0 + 1));
             for (cy0..cy1 + 1) |cy| for (cx0..cx1 + 1) |cx| {
                 const head = &heads[cy * cols + cx];
@@ -392,10 +413,11 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
         const first = &entries[index];
         const first_level = first.level;
         const first_key = first.key;
+        const first_kind = metas[first.command].kind;
         const dst_cmd = out.addOneAssumeCapacity();
         dst_cmd.* = commands[first.command];
         var count: u32 = 0;
-        switch (std.meta.activeTag(dst_cmd.payload)) {
+        switch (first_kind) {
             .vertex => {
                 const dst_draw = &dst_cmd.payload.vertex;
                 dst_draw.offset = @intCast(self.packet_indices.items.len);
@@ -462,7 +484,8 @@ fn countingSort(from: []const BatchEntry, to: []BatchEntry, counts: []u32, compt
 }
 
 inline fn gridCells(extent: f32, average: f32) usize {
-    const cells = extent / @max(average, 1);
+    const denom = if (average > 1) average else 1;
+    const cells = extent / denom;
     if (!(cells > 1)) return 1;
     if (cells >= grid_axis_max) return grid_axis_max;
     return @intFromFloat(cells);
@@ -477,35 +500,34 @@ inline fn gridCoord(value: f32, origin: f32, cell: f32, cells: usize) usize {
 }
 
 /// Commands with equal keys can share one draw.
-inline fn batchKey(self: *DrawList, command: *const Command) !u32 {
+inline fn batchKey(self: *DrawList, command: *const Command, meta: CmdMeta) !u32 {
     for (self.batch_keys.items, 0..) |*key, index| {
-        if (self.keyMatches(key.command, command)) return @intCast(index);
+        if (self.keyMatches(key.command, key.meta, command, meta)) return @intCast(index);
     }
     // Past the bound, commands keep unique keys and simply do not merge.
     if (self.batch_keys.items.len == batch_keys_max) return @intCast(batch_keys_max + self.batch_entries.items.len);
-    try self.batch_keys.append(self.allocator, .{ .command = command });
+    try self.batch_keys.append(self.allocator, .{ .command = command, .meta = meta });
     return @intCast(self.batch_keys.items.len - 1);
 }
 
-inline fn keyMatches(_: *const DrawList, other: *const Command, command: *const Command) bool {
-    const tag = std.meta.activeTag(command.payload);
-    if (std.meta.activeTag(other.payload) != tag) return false;
+inline fn keyMatches(_: *const DrawList, other: *const Command, other_meta: CmdMeta, command: *const Command, meta: CmdMeta) bool {
+    if (other_meta.kind != meta.kind or other_meta.tex_tag != meta.tex_tag) return false;
     if (!other.clip.scissorEql(command.clip)) return false;
-    return switch (tag) {
-        .vertex => textureSourceEql(&command.payload.vertex.texture, &other.payload.vertex.texture),
-        .instance => textureSourceEql(&command.payload.instance.texture, &other.payload.instance.texture),
+    return switch (meta.kind) {
+        .vertex => texturePayloadEql(meta.tex_tag, &command.payload.vertex.texture, &other.payload.vertex.texture),
+        .instance => texturePayloadEql(meta.tex_tag, &command.payload.instance.texture, &other.payload.instance.texture),
         .text => true,
         .custom_draw, .backdrop => unreachable,
     };
 }
 
 /// Conservative screen bounds of everything the command can touch.
-inline fn commandBounds(self: *const DrawList, command: *const Command) Box {
+inline fn commandBounds(self: *const DrawList, command: *const Command, kind: Command.Kind) Box {
     var x0: f32 = std.math.inf(f32);
     var y0: f32 = std.math.inf(f32);
     var x1: f32 = -std.math.inf(f32);
     var y1: f32 = -std.math.inf(f32);
-    switch (std.meta.activeTag(command.payload)) {
+    switch (kind) {
         .vertex => {
             const draw = &command.payload.vertex;
             for (self.indices.items[draw.offset..][0..draw.count]) |vertex_index| {
@@ -513,10 +535,10 @@ inline fn commandBounds(self: *const DrawList, command: *const Command) Box {
                 const vertex = &self.vertices.items[vertex_index];
                 const vx = vertex.pos[0];
                 const vy = vertex.pos[1];
-                x0 = @min(x0, vx);
-                y0 = @min(y0, vy);
-                x1 = @max(x1, vx);
-                y1 = @max(y1, vy);
+                if (vx < x0) x0 = vx;
+                if (vy < y0) y0 = vy;
+                if (vx > x1) x1 = vx;
+                if (vy > y1) y1 = vy;
             }
         },
         .instance => {
@@ -526,10 +548,14 @@ inline fn commandBounds(self: *const DrawList, command: *const Command) Box {
                 const iy0 = inst.pos[1];
                 const ix1 = ix0 + inst.size[0];
                 const iy1 = iy0 + inst.size[1];
-                x0 = @min(x0, @min(ix0, ix1));
-                y0 = @min(y0, @min(iy0, iy1));
-                x1 = @max(x1, @max(ix0, ix1));
-                y1 = @max(y1, @max(iy0, iy1));
+                const lx0 = if (ix0 < ix1) ix0 else ix1;
+                const lx1 = if (ix0 < ix1) ix1 else ix0;
+                const ly0 = if (iy0 < iy1) iy0 else iy1;
+                const ly1 = if (iy0 < iy1) iy1 else iy0;
+                if (lx0 < x0) x0 = lx0;
+                if (ly0 < y0) y0 = ly0;
+                if (lx1 > x1) x1 = lx1;
+                if (ly1 > y1) y1 = ly1;
             }
         },
         .text => {
@@ -540,10 +566,14 @@ inline fn commandBounds(self: *const DrawList, command: *const Command) Box {
                 const ty0 = inst.origin_size[1] - inst.bounds[1] * size;
                 const tx1 = inst.origin_size[0] + inst.bounds[2] * size;
                 const ty1 = inst.origin_size[1] - inst.bounds[3] * size;
-                x0 = @min(x0, @min(tx0, tx1));
-                y0 = @min(y0, @min(ty0, ty1));
-                x1 = @max(x1, @max(tx0, tx1));
-                y1 = @max(y1, @max(ty0, ty1));
+                const lx0 = if (tx0 < tx1) tx0 else tx1;
+                const lx1 = if (tx0 < tx1) tx1 else tx0;
+                const ly0 = if (ty0 < ty1) ty0 else ty1;
+                const ly1 = if (ty0 < ty1) ty1 else ty0;
+                if (lx0 < x0) x0 = lx0;
+                if (ly0 < y0) y0 = ly0;
+                if (lx1 > x1) x1 = lx1;
+                if (ly1 > y1) y1 = ly1;
             }
         },
         .custom_draw, .backdrop => unreachable,
@@ -555,12 +585,14 @@ inline fn commandBounds(self: *const DrawList, command: *const Command) Box {
     box.x1 += bounds_padding;
     box.y1 += bounds_padding;
     if (command.clip.scissor) |*scissor| {
-        const sx = scissor.x();
-        const sy = scissor.y();
-        box.x0 = @max(box.x0, sx);
-        box.y0 = @max(box.y0, sy);
-        box.x1 = @min(box.x1, sx + scissor.w());
-        box.y1 = @min(box.y1, sy + scissor.h());
+        const sx = scissor.v[0];
+        const sy = scissor.v[1];
+        const sx1 = sx + scissor.v[2];
+        const sy1 = sy + scissor.v[3];
+        if (sx > box.x0) box.x0 = sx;
+        if (sy > box.y0) box.y0 = sy;
+        if (sx1 < box.x1) box.x1 = sx1;
+        if (sy1 < box.y1) box.y1 = sy1;
         // Fully scissored away: draws nothing, so it overlaps nothing.
         if (box.x0 > box.x1 or box.y0 > box.y1) return .{ .x0 = box.x0, .y0 = box.y0, .x1 = box.x0, .y1 = box.y0 };
     }
@@ -575,26 +607,28 @@ inline fn validateRange(offset: u32, count: u32, length: usize) !void {
 inline fn lastCmdMatches(
     self: *const DrawList,
     comptime kind: Command.Kind,
+    tex_tag: TextureTag,
     texture: *const TextureSource,
     clip: Clip.State,
 ) bool {
     if (!self.layers_dirty.isSet(self.current_layer)) return false;
     const range = self.layer_ranges[self.current_layer];
     if (range.len == 0) return false;
-    const last = &self.layer_cmds.items[range.start + range.len - 1];
-    if (std.meta.activeTag(last.payload) != kind or !last.clip.scissorEql(clip)) return false;
+    const idx = range.start + range.len - 1;
+    const last_meta = self.layer_cmd_metas.items[idx];
+    if (last_meta.kind != kind or last_meta.tex_tag != tex_tag) return false;
+    const last = &self.layer_cmds.items[idx];
+    if (!last.clip.scissorEql(clip)) return false;
     return switch (kind) {
-        .vertex => textureSourceEql(&last.payload.vertex.texture, texture),
-        .instance => textureSourceEql(&last.payload.instance.texture, texture),
-        .text => texture.* == .atlas,
+        .vertex => texturePayloadEql(tex_tag, &last.payload.vertex.texture, texture),
+        .instance => texturePayloadEql(tex_tag, &last.payload.instance.texture, texture),
+        .text => true,
         .custom_draw, .backdrop => false,
     };
 }
 
-inline fn textureSourceEql(a: *const TextureSource, b: *const TextureSource) bool {
-    const tag = std.meta.activeTag(a.*);
-    if (tag != std.meta.activeTag(b.*)) return false;
-    return switch (tag) {
+inline fn texturePayloadEql(tex_tag: TextureTag, a: *const TextureSource, b: *const TextureSource) bool {
+    return switch (tex_tag) {
         .atlas => true,
         .texture => std.meta.eql(a.texture, b.texture),
         // Pixel commands stay separate so each command retains its exact update metadata.
@@ -602,16 +636,18 @@ inline fn textureSourceEql(a: *const TextureSource, b: *const TextureSource) boo
     };
 }
 
-fn beginCommand(self: *DrawList, payload: Command.Payload, clip: Clip.State) !void {
+fn beginCommand(self: *DrawList, meta: CmdMeta, payload: Command.Payload, clip: Clip.State) !void {
     if (self.layer_cmds.items.len == Packet.commands_max) return error.TooManyDrawCommands;
+    try self.layer_cmds.ensureUnusedCapacity(self.allocator, 1);
+    try self.layer_cmd_metas.ensureUnusedCapacity(self.allocator, 1);
     const range = &self.layer_ranges[self.current_layer];
     if (!self.layers_dirty.isSet(self.current_layer)) {
         range.start = @intCast(self.layer_cmds.items.len);
         range.len = 0;
         self.layers_dirty.set(self.current_layer);
     }
-    const dst = try self.layer_cmds.addOne(self.allocator);
-    dst.* = .{ .clip = clip, .payload = payload };
+    self.layer_cmds.addOneAssumeCapacity().* = .{ .clip = clip, .payload = payload };
+    self.layer_cmd_metas.addOneAssumeCapacity().* = meta;
     range.len += 1;
 }
 
@@ -629,8 +665,9 @@ pub fn push(
 ) !void {
     try self.indices.ensureUnusedCapacity(self.allocator, indices.len);
     try self.vertices.ensureUnusedCapacity(self.allocator, vertices.len);
-    if (!self.lastCmdMatches(.vertex, &texture, clip)) {
-        try self.beginCommand(.{ .vertex = .{
+    const tex_tag = std.meta.activeTag(texture);
+    if (!self.lastCmdMatches(.vertex, tex_tag, &texture, clip)) {
+        try self.beginCommand(.{ .kind = .vertex, .tex_tag = tex_tag }, .{ .vertex = .{
             .texture = texture,
             .offset = @intCast(self.indices.items.len),
             .count = 0,
@@ -656,8 +693,9 @@ pub fn pushInstances(
 ) !void {
     if (insts.len == 0) return;
     try self.instances.ensureUnusedCapacity(self.allocator, insts.len);
-    if (!self.lastCmdMatches(.instance, &texture, clip)) {
-        try self.beginCommand(.{ .instance = .{
+    const tex_tag = std.meta.activeTag(texture);
+    if (!self.lastCmdMatches(.instance, tex_tag, &texture, clip)) {
+        try self.beginCommand(.{ .kind = .instance, .tex_tag = tex_tag }, .{ .instance = .{
             .texture = texture,
             .offset = @intCast(self.instances.items.len),
             .count = 0,
@@ -678,7 +716,7 @@ pub fn pushCustomDraw(
     clip: Clip.State,
 ) !void {
     paint.validate();
-    try self.beginCommand(.{ .custom_draw = .{
+    try self.beginCommand(.{ .kind = .custom_draw }, .{ .custom_draw = .{
         .paint = paint.*,
         .bounds = bounds,
     } }, clip);
@@ -693,7 +731,7 @@ pub fn pushBackdrop(
     material: types.Material,
     clip: Clip.State,
 ) !void {
-    std.debug.assert(material.isValid());
+    if (comptime std.debug.runtime_safety) std.debug.assert(material.isValid());
     if (bounds.isEmpty()) return;
     const key: BackdropGroup = .{ .layer = self.current_layer, .blur = material.blur };
     const group = for (self.backdrop_groups.items, 0..) |existing, index| {
@@ -703,7 +741,7 @@ pub fn pushBackdrop(
         try self.backdrop_groups.append(self.allocator, key);
         break :blk self.backdrop_groups.items.len - 1;
     };
-    try self.beginCommand(.{ .backdrop = .{
+    try self.beginCommand(.{ .kind = .backdrop }, .{ .backdrop = .{
         .bounds = bounds,
         .corner_radius = corner_radius,
         .material = material,
@@ -718,10 +756,12 @@ pub inline fn beginTextBatch(self: *DrawList, glyph_count_max: usize, clip: Clip
 }
 
 pub inline fn pushTextInstance(self: *DrawList, batch: TextBatch, instance: types.SlugInstance) !void {
-    std.debug.assert(self.text_instances.items.len < self.text_instances.capacity);
-    std.debug.assert(instance.origin_size[2] > 0);
-    if (!self.lastCmdMatches(.text, &.atlas, batch.clip)) {
-        try self.beginCommand(.{ .text = .{
+    if (comptime std.debug.runtime_safety) {
+        std.debug.assert(self.text_instances.items.len < self.text_instances.capacity);
+        std.debug.assert(instance.origin_size[2] > 0);
+    }
+    if (!self.lastCmdMatches(.text, .atlas, &.atlas, batch.clip)) {
+        try self.beginCommand(.{ .kind = .text, .tex_tag = .atlas }, .{ .text = .{
             .offset = @intCast(self.text_instances.items.len),
             .count = 0,
         } }, batch.clip);
@@ -814,14 +854,14 @@ test "backdrops group per layer and blur" {
 }
 
 fn testRect(x: f32, y: f32, w: f32, h: f32) types.Instance {
-    var inst = std.mem.zeroes(types.Instance);
+    var inst = comptime std.mem.zeroes(types.Instance);
     inst.pos = .{ x, y };
     inst.size = .{ w, h };
     return inst;
 }
 
 fn testGlyph(x: f32, y: f32) types.SlugInstance {
-    var inst = std.mem.zeroes(types.SlugInstance);
+    var inst = comptime std.mem.zeroes(types.SlugInstance);
     // Em box 0..1 at 10px: covers x..x+10, y-10..y.
     inst.bounds = .{ 0, 0, 1, 1 };
     inst.origin_size = .{ x, y, 10, 0.1 };
