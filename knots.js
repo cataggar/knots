@@ -696,6 +696,7 @@ function normalizeSymbols(symbols) {
 
 export async function startKnots({
   wasmUrl,
+  fallbackWasmUrl,
   startSymbol,
   symbols,
   canvas = "#canvas",
@@ -709,7 +710,7 @@ export async function startKnots({
   imports: extraImports,
 }) {
   const extensionUrls = extensions.map((url) => new URL(url, document.baseURI).href);
-  const module = wasmExports ? null : await compileWasm(wasmUrl);
+  const module = wasmExports ? null : await compileWasm(wasmUrl, fallbackWasmUrl, log);
   const threaded =
     module !== null &&
     WebAssembly.Module.exports(module).some(({ name }) => name === "knots_worker_run");
@@ -810,7 +811,33 @@ export async function startKnots({
   };
 }
 
-async function compileWasm(wasmUrl) {
+async function compileWasm(wasmUrl, fallbackWasmUrl, log = console) {
+  try {
+    return await compileSingleWasm(wasmUrl);
+  } catch (err) {
+    if (
+      err instanceof WebAssembly.CompileError &&
+      typeof wasmUrl === "string" &&
+      wasmUrl.endsWith(".wasm") &&
+      !wasmUrl.endsWith("-wasm32.wasm")
+    ) {
+      const candidateUrl = fallbackWasmUrl ?? wasmUrl.replace(/\.wasm$/, "-wasm32.wasm");
+      try {
+        const response = await fetch(candidateUrl);
+        if (response.ok) {
+          console.warn("Memory64 (wasm64) unavailable; falling back to wasm32 build");
+          if (log && log !== console && typeof log.warn === "function") {
+            log.warn("Memory64 (wasm64) unavailable; falling back to wasm32 build");
+          }
+          return await WebAssembly.compile(await response.arrayBuffer());
+        }
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+async function compileSingleWasm(wasmUrl) {
   if (WebAssembly.compileStreaming) {
     try {
       return await WebAssembly.compileStreaming(fetch(wasmUrl));
@@ -834,20 +861,37 @@ async function instantiateThreadedWasm(module, imports) {
   try {
     return await instantiateThreadedWasmWithPointerSize(module, imports, 8);
   } catch (error) {
-    if (error instanceof WebAssembly.LinkError) throw wasm32Error;
+    if (
+      error instanceof WebAssembly.LinkError &&
+      !/memory|knots_worker_task|i64/i.test(wasm32Error?.message ?? "")
+    ) {
+      throw wasm32Error;
+    }
     throw error;
   }
 }
 
 async function instantiateThreadedWasmWithPointerSize(module, imports, pointerSize) {
+  if (typeof SharedArrayBuffer === "undefined") {
+    throw new Error(
+      "Failed to initialize shared WebAssembly memory for worker threads; serve the page with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp.",
+    );
+  }
   const initial = pointerSize === 8 ? BigInt(WASM_MEMORY_INITIAL_PAGES) : WASM_MEMORY_INITIAL_PAGES;
   const maximum = pointerSize === 8 ? BigInt(WASM_MEMORY64_MAX_PAGES) : WASM_MEMORY_MAX_PAGES;
-  const memory = new WebAssembly.Memory({
-    initial,
-    maximum,
-    shared: true,
-    ...(pointerSize === 8 ? { address: "i64" } : {}),
-  });
+  let memory;
+  try {
+    memory = new WebAssembly.Memory({
+      initial,
+      maximum,
+      shared: true,
+      ...(pointerSize === 8 ? { address: "i64" } : {}),
+    });
+  } catch {
+    throw new Error(
+      "Failed to initialize shared WebAssembly memory for worker threads; serve the page with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp.",
+    );
+  }
   const pointerType = pointerSize === 8 ? "i64" : "i32";
   const workerTask = new WebAssembly.Global(
     { value: pointerType, mutable: true },
