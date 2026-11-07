@@ -69,6 +69,29 @@ pub const Stats = struct {
     layers: usize = 0,
 };
 
+const IdContext = struct {
+    pub inline fn hash(_: IdContext, id: Element.Id) u64 {
+        return id;
+    }
+    pub inline fn eql(_: IdContext, a: Element.Id, b: Element.Id) bool {
+        return a == b;
+    }
+};
+
+const AccessibilityIndexMap = std.HashMapUnmanaged(
+    Element.Id,
+    u32,
+    IdContext,
+    std.hash_map.default_max_load_percentage,
+);
+
+const CullMap = std.HashMapUnmanaged(
+    Element.Id,
+    CullRecord,
+    IdContext,
+    std.hash_map.default_max_load_percentage,
+);
+
 allocator: Allocator,
 layout_ctx: layout.Context,
 decorations: std.ArrayList(Decoration),
@@ -85,7 +108,7 @@ focus_order: std.ArrayList(Element.Id),
 accessibility_nodes: std.ArrayList(Accessibility.Node),
 accessibility_enabled: bool = true,
 accessibility_children: std.ArrayList(Element.Id) = .empty,
-accessibility_node_indices: std.AutoHashMapUnmanaged(Element.Id, u32) = .empty,
+accessibility_node_indices: AccessibilityIndexMap = .empty,
 accessibility_actions: []const Accessibility.ActionRequest = &.{},
 accessibility_consumed: [Accessibility.actions_max]bool = @splat(false),
 hit_counter: u32,
@@ -95,8 +118,8 @@ slot_clips: std.ArrayList(Clip.State),
 child_clips: std.ArrayList(Clip.State),
 clip_nodes: std.ArrayList(Clip.Node),
 input_scopes: InputScope,
-cull_prev: std.AutoHashMapUnmanaged(Element.Id, CullRecord) = .empty,
-cull_next: std.AutoHashMapUnmanaged(Element.Id, CullRecord) = .empty,
+cull_prev: CullMap = .empty,
+cull_next: CullMap = .empty,
 cull_ancestors: std.ArrayList(Element.Slot) = .empty,
 /// 1 inside a culled element, plus one per nested open, which creates no element.
 cull_depth: u32 = 0,
@@ -300,7 +323,7 @@ pub fn recordCulling(self: *UI) !void {
 }
 
 fn swapCullRecords(self: *UI) void {
-    std.mem.swap(std.AutoHashMapUnmanaged(Element.Id, CullRecord), &self.cull_prev, &self.cull_next);
+    std.mem.swap(CullMap, &self.cull_prev, &self.cull_next);
 }
 
 /// Layer of the element being built.

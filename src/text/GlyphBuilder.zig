@@ -280,7 +280,14 @@ pub fn addCurves(self: *GlyphBuilder, curves: []const Curve) !glyph.GlyphRecord 
     if (curves.len == 0) return .empty;
     try self.ensureAtlasCapacity(curves.len, 0);
 
-    var partition_result = try band.partition(self.allocator, curves);
+    var stack_bands: [2 * band.bands_per_axis_max][]u32 = undefined;
+    var stack_indices: [1024]u32 = undefined;
+    var partition_result = try band.partitionWithBuffer(
+        self.allocator,
+        curves,
+        &stack_bands,
+        &stack_indices,
+    );
     defer partition_result.deinit(self.allocator);
 
     const band_texel_count = bandTexelCount(&partition_result);
