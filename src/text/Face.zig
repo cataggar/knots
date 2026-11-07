@@ -45,9 +45,7 @@ const ShapedEntry = struct {
 
 const ShapedContext = struct {
     pub fn hash(_: ShapedContext, key: ShapedKey) u64 {
-        var hasher = std.hash.Wyhash.init(key.size_quantized);
-        hasher.update(key.text);
-        return hasher.final();
+        return std.hash.Wyhash.hash(key.size_quantized, key.text);
     }
 
     pub fn eql(_: ShapedContext, key_a: ShapedKey, key_b: ShapedKey) bool {
@@ -81,10 +79,8 @@ const WrapEntry = struct {
 
 const WrapContext = struct {
     pub fn hash(_: WrapContext, key: WrapKey) u64 {
-        var hasher = std.hash.Wyhash.init(key.size_quantized);
-        hasher.update(std.mem.asBytes(&key.wrap_quantized));
-        hasher.update(key.text);
-        return hasher.final();
+        const seed = (@as(u64, key.size_quantized) << 32) | @as(u64, key.wrap_quantized);
+        return std.hash.Wyhash.hash(seed, key.text);
     }
 
     pub fn eql(_: WrapContext, key_a: WrapKey, key_b: WrapKey) bool {
@@ -238,15 +234,20 @@ pub fn shape(self: *Face, text: []const u8, size_px: f32) !glyph.ShapedView {
 
     var shaped_glyphs: std.ArrayList(glyph.Shaped) = .empty;
     defer shaped_glyphs.deinit(self.allocator);
+    try shaped_glyphs.ensureTotalCapacity(self.allocator, text.len);
 
     var pen_x: f32 = 0;
     while (iterator.i < text.len) {
         const cluster: u32 = @intCast(iterator.i);
-        const codepoint = iterator.nextCodepoint() orelse unreachable;
+        const byte = text[iterator.i];
+        const codepoint: u21 = if (byte < 0x80) blk: {
+            iterator.i += 1;
+            break :blk byte;
+        } else iterator.nextCodepoint() orelse unreachable;
 
         const record = try self.getGlyph(codepoint);
         const advance_px = record.advance_em * size_px;
-        try shaped_glyphs.append(self.allocator, .{
+        shaped_glyphs.appendAssumeCapacity(.{
             .record = record,
             .x = pen_x,
             .advance = advance_px,
@@ -308,7 +309,7 @@ const WrapBuffer = struct {
         const target_start = self.glyph_count;
         const glyph_count = glyph_end - glyph_start;
         const x_start = if (glyph_count > 0) self.source_glyphs[glyph_start].x else 0;
-        for (self.source_glyphs[glyph_start..glyph_end], 0..) |source, index| {
+        for (self.source_glyphs[glyph_start..glyph_end], 0..) |*source, index| {
             self.glyphs[target_start + index] = .{
                 .record = source.record,
                 .x = source.x - x_start,
@@ -352,42 +353,42 @@ const WrapCursor = struct {
     glyph_index: usize = 0,
 };
 
-fn lineWidth(shaped_glyphs: []const glyph.Shaped, start: usize, end: usize) f32 {
+inline fn lineWidth(shaped_glyphs: []const glyph.Shaped, start: usize, end: usize) f32 {
     std.debug.assert(start <= end);
     std.debug.assert(end <= shaped_glyphs.len);
     if (start == end) return 0;
 
-    const first = shaped_glyphs[start];
-    const last = shaped_glyphs[end - 1];
+    const first = &shaped_glyphs[start];
+    const last = &shaped_glyphs[end - 1];
     return last.x + last.advance - first.x;
 }
 
-fn glyphByte(text: []const u8, shaped: glyph.Shaped) u8 {
+inline fn glyphByte(text: []const u8, shaped: *const glyph.Shaped) u8 {
     std.debug.assert(shaped.cluster < text.len);
     return text[shaped.cluster];
 }
 
-fn isBlank(byte: u8) bool {
+inline fn isBlank(byte: u8) bool {
     return byte == ' ' or byte == '\t';
 }
 
-fn skipBlankGlyphs(
+inline fn skipBlankGlyphs(
     text: []const u8,
     shaped_glyphs: []const glyph.Shaped,
     start: usize,
 ) usize {
     var end = start;
     while (end < shaped_glyphs.len) : (end += 1) {
-        if (!isBlank(glyphByte(text, shaped_glyphs[end]))) break;
+        if (!isBlank(glyphByte(text, &shaped_glyphs[end]))) break;
     }
     return end;
 }
 
-fn buildWrappedLinesHardBreak(
+inline fn buildWrappedLinesHardBreak(
     buffer: *WrapBuffer,
     text: []const u8,
     cursor: *WrapCursor,
-    shaped: glyph.Shaped,
+    shaped: *const glyph.Shaped,
 ) !void {
     try buffer.appendLine(
         cursor.line_glyph_start,
@@ -402,23 +403,23 @@ fn buildWrappedLinesHardBreak(
     cursor.last_break = null;
 }
 
-fn buildWrappedLinesBlank(
+inline fn buildWrappedLinesBlank(
     buffer: *const WrapBuffer,
     text: []const u8,
     cursor: *WrapCursor,
 ) void {
     if (cursor.glyph_index > cursor.line_glyph_start) {
-        const previous = buffer.source_glyphs[cursor.glyph_index - 1];
+        const previous = &buffer.source_glyphs[cursor.glyph_index - 1];
         if (!isBlank(glyphByte(text, previous))) cursor.last_break = cursor.glyph_index;
     }
     cursor.glyph_index += 1;
 }
 
-fn buildWrappedLinesOverflow(
+inline fn buildWrappedLinesOverflow(
     buffer: *WrapBuffer,
     text: []const u8,
     cursor: *WrapCursor,
-    shaped: glyph.Shaped,
+    shaped: *const glyph.Shaped,
 ) !bool {
     if (cursor.last_break) |break_index| {
         const break_byte = buffer.source_glyphs[break_index].cluster;
@@ -451,7 +452,7 @@ fn buildWrappedLines(buffer: *WrapBuffer, text: []const u8, wrap_px: f32) !void 
     var cursor = WrapCursor{};
 
     while (cursor.glyph_index < buffer.source_glyphs.len) {
-        const shaped = buffer.source_glyphs[cursor.glyph_index];
+        const shaped = &buffer.source_glyphs[cursor.glyph_index];
         const byte = glyphByte(text, shaped);
         if (byte == '\n') {
             try buildWrappedLinesHardBreak(buffer, text, &cursor, shaped);
@@ -611,9 +612,11 @@ pub fn shapeWrapped(
     });
 }
 
-fn charLen(text: []const u8, byte: u32) usize {
+inline fn charLen(text: []const u8, byte: u32) usize {
     if (byte < text.len) {
-        return std.unicode.utf8ByteSequenceLength(text[byte]) catch 1;
+        const b = text[byte];
+        if (b < 0x80) return 1;
+        return std.unicode.utf8ByteSequenceLength(b) catch 1;
     }
     return 0;
 }

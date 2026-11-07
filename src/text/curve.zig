@@ -23,11 +23,11 @@ comptime {
     std.debug.assert(cubic_segment_count == 8);
 }
 
-fn midpoint(a: [2]f32, b: [2]f32) [2]f32 {
+inline fn midpoint(a: [2]f32, b: [2]f32) [2]f32 {
     return .{ (a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 };
 }
 
-fn splitCubic(cubic: Cubic) [2]Cubic {
+inline fn splitCubic(cubic: Cubic) [2]Cubic {
     const p01 = midpoint(cubic.p0, cubic.p1);
     const p12 = midpoint(cubic.p1, cubic.p2);
     const p23 = midpoint(cubic.p2, cubic.p3);
@@ -48,8 +48,8 @@ fn appendCubic(curves: *std.ArrayList(Curve), allocator: std.mem.Allocator, cubi
 
     var segment_count: u32 = 1;
     for (0..cubic_subdivision_depth) |_| {
-        for (segments[0..segment_count], 0..) |segment, index| {
-            const halves = splitCubic(segment);
+        for (segments[0..segment_count], 0..) |*segment, index| {
+            const halves = splitCubic(segment.*);
             subdivisions[index * 2] = halves[0];
             subdivisions[index * 2 + 1] = halves[1];
         }
@@ -60,7 +60,7 @@ fn appendCubic(curves: *std.ArrayList(Curve), allocator: std.mem.Allocator, cubi
 
     std.debug.assert(segment_count == cubic_segment_count);
     try curves.ensureUnusedCapacity(allocator, cubic_segment_count);
-    for (segments) |segment| {
+    for (&segments) |*segment| {
         const control_start = [2]f32{
             (3.0 * segment.p1[0] - segment.p0[0]) * 0.5,
             (3.0 * segment.p1[1] - segment.p0[1]) * 0.5,
