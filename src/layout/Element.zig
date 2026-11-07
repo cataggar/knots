@@ -63,31 +63,31 @@ pub const Justify = enum {
 pub const Padding = struct {
     value: [4]f32,
 
-    pub fn init(t: f32, r: f32, b: f32, l: f32) Padding {
+    pub inline fn init(t: f32, r: f32, b: f32, l: f32) Padding {
         return Padding{ .value = .{ t, r, b, l } };
     }
 
-    pub fn all(v: f32) Padding {
+    pub inline fn all(v: f32) Padding {
         return .init(v, v, v, v);
     }
 
-    pub fn xy(x: f32, y: f32) Padding {
+    pub inline fn xy(x: f32, y: f32) Padding {
         return .init(y, x, y, x);
     }
 
-    pub fn top(self: Padding) f32 {
+    pub inline fn top(self: *const Padding) f32 {
         return self.value[0];
     }
 
-    pub fn right(self: Padding) f32 {
+    pub inline fn right(self: *const Padding) f32 {
         return self.value[1];
     }
 
-    pub fn bottom(self: Padding) f32 {
+    pub inline fn bottom(self: *const Padding) f32 {
         return self.value[2];
     }
 
-    pub fn left(self: Padding) f32 {
+    pub inline fn left(self: *const Padding) f32 {
         return self.value[3];
     }
 };
@@ -111,7 +111,7 @@ pub const Overflow = enum {
     scroll_y,
     hidden,
 
-    pub fn isScroll(self: Overflow) bool {
+    pub inline fn isScroll(self: Overflow) bool {
         return self == .scroll or self == .scroll_x or self == .scroll_y;
     }
 };

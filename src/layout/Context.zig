@@ -31,7 +31,7 @@ const AxisInfo = struct {
     pad_cross_start: f32,
     pad_cross_end: f32,
 
-    fn init(el: *const Element) AxisInfo {
+    inline fn init(el: *const Element) AxisInfo {
         if (el.direction == .row) {
             return .{
                 .is_row = true,
@@ -55,55 +55,55 @@ const AxisInfo = struct {
         }
     }
 
-    fn available(self: AxisInfo) f32 {
+    inline fn available(self: AxisInfo) f32 {
         return self.main_size - self.pad_main_start - self.pad_main_end;
     }
 
-    fn childMainSize(self: AxisInfo, child: *const Element) f32 {
+    inline fn childMainSize(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.box.w() else child.box.h();
     }
 
-    fn setChildMainSize(self: AxisInfo, child: *Element, v: f32) void {
+    inline fn setChildMainSize(self: AxisInfo, child: *Element, v: f32) void {
         if (self.is_row) child.box.setW(v) else child.box.setH(v);
     }
 
-    fn setChildCrossSize(self: AxisInfo, child: *Element, v: f32) void {
+    inline fn setChildCrossSize(self: AxisInfo, child: *Element, v: f32) void {
         if (self.is_row) child.box.setH(v) else child.box.setW(v);
     }
 
-    fn childMainKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
+    inline fn childMainKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
         return if (self.is_row) child.width.kind else child.height.kind;
     }
 
-    fn childCrossKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
+    inline fn childCrossKind(self: AxisInfo, child: *const Element) Element.sizing.Kind {
         return if (self.is_row) child.height.kind else child.width.kind;
     }
 
-    fn childCrossSize(self: AxisInfo, child: *const Element) f32 {
+    inline fn childCrossSize(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.box.h() else child.box.w();
     }
 
-    fn childMainMin(self: AxisInfo, child: *const Element) f32 {
+    inline fn childMainMin(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.width.min else child.height.min;
     }
 
-    fn childMainMax(self: AxisInfo, child: *const Element) f32 {
+    inline fn childMainMax(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.width.max else child.height.max;
     }
 
-    fn childCrossMin(self: AxisInfo, child: *const Element) f32 {
+    inline fn childCrossMin(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.height.min else child.width.min;
     }
 
-    fn childCrossMax(self: AxisInfo, child: *const Element) f32 {
+    inline fn childCrossMax(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.height.max else child.width.max;
     }
 
-    fn childMainPercent(self: AxisInfo, child: *const Element) f32 {
+    inline fn childMainPercent(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.width.value else child.height.value;
     }
 
-    fn childCrossPercent(self: AxisInfo, child: *const Element) f32 {
+    inline fn childCrossPercent(self: AxisInfo, child: *const Element) f32 {
         return if (self.is_row) child.height.value else child.width.value;
     }
 };
@@ -227,7 +227,11 @@ pub fn open(self: *Context, id: Element.Id, config: Element.Config) !Element.Slo
         try self.scroll_slots.append(self.allocator, slot);
     }
 
-    try self.stack.append(self.allocator, slot);
+    if (self.stack.items.len < self.stack.capacity) {
+        self.stack.appendAssumeCapacity(slot);
+    } else {
+        try self.stack.append(self.allocator, slot);
+    }
     return slot;
 }
 
@@ -263,14 +267,20 @@ pub fn openRoot(self: *Context, id: Element.Id, config: Element.Config) !Element
         self.has_scroll = true;
         try self.scroll_slots.append(self.allocator, slot);
     }
-    try self.stack.append(self.allocator, slot);
+    if (self.stack.items.len < self.stack.capacity) {
+        self.stack.appendAssumeCapacity(slot);
+    } else {
+        try self.stack.append(self.allocator, slot);
+    }
     return slot;
 }
 
 pub fn close(self: *Context) void {
     std.debug.assert(self.stack.items.len > 0);
-    const slot = self.stack.pop().?;
-    self.pool.get(slot).subtree_end = @intCast(self.pool.elements.items.len);
+    const next_len = self.stack.items.len - 1;
+    const slot = self.stack.items[next_len];
+    self.stack.items.len = next_len;
+    self.pool.elements.items[slot].subtree_end = @intCast(self.pool.elements.items.len);
 }
 
 pub fn slotForId(self: *const Context, id: Element.Id) ?Element.Slot {
@@ -726,7 +736,7 @@ fn computeGridLayout(self: *Context, slot: Element.Slot, el: *Element, scroll: S
     }
 }
 
-fn gapTotal(el: *const Element, count: u32) f32 {
+inline fn gapTotal(el: *const Element, count: u32) f32 {
     return if (count > 1)
         el.gap * @as(f32, @floatFromInt(count - 1))
     else

@@ -21,9 +21,12 @@ pub fn append(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, 
     return slot;
 }
 
-pub fn appendConfig(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, parent: Element.Slot, config: *const Element.Config) !Element.Slot {
+pub inline fn appendConfig(self: *ElementPool, allocator: std.mem.Allocator, id: Element.Id, parent: Element.Slot, config: *const Element.Config) !Element.Slot {
     const slot: Element.Slot = @intCast(self.elements.items.len);
-    const ptr = try self.elements.addOne(allocator);
+    const ptr = if (self.elements.items.len < self.elements.capacity)
+        self.elements.addOneAssumeCapacity()
+    else
+        try self.elements.addOne(allocator);
     ptr.* = .{
         .id = id,
         .parent = parent,
@@ -43,6 +46,6 @@ pub fn appendConfig(self: *ElementPool, allocator: std.mem.Allocator, id: Elemen
     return slot;
 }
 
-pub fn get(self: *ElementPool, slot: Element.Slot) *Element {
+pub inline fn get(self: *ElementPool, slot: Element.Slot) *Element {
     return &self.elements.items[slot];
 }
