@@ -2,7 +2,13 @@ const std = @import("std");
 const knots = @import("knots");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
+    const wasm64 = b.option(bool, "wasm64", "Use 64-bit WebAssembly (wasm64) when building for Wasm (default: false).") orelse false;
+    var target = b.standardTargetOptions(.{ .default_target = .{ .cpu_model = .baseline } });
+    if (wasm64 and target.result.cpu.arch == .wasm32) {
+        var query = target.query;
+        query.cpu_arch = .wasm64;
+        target = b.resolveTargetQuery(query);
+    }
     const optimize = b.standardOptimizeOption(.{});
 
     const web_threads = b.option(bool, "web_threads", "Enable worker threads in the web playground.") orelse false;
@@ -15,6 +21,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .web_threads = web_threads,
         .gpu_backend = gpu_backend,
+        .wasm64 = wasm64,
     });
 
     const exe = buildExecutable(b, target, optimize, gpu_backend, knots_dep, "playground");

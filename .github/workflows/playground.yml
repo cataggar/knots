@@ -15,6 +15,12 @@ on:
       - "tools/wazig_configurer.zig"
       - ".github/workflows/playground.yml"
   workflow_dispatch:
+    inputs:
+      wasm64:
+        description: "Build playground with 64-bit WebAssembly (wasm64-freestanding)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-playground
@@ -61,14 +67,19 @@ jobs:
           echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
 
       - name: Build playground (ReleaseSmall)
+        env:
+          WASM64: ${{ inputs.wasm64 == true && 'true' || 'false' }}
         run: |
-          ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
-          cp examples/playground/zig-out/web/app.wasm "$RUNNER_TEMP/app-wasm32.wasm"
-          ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Doptimize=ReleaseSmall
-          cp "$RUNNER_TEMP/app-wasm32.wasm" examples/playground/zig-out/web/app-wasm32.wasm
+          if [ "$WASM64" = "true" ]; then
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+            cp examples/playground/zig-out/web/app.wasm "$RUNNER_TEMP/app-wasm32.wasm"
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=true -Doptimize=ReleaseSmall
+            cp "$RUNNER_TEMP/app-wasm32.wasm" examples/playground/zig-out/web/app-wasm32.wasm
+          else
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=false -Doptimize=ReleaseSmall
+          fi
           test -s examples/playground/zig-out/web/index.html
           test -s examples/playground/zig-out/web/app.wasm
-          test -s examples/playground/zig-out/web/app-wasm32.wasm
           test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
           cp examples/playground/_headers examples/playground/zig-out/web/
@@ -77,11 +88,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_DIR: ${{ runner.temp }}/knots-published-web
+          WASM_TARGET: ${{ inputs.wasm64 == true && 'wasm64-freestanding' || 'wasm32-freestanding' }}
         run: |
           set -euo pipefail
           test -s examples/playground/zig-out/web/index.html
           test -s examples/playground/zig-out/web/app.wasm
-          test -s examples/playground/zig-out/web/app-wasm32.wasm
           test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
           rm -rf "$PUBLISH_DIR"
@@ -102,7 +113,7 @@ jobs:
           if ! git -C "$PUBLISH_DIR" rev-parse --verify HEAD >/dev/null 2>&1 || \
              ! git -C "$PUBLISH_DIR" diff --cached --quiet; then
             git -C "$PUBLISH_DIR" commit --quiet \
-              -m "Deploy playground (wasm64-freestanding) from ${GITHUB_SHA::7}" \
+              -m "Deploy playground (${WASM_TARGET}) from ${GITHUB_SHA::7}" \
               -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
             git -C "$PUBLISH_DIR" push origin HEAD:refs/heads/web
           fi
