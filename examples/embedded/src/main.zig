@@ -1,10 +1,31 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const knots = @import("knots");
 const ui = @import("knots-ui");
 const renderer = @import("knots-renderer");
 const Window = @import("knots-window").Window;
 
-pub fn main(init: std.process.Init) !void {
-    var window = try Window.init(init.io, init.gpa, .{
+pub const std_options: std.Options = if (knots.platform.is_wasm) .{ .logFn = knots.wasm.logFn } else .{};
+
+pub const main = if (knots.platform.is_wasm) struct {
+    fn main() void {}
+}.main else nativeMain;
+
+comptime {
+    if (knots.platform.is_wasm) @export(&struct {
+        fn webMain() callconv(.{ .wasm_mvp = .{} }) i32 {
+            run(knots.wasm.io, knots.wasm.allocator) catch |err| return knots.wasm.fail(err);
+            return 0;
+        }
+    }.webMain, .{ .name = "main" });
+}
+
+fn nativeMain(init: std.process.Init) !void {
+    try run(init.io, init.gpa);
+}
+
+fn run(io: std.Io, gpa: std.mem.Allocator) !void {
+    var window = try Window.init(io, gpa, .{
         .width = 640,
         .height = 480,
         .title = "Embedded Knots",
@@ -14,10 +35,10 @@ pub fn main(init: std.process.Init) !void {
 
     window.startCapture();
 
-    var device = try renderer.backend.Device.init(init.gpa, window.getWindowHandle());
+    var device = try renderer.backend.Device.init(gpa, window.getWindowHandle());
     defer device.deinit();
 
-    const context = try renderer.Context.createForDevice(init.gpa, &device, false);
+    const context = try renderer.Context.createForDevice(gpa, &device, false);
     defer context.destroy();
 
     const extent = window.getFramebufferSize();
@@ -32,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
     var gpu_frame = try renderer.backend.Frame.create(&surface);
     defer gpu_frame.deinit();
 
-    const painter = try renderer.Painter.create(init.gpa, context, gpu_frame.uploadSlotCount());
+    const painter = try renderer.Painter.create(gpa, context, gpu_frame.uploadSlotCount());
     defer painter.destroyAfterWait();
 
     var target = try device.createTexture(.{
@@ -47,12 +68,12 @@ pub fn main(init: std.process.Init) !void {
     // Also complete GPU work on an error, before any borrowed resources are freed.
     defer device.waitIdle() catch |err| std.log.err("GPU completion failed: {s}", .{@errorName(err)});
 
-    var context_ui = try ui.Context.init(init.gpa, .{});
+    var context_ui = try ui.Context.init(gpa, .{});
     defer context_ui.deinit();
 
     var tick: u32 = 0;
     while (tick < 600) : (tick += 1) {
-        window.pollEvents(init.io);
+        window.pollEvents(io);
         if (!window.isOpen()) break;
         defer window.finishInputFrame();
 
@@ -77,7 +98,7 @@ pub fn main(init: std.process.Init) !void {
         const output = try context_ui.endFrame(&frame);
         window.setCursorShape(output.cursor_shape);
 
-        if (output.clipboard_write) |value| _ = try window.setClipboardText(init.gpa, value);
+        if (output.clipboard_write) |value| _ = try window.setClipboardText(gpa, value);
         if (output.close) break;
 
         var submission = try gpu_frame.begin();

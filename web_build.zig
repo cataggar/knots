@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const memory_initial = 16 * 1024 * 1024;
 pub const memory_max = 2 * 1024 * 1024 * 1024;
+pub const memory_max_wasm64: u64 = 8 * 1024 * 1024 * 1024;
 
 pub const bridge_export_symbol_names = [_][]const u8{
     "js_bridge_alloc",
@@ -32,17 +33,21 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
     std.debug.assert(executable.root_module.resolved_target != null);
     configureWasmTarget(&root_module.resolved_target.?, threads);
     configureWasmTarget(&executable.root_module.resolved_target.?, threads);
+    const target = executable.root_module.resolved_target.?;
     executable.import_memory = threads;
     executable.export_memory = true;
     executable.export_table = threads;
     executable.shared_memory = threads;
     executable.initial_memory = memory_initial;
-    executable.max_memory = memory_max;
+    executable.max_memory = if (target.result.cpu.arch == .wasm64) memory_max_wasm64 else memory_max;
 
     // Zig's own wasm backend rebuilds a debug app in a fraction of a second
     // under `zig build --watch -fincremental`; LLVM takes seconds.
+    // Upstream zig 0.17.0's self-hosted wasm backend emits invalid v128 code
+    // when +simd128 is enabled, whereas wazig's self-hosted backend fixes this.
+    const is_wazig = std.mem.indexOf(u8, @import("builtin").zig_version_string, "wazig") != null;
     const optimize = executable.root_module.optimize orelse .debug;
-    if (executable.use_llvm == null and optimize == .debug and executable.root_module.resolved_target.?.result.os.tag == .freestanding)
+    if (is_wazig and executable.use_llvm == null and optimize == .debug and executable.root_module.resolved_target.?.result.os.tag == .freestanding)
         executable.use_llvm = false;
 
     // wasm32-wasi otherwise gets a 16 MiB stack, larger than the initial memory.
@@ -71,6 +76,10 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
 pub fn configureWasmTarget(target: *std.Build.ResolvedTarget, threads: bool) void {
     if (!target.result.cpu.arch.isWasm())
         return;
+    const simd = std.Target.wasm.Feature.simd128;
+    target.query.cpu_features_sub.removeFeature(@backingInt(simd));
+    target.query.cpu_features_add.addFeature(@backingInt(simd));
+    target.result.cpu.features.addFeature(@backingInt(simd));
     if (!threads) {
         const feature = std.Target.wasm.Feature.atomics;
         target.query.cpu_features_add.removeFeature(@backingInt(feature));

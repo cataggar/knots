@@ -1,9 +1,20 @@
 import { createBridgeImports } from "./js-bridge.js";
 import { createWasiImports } from "./knots-wasi.js";
+import { createWebGL2Backend } from "./knots-webgl2.js";
 
 const WASM_MEMORY_INITIAL_PAGES = 256;
 const WASM_MEMORY_MAX_PAGES = 32768;
+const WASM_MEMORY64_MAX_PAGES = 131072;
 const textDecoder = new TextDecoder("utf-8");
+
+function resolveGpuBackendOption(option) {
+  if (option === "webgpu" || option === "webgl2" || option === "auto") return option;
+  try {
+    const param = new URLSearchParams(globalThis.location?.search ?? "").get("gpu");
+    if (param === "webgpu" || param === "webgl2" || param === "auto") return param;
+  } catch {}
+  return "auto";
+}
 
 function isCanvas(value) {
   return typeof HTMLCanvasElement !== "undefined" && value instanceof HTMLCanvasElement;
@@ -174,6 +185,9 @@ class KnotsBrowserHost {
     this.fullscreenElementOption = options.fullscreenElement ?? null;
     this.logTarget = options.log ?? console;
     this.onError = typeof options.onError === "function" ? options.onError : null;
+    this.requestedGpuBackend = resolveGpuBackendOption(options.gpuBackend);
+    this.gpuBackend = null;
+    this.webgl2Backend = null;
     this.gpuAdapter = null;
     this.gpuDevice = null;
     this.gpuQueue = null;
@@ -225,13 +239,90 @@ class KnotsBrowserHost {
     this.frameRequest = null;
   }
 
+  async tryInitWebGpu() {
+    if (!navigator.gpu) {
+      return { ok: false, reason: "WebGPU is not available in this browser" };
+    }
+    try {
+      let adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter: true });
+      }
+      if (!adapter) {
+        return { ok: false, reason: "WebGPU adapter unavailable" };
+      }
+      const device = await adapter.requestDevice();
+      this.gpuBackend = "webgpu";
+      this.gpuAdapter = adapter;
+      this.gpuDevice = device;
+      this.gpuQueue = device.queue;
+      this.preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: errorMessage(err) };
+    }
+  }
+
+  initWebGL2(selector) {
+    let initialCanvas = null;
+    try {
+      initialCanvas = this.resolveCanvas(selector);
+    } catch {}
+    const backend = createWebGL2Backend(initialCanvas);
+    this.webgl2Backend = backend;
+    this.gpuBackend = "webgl2";
+    this.gpuAdapter = backend.adapter;
+    this.gpuDevice = backend.device;
+    this.gpuQueue = backend.queue;
+    this.preferredFormat = backend.preferredFormat;
+  }
+
   async initGpu() {
-    if (!navigator.gpu) throw new Error("WebGPU is not available in this browser");
-    this.gpuAdapter = await navigator.gpu.requestAdapter();
-    if (!this.gpuAdapter) throw new Error("WebGPU adapter unavailable");
-    this.gpuDevice = await this.gpuAdapter.requestDevice();
-    this.gpuQueue = this.gpuDevice.queue;
-    this.preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+    if (this.requestedGpuBackend === "webgl2") {
+      try {
+        this.initWebGL2();
+        return;
+      } catch (err) {
+        this.fatalError(errorMessage(err));
+        throw err;
+      }
+    }
+
+    const webgpuResult = await this.tryInitWebGpu();
+    if (webgpuResult.ok) return;
+
+    if (this.requestedGpuBackend === "webgpu") {
+      const err = new Error(webgpuResult.reason);
+      this.fatalError(err.message);
+      throw err;
+    }
+
+    try {
+      this.initWebGL2();
+      this.log(2, `WebGPU unavailable (${webgpuResult.reason}); using WebGL2 fallback`);
+    } catch (webgl2Err) {
+      const err = new Error(
+        `Neither WebGPU (${webgpuResult.reason}) nor WebGL2 (${errorMessage(webgl2Err)}) could be initialized`,
+      );
+      this.fatalError(err.message);
+      throw err;
+    }
+  }
+
+  ensureGpuBackend(compiledBackend, selector) {
+    if (compiledBackend === "webgl2" && this.gpuBackend !== "webgl2") {
+      this.initWebGL2(selector);
+    }
+    if (!this.gpuDevice) {
+      throw new Error("GPU device is not initialized");
+    }
+  }
+
+  getGpuContext(canvas) {
+    if (this.gpuBackend === "webgl2") {
+      return this.webgl2Backend.getCanvasContext(canvas);
+    }
+    return canvas.getContext("webgpu");
   }
 
   resolveCanvas(selector) {
@@ -605,9 +696,11 @@ function normalizeSymbols(symbols) {
 
 export async function startKnots({
   wasmUrl,
+  fallbackWasmUrl,
   startSymbol,
   symbols,
   canvas = "#canvas",
+  gpuBackend,
   wasmExports,
   log,
   onError,
@@ -617,7 +710,7 @@ export async function startKnots({
   imports: extraImports,
 }) {
   const extensionUrls = extensions.map((url) => new URL(url, document.baseURI).href);
-  const module = wasmExports ? null : await compileWasm(wasmUrl);
+  const module = wasmExports ? null : await compileWasm(wasmUrl, fallbackWasmUrl, log);
   const threaded =
     module !== null &&
     WebAssembly.Module.exports(module).some(({ name }) => name === "knots_worker_run");
@@ -632,6 +725,7 @@ export async function startKnots({
   });
   const imports = createKnotsImports({
     canvas,
+    gpuBackend,
     fullscreenElement,
     imports: extraImports,
     wasmExports: exports,
@@ -717,7 +811,33 @@ export async function startKnots({
   };
 }
 
-async function compileWasm(wasmUrl) {
+async function compileWasm(wasmUrl, fallbackWasmUrl, log = console) {
+  try {
+    return await compileSingleWasm(wasmUrl);
+  } catch (err) {
+    if (
+      err instanceof WebAssembly.CompileError &&
+      typeof wasmUrl === "string" &&
+      wasmUrl.endsWith(".wasm") &&
+      !wasmUrl.endsWith("-wasm32.wasm")
+    ) {
+      const candidateUrl = fallbackWasmUrl ?? wasmUrl.replace(/\.wasm$/, "-wasm32.wasm");
+      try {
+        const response = await fetch(candidateUrl);
+        if (response.ok) {
+          console.warn("Memory64 (wasm64) unavailable; falling back to wasm32 build");
+          if (log && log !== console && typeof log.warn === "function") {
+            log.warn("Memory64 (wasm64) unavailable; falling back to wasm32 build");
+          }
+          return await WebAssembly.compile(await response.arrayBuffer());
+        }
+      } catch {}
+    }
+    throw err;
+  }
+}
+
+async function compileSingleWasm(wasmUrl) {
   if (WebAssembly.compileStreaming) {
     try {
       return await WebAssembly.compileStreaming(fetch(wasmUrl));
@@ -741,20 +861,37 @@ async function instantiateThreadedWasm(module, imports) {
   try {
     return await instantiateThreadedWasmWithPointerSize(module, imports, 8);
   } catch (error) {
-    if (error instanceof WebAssembly.LinkError) throw wasm32Error;
+    if (
+      error instanceof WebAssembly.LinkError &&
+      !/memory|knots_worker_task|i64/i.test(wasm32Error?.message ?? "")
+    ) {
+      throw wasm32Error;
+    }
     throw error;
   }
 }
 
 async function instantiateThreadedWasmWithPointerSize(module, imports, pointerSize) {
+  if (typeof SharedArrayBuffer === "undefined") {
+    throw new Error(
+      "Failed to initialize shared WebAssembly memory for worker threads; serve the page with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp.",
+    );
+  }
   const initial = pointerSize === 8 ? BigInt(WASM_MEMORY_INITIAL_PAGES) : WASM_MEMORY_INITIAL_PAGES;
-  const maximum = pointerSize === 8 ? BigInt(WASM_MEMORY_MAX_PAGES) : WASM_MEMORY_MAX_PAGES;
-  const memory = new WebAssembly.Memory({
-    initial,
-    maximum,
-    shared: true,
-    ...(pointerSize === 8 ? { address: "i64" } : {}),
-  });
+  const maximum = pointerSize === 8 ? BigInt(WASM_MEMORY64_MAX_PAGES) : WASM_MEMORY_MAX_PAGES;
+  let memory;
+  try {
+    memory = new WebAssembly.Memory({
+      initial,
+      maximum,
+      shared: true,
+      ...(pointerSize === 8 ? { address: "i64" } : {}),
+    });
+  } catch {
+    throw new Error(
+      "Failed to initialize shared WebAssembly memory for worker threads; serve the page with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp.",
+    );
+  }
   const pointerType = pointerSize === 8 ? "i64" : "i32";
   const workerTask = new WebAssembly.Global(
     { value: pointerType, mutable: true },

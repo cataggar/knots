@@ -20,9 +20,21 @@ queue: js.Value,
 surface_format: gpu.Texture.Format,
 surface_is_srgb: bool,
 
-pub fn init(allocator: std.mem.Allocator, _: gpu.Context.WindowHandle) !Device {
+pub fn init(allocator: std.mem.Allocator, window_handle: gpu.Context.WindowHandle) !Device {
+    const selector = switch (window_handle) {
+        .web => |web| web.selector,
+        else => return error.UnsupportedPlatform,
+    };
     const host = try webgpu.host();
     defer host.release();
+    try host.callVoid("ensureGpuBackend", &.{
+        js.Arg.string(@tagName(gpu.backend)),
+        js.Arg.string(selector),
+    });
+
+    const active = try host.get("gpuBackend");
+    defer active.release();
+    gpu.setActiveBackend(if (active.eqlString("webgl2")) .webgl2 else .webgpu);
 
     const adapter = try host.get("gpuAdapter");
     errdefer adapter.release();

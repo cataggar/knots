@@ -6,8 +6,9 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const web_threads = b.option(bool, "web_threads", "Enable worker threads in the web playground.") orelse false;
-    // Decides the shader language the GPU demo needs: WGSL for WebGPU, SPIR-V for Vulkan.
-    const gpu_backend = knots.defaultGpuBackend(target.result);
+    // Decides the shader language the GPU demo needs: WGSL for WebGPU, GLSL ES 3.00 for WebGL2, SPIR-V for Vulkan.
+    const gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots.") orelse
+        knots.defaultGpuBackend(target.result);
 
     const knots_dep = b.dependency("knots", .{
         .target = target,
@@ -61,7 +62,15 @@ fn buildExecutable(b: *std.Build, target: std.Build.ResolvedTarget, optimize: st
     });
     // The GPU demo's shader, in the language of the backend.
     switch (gpu_backend) {
-        .webgpu => mod.addAnonymousImport("gpu_shader_wgsl", .{ .root_source_file = b.path("src/shaders/gpu_shader.wgsl") }),
+        .webgpu => {
+            mod.addAnonymousImport("gpu_shader_wgsl", .{ .root_source_file = b.path("src/shaders/gpu_shader.wgsl") });
+            mod.addAnonymousImport("gpu_shader_vert_glsl", .{ .root_source_file = b.path("src/shaders/gpu_shader.vert.glsl") });
+            mod.addAnonymousImport("gpu_shader_frag_glsl", .{ .root_source_file = b.path("src/shaders/gpu_shader.frag.glsl") });
+        },
+        .webgl2 => {
+            mod.addAnonymousImport("gpu_shader_vert_glsl", .{ .root_source_file = b.path("src/shaders/gpu_shader.vert.glsl") });
+            mod.addAnonymousImport("gpu_shader_frag_glsl", .{ .root_source_file = b.path("src/shaders/gpu_shader.frag.glsl") });
+        },
         .vulkan => {
             mod.addAnonymousImport("gpu_shader_vertex", .{ .root_source_file = knots.addSpirV(knots_dep, optimize, b.path("src/shaders/gpu_shader_vertex.zig")) });
             mod.addAnonymousImport("gpu_shader_fragment", .{ .root_source_file = knots.addSpirV(knots_dep, optimize, b.path("src/shaders/gpu_shader_fragment.zig")) });

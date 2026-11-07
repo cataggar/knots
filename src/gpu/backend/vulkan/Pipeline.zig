@@ -20,7 +20,7 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
 
     const spirv = switch (desc.shader) {
         .spirv => |s| s,
-        .wgsl => return error.UnsupportedShaderSource,
+        .wgsl, .glsl => return error.UnsupportedShaderSource,
     };
 
     const dsls = try allocator.alloc(vk.DescriptorSetLayout, desc.bind_group_layouts.len);

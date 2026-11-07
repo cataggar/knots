@@ -105,8 +105,17 @@ fn primitivesDescForTarget(kind: PrimitivesKind, target_format: ?gpu.Texture.For
     };
     const fs_entry: []const u8 = if (encode_srgb) "fs_main_srgb_encode" else "fs_main";
 
+    const glsl: gpu.Pipeline.GlslSource = .{
+        .vs = switch (kind) {
+            .vertex => shaders.webgl2_glsl.primitives_vertex,
+            .instance => shaders.webgl2_glsl.primitives_instance_vertex,
+        },
+        .fs = shaders.webgl2_glsl.primitives_fragment,
+    };
+
     const shader: gpu.Pipeline.ShaderSource = switch (gpu.backend) {
         .webgpu => .{ .wgsl = shaders.primitives_wgsl },
+        .webgl2 => .{ .glsl = glsl },
         .vulkan => .{ .spirv = .{
             .vs = switch (kind) {
                 .vertex => shaders.primitives_vert_spv,
@@ -120,6 +129,7 @@ fn primitivesDescForTarget(kind: PrimitivesKind, target_format: ?gpu.Texture.For
     return .{
         .label = "primitives",
         .shader = shader,
+        .glsl = if (gpu.backend != .vulkan) glsl else null,
         .vs_entry = vs_entry,
         .fs_entry = fs_entry,
         .vertex_buffers = vbs,
@@ -138,15 +148,21 @@ pub fn linearTargetSlugDesc() gpu.Pipeline.Desc {
 
 fn slugDescForTarget(target_format: ?gpu.Texture.Format, encode_srgb: bool) gpu.Pipeline.Desc {
     const fs_entry: []const u8 = if (encode_srgb) "fs_main_srgb_encode" else "fs_main";
+    const glsl: gpu.Pipeline.GlslSource = .{
+        .vs = shaders.webgl2_glsl.slug_vertex,
+        .fs = shaders.webgl2_glsl.slug_fragment,
+    };
 
     const shader: gpu.Pipeline.ShaderSource = switch (gpu.backend) {
         .webgpu => .{ .wgsl = shaders.text_wgsl },
+        .webgl2 => .{ .glsl = glsl },
         .vulkan => .{ .spirv = .{ .vs = shaders.slug_vert_spv, .fs = shaders.slug_frag_spv, .fs_entry = fs_entry } },
     };
 
     return .{
         .label = "slug",
         .shader = shader,
+        .glsl = if (gpu.backend != .vulkan) glsl else null,
         .vs_entry = "vs_main",
         .fs_entry = fs_entry,
         .vertex_buffers = &slug_buffers,
@@ -216,13 +232,22 @@ pub fn blurDesc(step: BlurStep, target_format: ?gpu.Texture.Format) gpu.Pipeline
         .down => "fs_blur_down",
         .up => "fs_blur_up",
     };
+    const glsl: gpu.Pipeline.GlslSource = .{
+        .vs = shaders.webgl2_glsl.backdrop_blur_vertex,
+        .fs = switch (step) {
+            .down => shaders.webgl2_glsl.backdrop_blur_down_fragment,
+            .up => shaders.webgl2_glsl.backdrop_blur_up_fragment,
+        },
+    };
     const shader: gpu.Pipeline.ShaderSource = switch (gpu.backend) {
         .webgpu => .{ .wgsl = shaders.backdrop_wgsl },
+        .webgl2 => .{ .glsl = glsl },
         .vulkan => .{ .spirv = .{ .vs = shaders.backdrop_blur_vert_spv, .fs = shaders.backdrop_blur_frag_spv, .fs_entry = fs_entry } },
     };
     return .{
         .label = "backdrop_blur",
         .shader = shader,
+        .glsl = if (gpu.backend != .vulkan) glsl else null,
         .vs_entry = "vs_blur",
         .fs_entry = fs_entry,
         .vertex_buffers = &blur_buffers,
@@ -233,17 +258,63 @@ pub fn blurDesc(step: BlurStep, target_format: ?gpu.Texture.Format) gpu.Pipeline
 
 /// Draws filtered backdrop into the scene target, which stores display encoding.
 pub fn glassDesc(target_format: ?gpu.Texture.Format) gpu.Pipeline.Desc {
+    const glsl: gpu.Pipeline.GlslSource = .{
+        .vs = shaders.webgl2_glsl.backdrop_glass_vertex,
+        .fs = shaders.webgl2_glsl.backdrop_glass_fragment,
+    };
     const shader: gpu.Pipeline.ShaderSource = switch (gpu.backend) {
         .webgpu => .{ .wgsl = shaders.backdrop_wgsl },
+        .webgl2 => .{ .glsl = glsl },
         .vulkan => .{ .spirv = .{ .vs = shaders.backdrop_glass_vert_spv, .fs = shaders.backdrop_glass_frag_spv, .fs_entry = "fs_glass" } },
     };
     return .{
         .label = "backdrop_glass",
         .shader = shader,
+        .glsl = if (gpu.backend != .vulkan) glsl else null,
         .vs_entry = "vs_glass",
         .fs_entry = "fs_glass",
         .vertex_buffers = &glass_buffers,
         .bind_group_layouts = &primitives_bgls,
         .color_target = .{ .format = target_format, .blend = standard_blend },
     };
+}
+
+test "pipeline descriptors include GLSL ES 3.00 sources on webgpu and webgl2" {
+    const std = @import("std");
+    const descs = [_]gpu.Pipeline.Desc{
+        primitivesDescForTarget(.vertex, .rgba8, true),
+        primitivesDescForTarget(.instance, .rgba8, false),
+        slugDescForTarget(.rgba8, true),
+        blurDesc(.down, .rgba8),
+        blurDesc(.up, .rgba8),
+        glassDesc(.rgba8),
+    };
+    for (descs) |desc| {
+        if (gpu.backend != .vulkan) {
+            const glsl = desc.glsl orelse return error.MissingGlslSource;
+            try std.testing.expect(std.mem.startsWith(u8, glsl.vs, "#version 300 es"));
+            try std.testing.expect(std.mem.startsWith(u8, glsl.fs, "#version 300 es"));
+            if (gpu.backend == .webgl2) {
+                try std.testing.expect(desc.shader == .glsl);
+            }
+
+            // Fragment inputs in GLSL ES 3.00 must never use layout(location = ...).
+            var fs_lines = std.mem.splitScalar(u8, glsl.fs, '\n');
+            while (fs_lines.next()) |raw_line| {
+                const line = std.mem.trim(u8, raw_line, " \t\r");
+                if (std.mem.startsWith(u8, line, "layout(") and std.mem.indexOf(u8, line, ") in ") != null) {
+                    return error.InvalidFragmentInputLayoutLocation;
+                }
+            }
+
+            // Vertex shader layout(location = N) inputs must match the pipeline's vertex buffer attributes.
+            for (desc.vertex_buffers) |vb| {
+                for (vb.attributes) |attr| {
+                    var needle_buf: [64]u8 = undefined;
+                    const needle = try std.fmt.bufPrint(&needle_buf, "layout(location = {d}) in ", .{attr.location});
+                    try std.testing.expect(std.mem.indexOf(u8, glsl.vs, needle) != null);
+                }
+            }
+        }
+    }
 }
