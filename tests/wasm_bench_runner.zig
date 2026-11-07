@@ -816,26 +816,93 @@ fn printWorkloadJson(stdout: *Io.Writer, name: []const u8, s: Stats, trailing_co
     });
 }
 
-pub fn main(init: std.process.Init) !void {
-    const io = init.io;
-    const allocator = init.gpa;
-    const arena = init.arena.allocator();
+const CliConfig = struct {
+    human_output: bool = false,
+    scale_div: usize = 1,
 
-    const args = try init.minimal.args.toSlice(arena);
-    var human_output = false;
-    var scale_div: usize = 1;
-
-    for (args[1..]) |arg| {
+    fn parseArg(self: *CliConfig, arg: []const u8) void {
         if (std.mem.eql(u8, arg, "--human")) {
-            human_output = true;
+            self.human_output = true;
         } else if (std.mem.eql(u8, arg, "--json")) {
-            human_output = false;
+            self.human_output = false;
+        } else if (std.mem.eql(u8, arg, "--quick")) {
+            self.scale_div = 10;
         } else if (std.mem.startsWith(u8, arg, "--scale=")) {
-            scale_div = std.fmt.parseUnsigned(usize, arg["--scale=".len..], 10) catch 1;
-            if (scale_div == 0) scale_div = 1;
+            self.scale_div = std.fmt.parseUnsigned(usize, arg["--scale=".len..], 10) catch 1;
+            if (self.scale_div == 0) self.scale_div = 1;
         }
     }
+};
 
+const is_freestanding_wasm = builtin.os.tag == .freestanding and
+    (builtin.cpu.arch == .wasm32 or builtin.cpu.arch == .wasm64);
+
+const WasiCiovec32 = extern struct {
+    base: u32,
+    len: u32,
+};
+
+extern "wasi_snapshot_preview1" fn clock_time_get(clock_id: u32, precision: u64, timestamp_ptr: u32) u16;
+extern "wasi_snapshot_preview1" fn fd_write(fd: i32, iovs_ptr: u32, iovs_len: u32, nwritten_ptr: u32) u16;
+extern "wasi_snapshot_preview1" fn args_sizes_get(argc_ptr: u32, argv_buf_size_ptr: u32) u16;
+extern "wasi_snapshot_preview1" fn args_get(argv_ptr: u32, argv_buf_ptr: u32) u16;
+
+const freestanding_vtable: Io.VTable = blk: {
+    var table = Io.failing.vtable.*;
+    table.now = freestandingNow;
+    table.clockResolution = freestandingClockResolution;
+    break :blk table;
+};
+
+const freestanding_io: Io = .{
+    .userdata = null,
+    .vtable = &freestanding_vtable,
+};
+
+fn freestandingNow(_: ?*anyopaque, clock: Io.Clock) Io.Timestamp {
+    const clock_id: u32 = switch (clock) {
+        .real => 0,
+        .awake, .boot => 1,
+        .cpu_process, .cpu_thread => return .zero,
+    };
+    var ns: u64 align(8) = 0;
+    const ptr32: u32 = @intCast(@intFromPtr(&ns));
+    if (clock_time_get(clock_id, 0, ptr32) != 0) return .zero;
+    return .fromNanoseconds(@intCast(ns));
+}
+
+fn freestandingClockResolution(_: ?*anyopaque, clock: Io.Clock) Io.Clock.ResolutionError!Io.Duration {
+    return switch (clock) {
+        .real, .awake, .boot => Io.Duration.fromNanoseconds(1),
+        .cpu_process, .cpu_thread => error.ClockUnavailable,
+    };
+}
+
+fn freestandingWriteAll(fd: i32, bytes: []const u8) void {
+    var chunk_buf: [4096]u8 = undefined;
+    var remaining = bytes;
+    while (remaining.len > 0) {
+        const chunk_len = @min(remaining.len, chunk_buf.len);
+        @memcpy(chunk_buf[0..chunk_len], remaining[0..chunk_len]);
+        var iov = WasiCiovec32{
+            .base = @intCast(@intFromPtr(&chunk_buf)),
+            .len = @intCast(chunk_len),
+        };
+        var nwritten: u32 = 0;
+        const rc = fd_write(
+            fd,
+            @intCast(@intFromPtr(&iov)),
+            1,
+            @intCast(@intFromPtr(&nwritten)),
+        );
+        if (rc != 0 or nwritten == 0) break;
+        remaining = remaining[nwritten..];
+    }
+}
+
+fn formatBenchmarks(allocator: std.mem.Allocator, io: Io, config: CliConfig, stdout: *Io.Writer) !void {
+    const scale_div = config.scale_div;
+    const human_output = config.human_output;
     const suite_start_ns = nowNs(io);
 
     const layout_stats = try runLayoutBench(
@@ -871,10 +938,6 @@ pub fn main(init: std.process.Init) !void {
     total_checksum = mixHash(total_checksum, text_stats.checksum);
     total_checksum = mixHash(total_checksum, render_stats.checksum);
     total_checksum = mixHash(total_checksum, combined_stats.checksum);
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
-    const stdout = &stdout_writer.interface;
 
     if (human_output) {
         try stdout.print(
@@ -916,6 +979,7 @@ pub fn main(init: std.process.Init) !void {
             total_bench_ms,
             total_checksum,
         });
+        return;
     }
 
     try stdout.print(
@@ -942,5 +1006,49 @@ pub fn main(init: std.process.Init) !void {
         \\}}
         \\
     , .{});
+}
+
+fn freestandingMain() void {
+    const allocator = std.heap.wasm_allocator;
+    var config: CliConfig = .{};
+
+    var argc: u32 = 0;
+    var argv_buf_size: u32 = 0;
+    if (args_sizes_get(@intCast(@intFromPtr(&argc)), @intCast(@intFromPtr(&argv_buf_size))) == 0 and argc > 1) {
+        const argv_ptrs = allocator.alloc(u32, argc) catch @trap();
+        defer allocator.free(argv_ptrs);
+        const argv_buf = allocator.alloc(u8, argv_buf_size) catch @trap();
+        defer allocator.free(argv_buf);
+        if (args_get(@intCast(@intFromPtr(argv_ptrs.ptr)), @intCast(@intFromPtr(argv_buf.ptr))) == 0) {
+            for (argv_ptrs[1..]) |arg_ptr32| {
+                const arg_cstr: [*:0]const u8 = @ptrFromInt(@as(usize, arg_ptr32));
+                config.parseArg(std.mem.span(arg_cstr));
+            }
+        }
+    }
+
+    var out_buf: Io.Writer.Allocating = .init(allocator);
+    defer out_buf.deinit();
+    formatBenchmarks(allocator, freestanding_io, config, &out_buf.writer) catch @trap();
+    freestandingWriteAll(1, out_buf.written());
+}
+
+fn hostedMain(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
+    const arena = init.arena.allocator();
+
+    const args = try init.minimal.args.toSlice(arena);
+    var config: CliConfig = .{};
+    for (args[1..]) |arg| {
+        config.parseArg(arg);
+    }
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try formatBenchmarks(allocator, io, config, stdout);
     try stdout.flush();
 }
+
+pub const main = if (is_freestanding_wasm) freestandingMain else hostedMain;

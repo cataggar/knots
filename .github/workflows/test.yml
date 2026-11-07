@@ -92,7 +92,7 @@ jobs:
         run: ./wazig-build test -Dtarget=wasm32-wasi -Dgpu_backend=webgpu -Dweb_threads=true -fwasmtime
 
   wasm-build:
-    name: wasm32-freestanding
+    name: wasm-freestanding
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -131,6 +131,14 @@ jobs:
         run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgpu -Dweb_threads=true
       - name: Build playground (webgl2 + web_threads)
         run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2 -Dweb_threads=true
+      - name: Build playground (wasm64 webgpu)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu
+      - name: Build playground (wasm64 webgl2)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgl2
+      - name: Build playground (wasm64 webgpu + web_threads)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu -Dweb_threads=true
+      - name: Build playground (wasm64 webgl2 + web_threads)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgl2 -Dweb_threads=true
 
   benchmark:
     name: wazig benchmarks
