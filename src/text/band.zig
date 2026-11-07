@@ -62,7 +62,7 @@ fn emptyPartition(allocator: std.mem.Allocator) !PartitionResult {
     };
 }
 
-fn computeCurveExtents(curves: []const Curve, extents: []Bounds) Bounds {
+inline fn computeCurveExtents(curves: []const Curve, extents: []Bounds) Bounds {
     std.debug.assert(curves.len > 0);
     std.debug.assert(extents.len == curves.len);
 
@@ -103,11 +103,12 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
     var stack_extents: [stack_curve_capacity]Bounds = undefined;
     var stack_scratch_indices: [stack_curve_capacity]u32 = undefined;
     var stack_sorted_indices: [stack_curve_capacity]u32 = undefined;
+    var stack_sort_keys: [stack_curve_capacity]f32 = undefined;
     var stack_h_ranges: [stack_curve_capacity]u8 = undefined;
     var stack_v_ranges: [stack_curve_capacity]u8 = undefined;
 
     const heap_scratch: []u32 = if (n > stack_curve_capacity)
-        try allocator.alloc(u32, n * 7)
+        try allocator.alloc(u32, n * 8)
     else
         &.{};
     defer if (heap_scratch.len > 0) allocator.free(heap_scratch);
@@ -124,14 +125,18 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
         stack_sorted_indices[0..n]
     else
         heap_scratch[n * 5 .. n * 6];
+    const sort_keys: []f32 = if (n <= stack_curve_capacity)
+        stack_sort_keys[0..n]
+    else
+        @as([*]f32, @ptrCast(heap_scratch[n * 6 .. n * 7].ptr))[0..n];
     const h_ranges: []u8 = if (n <= stack_curve_capacity)
         stack_h_ranges[0..n]
     else
-        std.mem.sliceAsBytes(heap_scratch[n * 6 .. n * 7])[0..n];
+        std.mem.sliceAsBytes(heap_scratch[n * 7 .. n * 8])[0..n];
     const v_ranges: []u8 = if (n <= stack_curve_capacity)
         stack_v_ranges[0..n]
     else
-        std.mem.sliceAsBytes(heap_scratch[n * 6 .. n * 7])[n .. n * 2];
+        std.mem.sliceAsBytes(heap_scratch[n * 7 .. n * 8])[n .. n * 2];
 
     const bounds = computeCurveExtents(curves, extents);
     var span = [2]f32{
@@ -205,8 +210,8 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
     }
     std.debug.assert(offset == total_refs);
 
-    scatterAxisBands(extents, h_ranges, 0, scratch_indices, sorted_indices, horizontal_bands);
-    scatterAxisBands(extents, v_ranges, 1, scratch_indices, sorted_indices, vertical_bands);
+    scatterAxisBands(extents, h_ranges, 0, scratch_indices, sorted_indices, sort_keys, horizontal_bands);
+    scatterAxisBands(extents, v_ranges, 1, scratch_indices, sorted_indices, sort_keys, vertical_bands);
 
     return .{
         .band_index_max = .{
@@ -223,13 +228,13 @@ pub fn partition(allocator: std.mem.Allocator, curves: []const Curve) !Partition
     };
 }
 
-fn sortBandIndices(
-    extents: []const Bounds,
-    sort_axis: u1,
+inline fn sortBandIndices(
+    sort_keys: []const f32,
     items: []u32,
-    band_slice: []u32,
+    scratch: []u32,
 ) void {
-    std.debug.assert(items.len == band_slice.len);
+    std.debug.assert(items.len == scratch.len);
+    std.debug.assert(sort_keys.len == items.len);
 
     var chunk_start: usize = 0;
     while (chunk_start < items.len) : (chunk_start += insertion_sort_limit) {
@@ -237,9 +242,9 @@ fn sortBandIndices(
         var i = chunk_start + 1;
         while (i < chunk_end) : (i += 1) {
             const idx = items[i];
-            const key_max = extents[idx].max[sort_axis];
+            const key_max = sort_keys[idx];
             var j = i;
-            while (j > chunk_start and extents[items[j - 1]].max[sort_axis] < key_max) : (j -= 1) {
+            while (j > chunk_start and sort_keys[items[j - 1]] < key_max) : (j -= 1) {
                 items[j] = items[j - 1];
             }
             items[j] = idx;
@@ -247,7 +252,7 @@ fn sortBandIndices(
     }
 
     var src = items;
-    var dst = band_slice;
+    var dst = scratch;
     var width: usize = insertion_sort_limit;
     while (width < items.len) : (width *= 2) {
         var left: usize = 0;
@@ -258,11 +263,13 @@ fn sortBandIndices(
             var r = mid;
             var out = left;
             while (l < mid and r < right) : (out += 1) {
-                if (extents[src[l]].max[sort_axis] >= extents[src[r]].max[sort_axis]) {
-                    dst[out] = src[l];
+                const left_idx = src[l];
+                const right_idx = src[r];
+                if (sort_keys[left_idx] >= sort_keys[right_idx]) {
+                    dst[out] = left_idx;
                     l += 1;
                 } else {
-                    dst[out] = src[r];
+                    dst[out] = right_idx;
                     r += 1;
                 }
             }
@@ -274,12 +281,12 @@ fn sortBandIndices(
         dst = tmp;
     }
 
-    if (src.ptr != band_slice.ptr) {
-        @memcpy(band_slice, src);
+    if (src.ptr != items.ptr) {
+        @memcpy(items, src);
     }
 }
 
-fn computeAxisBandRanges(
+inline fn computeAxisBandRanges(
     extents: []const Bounds,
     num_bands: usize,
     origin: f32,
@@ -334,10 +341,15 @@ fn computeAxisBandRanges(
 
         if (first_band <= last_band and !(max_v < band_mins[first_band]) and !(min_v > band_maxs[last_band])) {
             range_out.* = (@as(u8, @intCast(first_band)) << 4) | @as(u8, @intCast(last_band));
-            for (first_band..last_band + 1) |b| {
-                out_counts[b] += 1;
+            if (first_band == last_band) {
+                out_counts[first_band] += 1;
+                total_refs += 1;
+            } else {
+                for (first_band..last_band + 1) |b| {
+                    out_counts[b] += 1;
+                }
+                total_refs += (last_band - first_band + 1);
             }
-            total_refs += (last_band - first_band + 1);
         } else {
             range_out.* = no_band_overlap;
         }
@@ -346,23 +358,26 @@ fn computeAxisBandRanges(
     return total_refs;
 }
 
-fn scatterAxisBands(
+inline fn scatterAxisBands(
     extents: []const Bounds,
     ranges: []const u8,
     sort_axis: u1,
     scratch_indices: []u32,
     sorted_indices: []u32,
+    sort_keys: []f32,
     bands: [][]u32,
 ) void {
     const curve_count = extents.len;
     std.debug.assert(ranges.len == curve_count);
     std.debug.assert(scratch_indices.len == curve_count);
     std.debug.assert(sorted_indices.len == curve_count);
+    std.debug.assert(sort_keys.len == curve_count);
 
-    for (scratch_indices, 0..) |*slot, i| {
+    for (extents, sorted_indices, sort_keys, 0..) |ext, *slot, *key, i| {
         slot.* = @intCast(i);
+        key.* = ext.max[sort_axis];
     }
-    sortBandIndices(extents, sort_axis, scratch_indices, sorted_indices);
+    sortBandIndices(sort_keys, sorted_indices, scratch_indices);
 
     var write_pos: [bands_per_axis_max]usize = @splat(0);
     for (sorted_indices) |curve_idx| {
@@ -370,9 +385,14 @@ fn scatterAxisBands(
         if (packed_range == no_band_overlap) continue;
         const first_band: usize = packed_range >> 4;
         const last_band: usize = packed_range & 0x0F;
-        for (first_band..last_band + 1) |b| {
-            bands[b][write_pos[b]] = curve_idx;
-            write_pos[b] += 1;
+        if (first_band == last_band) {
+            bands[first_band][write_pos[first_band]] = curve_idx;
+            write_pos[first_band] += 1;
+        } else {
+            for (first_band..last_band + 1) |b| {
+                bands[b][write_pos[b]] = curve_idx;
+                write_pos[b] += 1;
+            }
         }
     }
 
