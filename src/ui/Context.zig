@@ -253,48 +253,98 @@ fn visibleHitBounds(rec: HitRecord) math.Rect {
 }
 
 fn semanticDigest(snapshot: Accessibility.Snapshot) u64 {
+    const Header = extern struct {
+        focus: u64,
+        content_scale: f32,
+        _pad: u32 = 0,
+    };
+    const Flags = packed struct(u16) {
+        has_text_run_id: bool,
+        disabled: bool,
+        focused: bool,
+        multiline: bool,
+        has_checked: bool,
+        checked: bool,
+        has_selected: bool,
+        selected: bool,
+        has_expanded: bool,
+        expanded: bool,
+        has_value_text: bool,
+        has_value_number: bool,
+        has_min: bool,
+        has_max: bool,
+        has_selection_anchor: bool,
+        has_selection_focus: bool,
+    };
+    const PackedNode = extern struct {
+        id: u64,
+        parent: u64,
+        text_run_id: u64,
+        bounds: [4]f32,
+        name_len: u32,
+        value_text_len: u32,
+        child_count: u32,
+        value_number: u32,
+        min: u32,
+        max: u32,
+        selection_anchor: u32,
+        selection_focus: u32,
+        flags: u16,
+        actions: u16,
+        role: u8,
+        _pad: [3]u8 = .{ 0, 0, 0 },
+    };
+    comptime std.debug.assert(@sizeOf(PackedNode) == 80);
+
     var digest = std.hash.Wyhash.init(0);
-    digest.update(std.mem.asBytes(&snapshot.content_scale));
-    digest.update(std.mem.asBytes(&snapshot.focus));
-    for (snapshot.nodes) |node| {
-        digest.update(std.mem.asBytes(&node.id));
-        digest.update(std.mem.asBytes(&node.parent));
-        hashOptional(&digest, node.text_run_id);
-        digest.update(std.mem.asBytes(&node.role));
-        const name_length: u32 = @intCast(node.name.len);
-        digest.update(std.mem.asBytes(&name_length));
-        digest.update(node.name);
-        digest.update(std.mem.asBytes(&node.bounds.v));
-        digest.update(std.mem.asBytes(&node.child_count));
-        digest.update(std.mem.asBytes(&node.state.disabled));
-        digest.update(std.mem.asBytes(&node.state.focused));
-        digest.update(std.mem.asBytes(&node.state.multiline));
-        hashOptional(&digest, node.state.checked);
-        hashOptional(&digest, node.state.selected);
-        hashOptional(&digest, node.state.expanded);
-        const has_value_text = node.state.value_text != null;
-        digest.update(std.mem.asBytes(&has_value_text));
-        if (node.state.value_text) |value| {
-            const length: u32 = @intCast(value.len);
-            digest.update(std.mem.asBytes(&length));
-            digest.update(value);
-        }
-        hashOptional(&digest, node.state.value_number);
-        hashOptional(&digest, node.state.min);
-        hashOptional(&digest, node.state.max);
-        hashOptional(&digest, node.state.selection_anchor);
-        hashOptional(&digest, node.state.selection_focus);
-        const actions = node.actions.bits;
-        digest.update(std.mem.asBytes(&actions));
+    const header: Header = .{
+        .focus = snapshot.focus,
+        .content_scale = snapshot.content_scale,
+    };
+    digest.update(std.mem.asBytes(&header));
+    for (snapshot.nodes) |*node| {
+        const st = &node.state;
+        const flags: Flags = .{
+            .has_text_run_id = node.text_run_id != null,
+            .disabled = st.disabled,
+            .focused = st.focused,
+            .multiline = st.multiline,
+            .has_checked = st.checked != null,
+            .checked = st.checked orelse false,
+            .has_selected = st.selected != null,
+            .selected = st.selected orelse false,
+            .has_expanded = st.expanded != null,
+            .expanded = st.expanded orelse false,
+            .has_value_text = st.value_text != null,
+            .has_value_number = st.value_number != null,
+            .has_min = st.min != null,
+            .has_max = st.max != null,
+            .has_selection_anchor = st.selection_anchor != null,
+            .has_selection_focus = st.selection_focus != null,
+        };
+        const packed_node: PackedNode = .{
+            .id = node.id,
+            .parent = node.parent,
+            .text_run_id = node.text_run_id orelse 0,
+            .bounds = node.bounds.v,
+            .name_len = @intCast(node.name.len),
+            .value_text_len = if (st.value_text) |v| @intCast(v.len) else 0,
+            .child_count = node.child_count,
+            .value_number = if (st.value_number) |v| @bitCast(v) else 0,
+            .min = if (st.min) |v| @bitCast(v) else 0,
+            .max = if (st.max) |v| @bitCast(v) else 0,
+            .selection_anchor = st.selection_anchor orelse 0,
+            .selection_focus = st.selection_focus orelse 0,
+            .flags = @bitCast(flags),
+            .actions = node.actions.bits.mask,
+            .role = @backingInt(node.role),
+        };
+        digest.update(std.mem.asBytes(&packed_node));
+        if (node.name.len > 0) digest.update(node.name);
+        if (st.value_text) |value| if (value.len > 0) digest.update(value);
     }
     digest.update(std.mem.sliceAsBytes(snapshot.children));
     return digest.final();
-}
-
-fn hashOptional(digest: *std.hash.Wyhash, value: anytype) void {
-    const present = value != null;
-    digest.update(std.mem.asBytes(&present));
-    if (value) |item| digest.update(std.mem.asBytes(&item));
 }
 
 /// Cancel an active frame after user code fails, allowing a later retry.
@@ -435,36 +485,58 @@ fn reflowWrappedText(ui: *UI) !bool {
 
 fn syncStateBounds(ui: *UI) void {
     if (ui.layout_ctx.root_slot == Element.INVALID_SLOT) return;
+    const pools = &ui.state.storage.pools;
+    const has_text_select = pools.text_select.map.size != 0;
+    const has_slider = pools.slider.map.size != 0;
+    const has_measured = pools.measured.map.size != 0;
+    const has_resize = pools.resize.map.size != 0;
+    const has_select_input = pools.select_input.map.size != 0;
+    const has_color_picker = pools.color_picker.map.size != 0;
+    const has_context_menu = pools.context_menu.map.size != 0;
+    const has_menu_button = pools.menu_button.map.size != 0;
+    const has_tooltip = pools.tooltip.map.size != 0;
+    if (!has_text_select and !has_slider and !has_measured and !has_resize and
+        !has_select_input and !has_color_picker and !has_context_menu and
+        !has_menu_button and !has_tooltip) return;
+
     const root_box = ui.layout_ctx.pool.get(ui.layout_ctx.root_slot).box;
-    for (ui.layout_ctx.pool.elements.items) |el| {
-        if (ui.state.get(.text_select, el.id)) |s| s.box = el.box;
-        if (ui.state.get(.slider, el.id)) |s| s.bounds = el.box;
-        if (ui.state.get(.measured, el.id)) |s| {
-            s.box = el.box;
-            s.width = el.box.w();
-            s.height = el.box.h();
-        }
-        if (ui.state.get(.resize, el.id)) |s| s.box = el.box;
-        if (ui.state.get(.select_input, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.color_picker, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.context_menu, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.menu_button, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.tooltip, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
+    for (ui.layout_ctx.pool.elements.items) |*el| {
+        const id = el.id;
+        if (id == Element.INVALID_ID) continue;
+        if (has_text_select) if (pools.text_select.map.getPtr(id)) |e| {
+            e.value.box = el.box;
+        };
+        if (has_slider) if (pools.slider.map.getPtr(id)) |e| {
+            e.value.bounds = el.box;
+        };
+        if (has_measured) if (pools.measured.map.getPtr(id)) |e| {
+            e.value.box = el.box;
+            e.value.width = el.box.w();
+            e.value.height = el.box.h();
+        };
+        if (has_resize) if (pools.resize.map.getPtr(id)) |e| {
+            e.value.box = el.box;
+        };
+        if (has_select_input) if (pools.select_input.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_color_picker) if (pools.color_picker.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_context_menu) if (pools.context_menu.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_menu_button) if (pools.menu_button.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_tooltip) if (pools.tooltip.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
     }
 }
 
@@ -872,17 +944,19 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
                     if (total_glyphs == 0) continue;
 
                     const batch = (try draw_list.beginTextBatch(total_glyphs, clip)).?;
+                    const box_x = el.box.x();
+                    const box_y = el.box.y();
+                    const dilation_margin = 2.0 / content_scale;
 
-                    for (shaped.lines) |line| {
-                        const baseline = el.box.y() + ascender + line.y / content_scale;
-                        for (line.glyphs) |gl| {
-                            const rec = gl.record;
+                    for (shaped.lines) |*line| {
+                        const baseline = box_y + ascender + line.y / content_scale;
+                        for (line.glyphs) |*gl| {
+                            const rec = &gl.record;
                             if (rec.is_empty) continue;
 
-                            const origin_x = el.box.x() + gl.x / content_scale;
+                            const origin_x = box_x + gl.x / content_scale;
 
                             if (clip.scissor) |c| {
-                                const dilation_margin = 2.0 / content_scale;
                                 const glyph_bounds = math.Rect.fromMinMax(
                                     .{ origin_x + rec.bounds_em_min[0] * size_logical, baseline - rec.bounds_em_max[1] * size_logical },
                                     .{ origin_x + rec.bounds_em_max[0] * size_logical, baseline - rec.bounds_em_min[1] * size_logical },

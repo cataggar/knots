@@ -327,7 +327,7 @@ pub fn buildZOrder(self: *Context) !void {
     }
 }
 
-pub fn zSlots(self: *const Context, z: u8) []const Element.Slot {
+pub inline fn zSlots(self: *const Context, z: u8) []const Element.Slot {
     return self.z_slots.items[self.z_offsets[z]..self.z_offsets[@as(u9, z) + 1]];
 }
 
@@ -375,7 +375,7 @@ pub fn computeSizes(self: *Context) void {
     }
 }
 
-fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
+inline fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
     if (el.intrinsic_w > 0)
         return el.intrinsic_w + el.padding.left() + el.padding.right();
 
@@ -413,7 +413,7 @@ fn fitWidth(self: *Context, slot: Element.Slot, el: *Element) f32 {
     return total;
 }
 
-fn fitHeight(self: *Context, slot: Element.Slot, el: *Element) f32 {
+inline fn fitHeight(self: *Context, slot: Element.Slot, el: *Element) f32 {
     if (el.intrinsic_h > 0)
         return el.intrinsic_h + el.padding.top() + el.padding.bottom();
 
@@ -455,7 +455,7 @@ pub const ScrollLookup = struct {
     ctx: *anyopaque,
     getFn: *const fn (ctx: *anyopaque, id: Element.Id) [2]f32,
 
-    pub fn get(self: ScrollLookup, id: Element.Id) [2]f32 {
+    pub inline fn get(self: ScrollLookup, id: Element.Id) [2]f32 {
         return self.getFn(self.ctx, id);
     }
 };
@@ -743,7 +743,7 @@ inline fn gapTotal(el: *const Element, count: u32) f32 {
         0;
 }
 
-fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, initial_free: f32, initial_grow_count: u32) void {
+inline fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, initial_free: f32, initial_grow_count: u32) void {
     const elements = self.pool.elements.items;
     var remaining_free = initial_free;
     var grow_count: f32 = @floatFromInt(initial_grow_count);
@@ -783,7 +783,7 @@ fn distributeGrow(self: *Context, el: *const Element, axis: AxisInfo, initial_fr
     }
 }
 
-fn positionChildren(
+inline fn positionChildren(
     self: *Context,
     el: *Element,
     axis: AxisInfo,
@@ -859,6 +859,10 @@ fn positionChildren(
         }
     }
 
+    const origin_x = el.box.x() - scroll_offset[0];
+    const origin_y = el.box.y() - scroll_offset[1];
+    const alignment = el.alignment;
+
     var child_slot = el.first_child;
     while (child_slot != Element.INVALID_SLOT) {
         const cur_slot = child_slot;
@@ -872,21 +876,25 @@ fn positionChildren(
             }
         }
 
-        const cross_offset = axis.pad_cross_start + switch (el.alignment) {
+        const child_w = child.box.w();
+        const child_h = child.box.h();
+        const child_main = if (axis.is_row) child_w else child_h;
+        const child_cross = if (axis.is_row) child_h else child_w;
+
+        const cross_offset = axis.pad_cross_start + switch (alignment) {
             .start, .stretch => @as(f32, 0),
-            .center => (axis.cross_size - if (axis.is_row) child.box.h() else child.box.w()) / 2,
-            .end => axis.cross_size - if (axis.is_row) child.box.h() else child.box.w(),
+            .center => (axis.cross_size - child_cross) / 2,
+            .end => axis.cross_size - child_cross,
         };
 
-        const cx = if (axis.is_row) el.box.x() + cursor - scroll_offset[0] else el.box.x() + cross_offset - scroll_offset[0];
-        const cy = if (axis.is_row) el.box.y() + cross_offset - scroll_offset[1] else el.box.y() + cursor - scroll_offset[1];
-        cursor += axis.childMainSize(child) + item_gap;
+        const cx = origin_x + if (axis.is_row) cursor else cross_offset;
+        const cy = origin_y + if (axis.is_row) cross_offset else cursor;
+        cursor += child_main + item_gap;
 
         if (child.first_child == Element.INVALID_SLOT and !child.overflow.isScroll()) {
-            child.box.setX(cx);
-            child.box.setY(cy);
-            child.content_w = child.box.w();
-            child.content_h = child.box.h();
+            child.box.v = .{ cx, cy, child_w, child_h };
+            child.content_w = child_w;
+            child.content_h = child_h;
         } else {
             try self.computeLayoutNode(cur_slot, cx, cy, scroll, scrollbar_thickness);
         }

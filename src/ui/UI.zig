@@ -185,10 +185,11 @@ pub fn openWith(self: *UI, key: Key, element: Element.Config, decoration: Decora
         self.cull_depth += 1;
         return INVALID_ID;
     }
+    const id = key.hash();
     var cfg = element;
     var decoration_used = decoration;
     if (options.root == null) {
-        if (self.cullRecord(key.hash())) |record| {
+        if (self.cullRecord(id)) |record| {
             if (cfg.width.kind == .fit) cfg.width = .fixed(record.size[0]);
             if (cfg.height.kind == .fit) cfg.height = .fixed(record.size[1]);
             cfg.interactive = false;
@@ -202,7 +203,6 @@ pub fn openWith(self: *UI, key: Key, element: Element.Config, decoration: Decora
         cfg.z_index = State.overlayWithin(self.currentLayer(), Layer.fromIndex(cfg.z_index)).index();
     }
 
-    const id = key.hash();
     try self.decorations.ensureUnusedCapacity(self.allocator, 1);
     try self.contents.ensureUnusedCapacity(self.allocator, 1);
     try self.clip_shapes.ensureUnusedCapacity(self.allocator, 1);
@@ -397,7 +397,7 @@ pub fn states(self: *UI, id: Element.Id, extra: style.States) style.States {
 pub fn resolveStyle(self: *UI, id: Element.Id, cascade: style.Cascade, st: style.States, parent: ?*const style.Content) style.Resolved {
     const inherited = if (parent) |p| p.* else self.parentContent();
     var resolved = style.resolve(cascade, st, &inherited, &self.theme);
-    if (resolved.transition) |transition| resolved.setVisual(self.transitionVisual(id, resolved.visual(), transition));
+    if (resolved.transition) |transition| self.applyTransition(id, &resolved, transition);
     return resolved;
 }
 
@@ -443,12 +443,13 @@ pub fn styledText(self: *UI, key: Key, content: []const u8, cascade: style.Casca
     return id;
 }
 
-fn transitionVisual(self: *UI, id: Element.Id, target: style.Visual, transition: style.Transition) style.Visual {
-    const s: *State.StyleTransition = self.state.getOrCreate(.style_transition, self.allocator, id) catch return target;
+fn applyTransition(self: *UI, id: Element.Id, resolved: *style.Resolved, transition: style.Transition) void {
+    const target = resolved.visual();
+    const s: *State.StyleTransition = self.state.getOrCreate(.style_transition, self.allocator, id) catch return;
     const now = self.input.now_ms;
     if (!s.initialized) {
         s.* = .{ .from = target, .to = target, .t0_ms = now, .duration_ms = transition.duration_ms, .ease = transition.ease, .initialized = true };
-        return target;
+        return;
     }
     if (!s.to.eql(target)) {
         s.from = sampleTransition(s, now).visual;
@@ -456,10 +457,14 @@ fn transitionVisual(self: *UI, id: Element.Id, target: style.Visual, transition:
         s.t0_ms = now;
         s.duration_ms = transition.duration_ms;
         s.ease = transition.ease;
+    } else if (s.duration_ms == 0 or now - s.t0_ms >= @as(i64, s.duration_ms)) {
+        return;
     }
     const sample = sampleTransition(s, now);
-    if (sample.t < 1.0) self.anim_active = true;
-    return sample.visual;
+    if (sample.t < 1.0) {
+        self.anim_active = true;
+        resolved.setVisual(sample.visual);
+    }
 }
 
 fn sampleTransition(s: *const State.StyleTransition, now_ms: i64) struct { visual: style.Visual, t: f32 } {
