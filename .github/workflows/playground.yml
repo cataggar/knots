@@ -2,7 +2,7 @@ name: Deploy playground
 
 on:
   push:
-    branches: [main]
+    branches: [main, wazig]
     paths:
       - "examples/playground/**"
       - "src/**"
@@ -10,6 +10,9 @@ on:
       - "build.zig"
       - "build.zig.zon"
       - "web_build.zig"
+      - "wazig-build"
+      - "scripts/wazig-build.py"
+      - "tools/wazig_configurer.zig"
       - ".github/workflows/playground.yml"
   workflow_dispatch:
 
@@ -18,7 +21,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
+  pages: write
   attestations: read
 
 jobs:
@@ -26,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Install wazig and Wasmtime
         uses: cataggar/ghr/actions/install@v0.10.3
         env:
@@ -57,9 +63,57 @@ jobs:
       - name: Build playground (ReleaseSmall)
         run: |
           ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+          test -s examples/playground/zig-out/web/index.html
           test -s examples/playground/zig-out/web/app.wasm
+          test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
           cp examples/playground/_headers examples/playground/zig-out/web/
+
+      - name: Publish the orphaned web branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_DIR: ${{ runner.temp }}/knots-published-web
+        run: |
+          set -euo pipefail
+          test -s examples/playground/zig-out/web/index.html
+          test -s examples/playground/zig-out/web/app.wasm
+          test -s examples/playground/zig-out/web/knots.js
+          test -s examples/playground/zig-out/web/knots-webgl2.js
+          rm -rf "$PUBLISH_DIR"
+          gh auth setup-git
+          git init --quiet --initial-branch=web "$PUBLISH_DIR"
+          git -C "$PUBLISH_DIR" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          existing=$(git -C "$PUBLISH_DIR" ls-remote --heads origin refs/heads/web)
+          if [ -n "$existing" ]; then
+            git -C "$PUBLISH_DIR" fetch --quiet --no-tags origin web
+            # Retain the branch parent without checking out obsolete static files.
+            git -C "$PUBLISH_DIR" reset --soft FETCH_HEAD
+          fi
+          cp -a examples/playground/zig-out/web/. "$PUBLISH_DIR/"
+          touch "$PUBLISH_DIR/.nojekyll"
+          git -C "$PUBLISH_DIR" config user.name 'github-actions[bot]'
+          git -C "$PUBLISH_DIR" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$PUBLISH_DIR" add --all
+          if ! git -C "$PUBLISH_DIR" rev-parse --verify HEAD >/dev/null 2>&1 || \
+             ! git -C "$PUBLISH_DIR" diff --cached --quiet; then
+            git -C "$PUBLISH_DIR" commit --quiet \
+              -m "Publish playground web from $GITHUB_SHA" \
+              -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+            git -C "$PUBLISH_DIR" push origin HEAD:refs/heads/web
+          fi
+
+      - name: Check the Pages source and request a build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          configured=$(gh api "repos/$GITHUB_REPOSITORY/pages" \
+            --jq '.build_type == "legacy" and .source.branch == "web" and .source.path == "/"')
+          if [ "$configured" != true ]; then
+            echo '::error::An administrator must configure GitHub Pages to deploy from web / (root).'
+            exit 1
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
 
       - name: Deploy to Cloudflare Workers
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
