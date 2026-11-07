@@ -297,6 +297,24 @@ test "pipeline descriptors include GLSL ES 3.00 sources on webgpu and webgl2" {
             if (gpu.backend == .webgl2) {
                 try std.testing.expect(desc.shader == .glsl);
             }
+
+            // Fragment inputs in GLSL ES 3.00 must never use layout(location = ...).
+            var fs_lines = std.mem.splitScalar(u8, glsl.fs, '\n');
+            while (fs_lines.next()) |raw_line| {
+                const line = std.mem.trim(u8, raw_line, " \t\r");
+                if (std.mem.startsWith(u8, line, "layout(") and std.mem.indexOf(u8, line, ") in ") != null) {
+                    return error.InvalidFragmentInputLayoutLocation;
+                }
+            }
+
+            // Vertex shader layout(location = N) inputs must match the pipeline's vertex buffer attributes.
+            for (desc.vertex_buffers) |vb| {
+                for (vb.attributes) |attr| {
+                    var needle_buf: [64]u8 = undefined;
+                    const needle = try std.fmt.bufPrint(&needle_buf, "layout(location = {d}) in ", .{attr.location});
+                    try std.testing.expect(std.mem.indexOf(u8, glsl.vs, needle) != null);
+                }
+            }
         }
     }
 }
