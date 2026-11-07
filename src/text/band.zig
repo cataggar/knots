@@ -96,10 +96,10 @@ inline fn computeCurveExtents(curves: []const Curve, extents: []Bounds) Bounds {
         const max_x = @max(p1[0], @max(p2[0], p3[0]));
         const max_y = @max(p1[1], @max(p2[1], p3[1]));
         extent.* = .{ .min = .{ min_x, min_y }, .max = .{ max_x, max_y } };
-        bounds_min_x = @min(bounds_min_x, min_x);
-        bounds_min_y = @min(bounds_min_y, min_y);
-        bounds_max_x = @max(bounds_max_x, max_x);
-        bounds_max_y = @max(bounds_max_y, max_y);
+        if (min_x < bounds_min_x) bounds_min_x = min_x;
+        if (min_y < bounds_min_y) bounds_min_y = min_y;
+        if (max_x > bounds_max_x) bounds_max_x = max_x;
+        if (max_y > bounds_max_y) bounds_max_y = max_y;
     }
     return .{
         .min = .{ bounds_min_x, bounds_min_y },
@@ -310,7 +310,7 @@ noinline fn mergeSortBandSlice(
 }
 
 inline fn computeAxisBandRanges(
-    extents: []const Bounds,
+    extents: []Bounds,
     num_bands: usize,
     origin: f32,
     span: f32,
@@ -379,8 +379,8 @@ inline fn computeAxisBandRanges(
 }
 
 inline fn scatterAxisBands(
-    extents: []const Bounds,
-    ranges: []const u8,
+    extents: []Bounds,
+    ranges: []u8,
     sort_axis: u1,
     scratch_indices: []u32,
     sort_keys: []f32,

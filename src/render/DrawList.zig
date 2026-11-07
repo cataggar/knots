@@ -535,10 +535,10 @@ inline fn commandBounds(self: *const DrawList, command: *const Command, kind: Co
                 const vertex = &self.vertices.items[vertex_index];
                 const vx = vertex.pos[0];
                 const vy = vertex.pos[1];
-                x0 = @min(vx, x0);
-                y0 = @min(vy, y0);
-                x1 = @max(vx, x1);
-                y1 = @max(vy, y1);
+                if (vx < x0) x0 = vx;
+                if (vy < y0) y0 = vy;
+                if (vx > x1) x1 = vx;
+                if (vy > y1) y1 = vy;
             }
         },
         .instance => {
@@ -548,10 +548,14 @@ inline fn commandBounds(self: *const DrawList, command: *const Command, kind: Co
                 const iy0 = inst.pos[1];
                 const ix1 = ix0 + inst.size[0];
                 const iy1 = iy0 + inst.size[1];
-                x0 = @min(@min(ix0, ix1), x0);
-                y0 = @min(@min(iy0, iy1), y0);
-                x1 = @max(@max(ix0, ix1), x1);
-                y1 = @max(@max(iy0, iy1), y1);
+                const lx0 = if (ix1 < ix0) ix1 else ix0;
+                const ly0 = if (iy1 < iy0) iy1 else iy0;
+                const lx1 = if (ix1 > ix0) ix1 else ix0;
+                const ly1 = if (iy1 > iy0) iy1 else iy0;
+                if (lx0 < x0) x0 = lx0;
+                if (ly0 < y0) y0 = ly0;
+                if (lx1 > x1) x1 = lx1;
+                if (ly1 > y1) y1 = ly1;
             }
         },
         .text => {
@@ -562,10 +566,14 @@ inline fn commandBounds(self: *const DrawList, command: *const Command, kind: Co
                 const ty0 = inst.origin_size[1] - inst.bounds[1] * size;
                 const tx1 = inst.origin_size[0] + inst.bounds[2] * size;
                 const ty1 = inst.origin_size[1] - inst.bounds[3] * size;
-                x0 = @min(@min(tx0, tx1), x0);
-                y0 = @min(@min(ty0, ty1), y0);
-                x1 = @max(@max(tx0, tx1), x1);
-                y1 = @max(@max(ty0, ty1), y1);
+                const lx0 = if (tx1 < tx0) tx1 else tx0;
+                const ly0 = if (ty1 < ty0) ty1 else ty0;
+                const lx1 = if (tx1 > tx0) tx1 else tx0;
+                const ly1 = if (ty1 > ty0) ty1 else ty0;
+                if (lx0 < x0) x0 = lx0;
+                if (ly0 < y0) y0 = ly0;
+                if (lx1 > x1) x1 = lx1;
+                if (ly1 > y1) y1 = ly1;
             }
         },
         .custom_draw, .backdrop => unreachable,
