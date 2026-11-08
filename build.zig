@@ -50,7 +50,13 @@ pub const Platform = enum {
 };
 
 pub fn build(b: *std.Build) void {
+    const wasm64 = b.option(bool, "wasm64", "Use 64-bit WebAssembly (wasm64) when building for Wasm (default: false).") orelse false;
     var target = b.standardTargetOptions(.{});
+    if (wasm64 and target.result.cpu.arch == .wasm32) {
+        var query = target.query;
+        query.cpu_arch = .wasm64;
+        target = b.resolveTargetQuery(query);
+    }
     const optimize = b.standardOptimizeOption(.{});
 
     const platform: Platform = if (target.result.cpu.arch.isWasm()) .browser else .native;
