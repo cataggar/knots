@@ -35,6 +35,7 @@ pub const web_bridge_export_symbol_names = web_build.bridge_export_symbol_names;
 
 pub const WebInstallOptions = struct {
     dir: []const u8 = "web",
+    title: ?[]const u8 = null,
     start_symbol: []const u8 = "main",
     host_js_name: []const u8 = "knots.js",
     bridge_js_name: []const u8 = "js-bridge.js",
@@ -92,7 +93,7 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    const wasm_threads_mod = if (web_threads) b.createModule(.{
+    const wasm_threads_mod = if (platform == .browser) b.createModule(.{
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/wasm/threads.zig"),

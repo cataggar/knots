@@ -98,7 +98,19 @@ pub fn cancel(group: *std.Io.Group, token: *anyopaque) void {
 }
 
 fn waitForTasks(state: *State) void {
-    while (state.running.load(.acquire) != 0) std.atomic.spinLoopHint();
+    while (true) {
+        const running = state.running.load(.acquire);
+        if (running == 0) break;
+        if (currentTask() == null) {
+            if (worker_host.canSuspendJspi() and worker_host.hasWaitAsync()) {
+                _ = worker_host.waitAsync32(@ptrCast(&state.running.raw), @truncate(running), 1_000_000);
+                continue;
+            }
+            std.atomic.spinLoopHint();
+        } else {
+            _ = worker_host.atomicWait(@ptrCast(&state.running.raw), @truncate(running), 1_000_000);
+        }
+    }
 }
 
 fn destroyState(group: *std.Io.Group, state: *State) void {
@@ -153,7 +165,10 @@ pub fn run(start_address: usize, context_address: usize, task: *Task) void {
 }
 
 pub fn complete(task: *Task) void {
-    if (task.finished.swap(1, .acq_rel) == 0) _ = task.state.running.fetchSub(1, .release);
+    if (task.finished.swap(1, .acq_rel) == 0) {
+        _ = task.state.running.fetchSub(1, .release);
+        atomicNotify(@ptrCast(&task.state.running.raw), std.math.maxInt(u32));
+    }
 }
 
 pub const abort = complete;
@@ -203,7 +218,21 @@ pub fn atomicWait(ptr: *const u32, expected: u32, timeout_ns: i64) u32 {
     if (currentTask() == null) {
         if (@atomicLoad(u32, ptr, .acquire) != expected) return 1;
         if (timeout_ns == 0) return 2;
-        while (@atomicLoad(u32, ptr, .acquire) == expected) std.atomic.spinLoopHint();
+        if (worker_host.canSuspendJspi() and worker_host.hasWaitAsync()) {
+            const timeout_opt: ?u64 = if (timeout_ns < 0) null else @intCast(timeout_ns);
+            return worker_host.waitAsync32(ptr, expected, timeout_opt);
+        }
+        const deadline_ns: ?i96 = if (timeout_ns > 0) blk: {
+            const start_ns = worker_host.now(null, .awake).nanoseconds;
+            break :blk if (start_ns > 0) start_ns + @as(i96, timeout_ns) else null;
+        } else null;
+        while (@atomicLoad(u32, ptr, .acquire) == expected) {
+            if (deadline_ns) |deadline| {
+                const current_ns = worker_host.now(null, .awake).nanoseconds;
+                if (current_ns > 0 and current_ns >= deadline) return 2;
+            }
+            std.atomic.spinLoopHint();
+        }
         return 0;
     }
     return worker_host.atomicWait(ptr, expected, timeout_ns);

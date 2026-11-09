@@ -112,8 +112,6 @@ def find_optional_tool(name: str, env_var: str) -> str | None:
     if found:
         return _resolve_ghr_shim(Path(found).resolve())
     for fallback in [
-        Path(f"/home/g/.local/bin/{name}"),
-        Path(f"/home/g/.local/share/ghr/bin/{name}"),
         Path.home() / ".local" / "bin" / name,
         Path.home() / ".local" / "share" / "ghr" / "bin" / name,
     ]:

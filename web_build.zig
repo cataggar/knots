@@ -11,6 +11,7 @@ pub const bridge_export_symbol_names = [_][]const u8{
     "js_bridge_pointer_size",
     "knots_last_error_len",
     "knots_last_error_copy",
+    "knots_runtime_capabilities",
 };
 
 const thread_export_symbol_names = [_][]const u8{
@@ -35,6 +36,7 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
     configureWasmTarget(&executable.root_module.resolved_target.?, threads);
     const target = executable.root_module.resolved_target.?;
     executable.import_memory = threads;
+    executable.import_symbols = true;
     executable.export_memory = true;
     executable.export_table = threads;
     executable.shared_memory = threads;

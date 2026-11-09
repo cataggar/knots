@@ -298,3 +298,64 @@ Head-to-head comparison of `wasm32-freestanding` (32-bit pointers, 4 GiB linear 
    - **`wasm32-freestanding` (Default for Web UI)**: Delivers maximum single-core throughput (up to **1.33x faster**) and slightly smaller uncompressed binaries whenever the workload fits within the 4 GiB address space.
    - **`wasm64-freestanding` (Memory64)**: Unlocks **>4 GiB linear memory** (up to 16 GiB in browsers/Wasmtime) with zero source changes, identical deterministic output, near-zero `zstd` wire-size overhead (`+0.3%`–`+3.8%`), and 685–1,697 FPS full-frame UI throughput.
 
+---
+
+## G. V8 / Node 26 vs Wasmtime & WasmFX / JSPI / `Atomics.waitAsync` Benchmarks
+
+Measured on Apple M4 Max (`darwin-arm64`) using `node scripts/bench-wasmfx.mjs` with **Node.js `v26.3.0`** (V8 `14.6.202.34-node.20`) and **Wasmtime `50.0.1` (`c307ec81d 2026-10-29`)** against `wasm_bench_runner.wasm` (`1,223,499` bytes, compiled with `wazig` in `ReleaseFast` + `simd128` after `cataggar/knots#26`).
+
+### G.1 Synchronous `knots` Workloads (`wasm_bench_runner.wasm`) — Wasmtime vs V8 (Default vs `--experimental-wasm-wasmfx`)
+
+| Benchmark | Iterations | Wasmtime Median (ms) | Node 26 Default Median (ms) | Node 26 + WasmFX Flags Median (ms) | Node / Wasmtime | WasmFX Flags / Default |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `layout_bench` | 300 | 0.0755 ms | 0.0710 ms | 0.0704 ms | **0.94x** (V8 6% faster) | 0.99x |
+| `text_bench` | 200 | 0.2546 ms | 0.2616 ms | 0.2541 ms | **1.03x** | 0.97x |
+| `render_bench` | 300 | 0.0859 ms | 0.0810 ms | 0.0813 ms | **0.94x** (V8 6% faster) | 1.00x |
+| `combined_frame` | 100 | 0.3876 ms | 0.4462 ms | 0.4504 ms | **1.15x** | 1.01x |
+| **`total_bench_ms`** | — | **157.74 ms** | **195.59 ms** | **192.85 ms** | **1.24x** | **0.99x** |
+
+- **Zero regression from enabling `--experimental-wasm-wasmfx` (`0.99x`)**: Enabling V8's typed-continuation stack switching (`--experimental-wasm-wasmfx --experimental-wasm-exnref`) has zero measurable overhead on synchronous `knots` layout, text shaping, or rendering workloads (`192.85 ms` vs `195.59 ms`).
+- **V8 TurboFan/Liftoff vs Wasmtime 50 Cranelift**: After `cataggar/knots#26` (`text_bench` glyph shaping fast paths), V8 matches Wasmtime on `text_bench` (`0.2541–0.2616 ms` vs `0.2546 ms`, `1.00x–1.03x`), outperforms Wasmtime by **6%** on `layout_bench` (`0.0704 ms` vs `0.0755 ms`) and `render_bench` (`0.0810 ms` vs `0.0859 ms`), and completes the full 900-iteration suite in **192.85 ms** (`1.24x` of Wasmtime's `157.74 ms`).
+
+### G.2 Runtime Capability Detection (`detectWasmCapabilities()`)
+
+| Capability Check | Mechanism | Node 26 Default | Node 26 + `--experimental-wasm-wasmfx` | Probe Cost (ns/op) |
+| :--- | :--- | :---: | :---: | ---: |
+| `JSPI` (`CAP_JSPI`) | `typeof WebAssembly.Suspending === "function" && typeof WebAssembly.promising === "function"` | `true` | `true` | 2.61 ns |
+| `Atomics.waitAsync` (`CAP_WAIT_ASYNC`) | `typeof Atomics.waitAsync === "function"` | `true` | `true` | 4.38 ns |
+| `WasmFX` (`CAP_WASMFX`) | `WebAssembly.validate(WASMFX_PROBE_BYTES)` (16-byte `0x5d` `cont` section) | `false` | `true` | 543.31 ns |
+| **Combined** | `detectWasmCapabilities()` (uncached cold call; cached at host startup) | `0b011` (`3`) | `0b111` (`7`) | **518.04 ns** |
+
+### G.3 `std.Io` Coroutine Suspend/Resume Microbenchmarks (V8)
+
+| Mechanism | Operation | Latency (ns/op) | Throughput (M ops/s) | Comparison |
+| :--- | :--- | ---: | ---: | :--- |
+| **WasmFX (active stack)** | `suspend $yield` + `resume $ct` on warm continuation | **47.27 ns** | **21.16 M/s** | **1.38x faster** than JSPI (`Promise.resolve`), **2.17x faster** than JSPI (`queueMicrotask`) |
+| **JSPI (active stack, `Promise.resolve`)** | `WebAssembly.Suspending` + `WebAssembly.promising` immediate Promise | 65.40 ns | 15.29 M/s | 1.00x (active-stack JSPI baseline) |
+| **JSPI (active stack, `queueMicrotask`)** | `WebAssembly.Suspending` + `new Promise(r => queueMicrotask(r))` | 102.70 ns | 9.74 M/s | 1.57x of JSPI (`Promise.resolve`) |
+| **WasmFX (full lifecycle)** | `cont.new` + `resume` (1 suspend) + `resume` to completion | **109.90 ns** | **9.10 M/s** | **5.19x faster** than full-lifecycle JSPI |
+| **JSPI (full lifecycle, `queueMicrotask`)** | `await promisingExport(1)` (enter stack + 1 suspend + exit) | 570.21 ns | 1.75 M/s | 1.00x (full-lifecycle JSPI baseline) |
+
+- **Why WasmFX wins for intra-Wasm `std.Io` fiber switching**: Pure Wasm-internal `suspend $yield` + `resume $ct` (`run_pure_yields` in `WASMFX_HELPER_BYTES`) stays entirely inside WebAssembly without allocating JS `Promise` objects or crossing the JS microtask queue, achieving **47.27 ns/suspend** (**21.16 million switches/sec**) on an active continuation and **109.90 ns** (**5.19x faster** than JSPI) for a full continuation lifecycle (`cont.new` + `resume` + `suspend` + `resume`).
+- **Why JSPI is essential today**: JSPI (`WebAssembly.Suspending` + `WebAssembly.promising`) is **enabled by default in V8 / Node 26 / Chromium** without experimental flags and bridges Wasm stacks directly to browser Promises (`Atomics.waitAsync`, `setTimeout`, WebGPU buffer map / shader compilation Promises) at **65–103 ns** per active-stack suspension.
+
+### G.4 Cooperative Frame-Budgeted Workload (10,000 Ear-Clipping Steps, Yield Every 1,000)
+
+| Mode | Yields / Call | Total Time (us) | Yield Overhead (us) | Overhead (%) | Checksum |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **Un-instrumented Wasm baseline** | 0 | 42.10 us | 0.00 us | 0.0% | `-813497` |
+| **WasmFX (`suspend` / `resume`)** | 10 | **42.65 us** | **+0.55 us** | **+1.3%** | `-813497` |
+| **JSPI (`Suspending` / `promising`)** | 10 | **42.67 us** | **+0.56 us** | **+1.3%** | `-813497` |
+
+- Inserting 10 cooperative yield checkpoints across a 10,000-step triangulation workload adds only **~0.55 us (`+1.3%`)** under both WasmFX and JSPI while producing bit-identical geometry checksums (`-813497`).
+
+### G.5 Main-Thread `std.Io` Futex Wait (`SharedArrayBuffer` `Int32Array`, 2 ms Worker Notify)
+
+| Wait Strategy | Avg Wall Wait (us) | Avg Main-Thread CPU Burned (us) | Main-Thread Event-Loop Ticks During Wait | CPU Savings |
+| :--- | ---: | ---: | ---: | ---: |
+| **`Atomics.waitAsync` + JSPI (`knots_host_wait_async32`)** | 2,324.5 us | **168.8 us** | **1.7 ticks** (non-blocking) | **92.6% less CPU** |
+| **Synchronous Wasm Spin-Wait (`i32.atomic.load`)** | 2,265.7 us | 2,279.6 us | 0.0 ticks (blocked) | 0.0% (100% core pinned) |
+
+- When the browser main thread waits on a worker-notified `std.Io.Mutex`, `Condition`, or `ResetEvent` inside a `WebAssembly.promising` export (`CAP_PROMISING_ACTIVE`), `knots_host_wait_async32` suspends the Wasm stack via `Atomics.waitAsync` + `WebAssembly.Suspending`, cutting main-thread CPU consumption by **92.6%** (`168.8 us` vs `2,279.6 us`) while keeping the browser event loop responsive.
+
+

@@ -1,10 +1,11 @@
 const std = @import("std");
-const worker_host = @import("worker_host");
+pub const worker_host = @import("worker_host");
 pub const Runtime = @import("WorkerRuntime.zig");
 
 pub const allocator = Runtime.allocator;
 
 pub fn install(table: *std.Io.VTable) void {
+    comptime exportWorkerSymbols();
     table.async = futureAsync;
     table.concurrent = futureConcurrent;
     table.await = futureAwait;
@@ -145,13 +146,59 @@ fn checkCancel(_: ?*anyopaque) std.Io.Cancelable!void {
 }
 
 fn sleep(_: ?*anyopaque, timeout: std.Io.Timeout) std.Io.Cancelable!void {
-    const deadline = timeout.toDeadline(clock);
-    const cancel_ptr = Runtime.cancelAddress() orelse return error.Canceled;
+    if (Runtime.cancelAddress()) |cancel_ptr| {
+        const deadline = timeout.toDeadline(clock);
+        while (true) {
+            try checkCancel(null);
+            const timeout_ns = waitNanoseconds(deadline.toDurationFromNow(clock));
+            if (timeout_ns == 0) return;
+            if (Runtime.atomicWait(cancel_ptr, 0, timeout_ns) == 2) return;
+        }
+    }
+    const timeout_ns = waitNanoseconds(timeout.toDurationFromNow(clock));
+    if (timeout_ns == 0) return;
+    if (worker_host.canSuspendJspi() and timeout_ns > 0) {
+        const ms = @as(f64, @floatFromInt(timeout_ns)) / @as(f64, std.time.ns_per_ms);
+        worker_host.sleepMs(ms);
+        return;
+    }
+    var dummy: u32 = 0;
+    _ = Runtime.atomicWait(&dummy, 0, timeout_ns);
+}
+
+pub fn singleThreadSleep(_: ?*anyopaque, timeout: std.Io.Timeout) std.Io.Cancelable!void {
+    const duration = timeout.toDurationFromNow(clock) orelse return;
+    const ns: i64 = @intCast(std.math.clamp(duration.raw.nanoseconds, 0, std.math.maxInt(i64)));
+    if (ns <= 0) return;
+    if (worker_host.canSuspendJspi()) {
+        const ms = @as(f64, @floatFromInt(ns)) / @as(f64, std.time.ns_per_ms);
+        worker_host.sleepMs(ms);
+        return;
+    }
+    const start_ns = worker_host.now(null, .awake).nanoseconds;
+    if (start_ns <= 0) return;
+    const deadline_ns = start_ns + @as(i96, ns);
     while (true) {
-        try checkCancel(null);
-        const timeout_ns = waitNanoseconds(deadline.toDurationFromNow(clock));
-        if (timeout_ns == 0) return;
-        if (Runtime.atomicWait(cancel_ptr, 0, timeout_ns) == 2) return;
+        const current_ns = worker_host.now(null, .awake).nanoseconds;
+        if (current_ns <= 0 or current_ns >= deadline_ns) break;
+        std.atomic.spinLoopHint();
+    }
+}
+
+pub fn singleThreadFutexWait(_: ?*anyopaque, ptr: *const u32, expected: u32, timeout: std.Io.Timeout) std.Io.Cancelable!void {
+    if (@atomicLoad(u32, ptr, .acquire) != expected) return;
+    const timeout_ns = waitNanoseconds(timeout.toDurationFromNow(clock));
+    if (timeout_ns == 0) return;
+    if (worker_host.canSuspendJspi() and worker_host.hasWaitAsync()) {
+        const timeout_opt: ?u64 = if (timeout_ns < 0) null else @intCast(timeout_ns);
+        _ = worker_host.waitAsync32(ptr, expected, timeout_opt);
+    }
+}
+
+pub fn singleThreadFutexWaitUncancelable(_: ?*anyopaque, ptr: *const u32, expected: u32) void {
+    if (@atomicLoad(u32, ptr, .acquire) != expected) return;
+    if (worker_host.canSuspendJspi() and worker_host.hasWaitAsync()) {
+        _ = worker_host.waitAsync32(ptr, expected, null);
     }
 }
 
@@ -178,38 +225,36 @@ fn futexWake(_: ?*anyopaque, ptr: *const u32, max_waiters: u32) void {
     Runtime.atomicNotify(ptr, max_waiters);
 }
 
-comptime {
-    {
-        const exports = struct {
-            fn run(start: usize, context: usize, task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
-                Runtime.run(start, context, task);
-            }
+fn exportWorkerSymbols() void {
+    const exports = struct {
+        fn run(start: usize, context: usize, task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.run(start, context, task);
+        }
 
-            fn complete(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
-                Runtime.complete(task);
-            }
+        fn complete(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.complete(task);
+        }
 
-            fn release(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
-                Runtime.release(task);
-            }
+        fn release(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.release(task);
+        }
 
-            fn abort(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
-                Runtime.abort(task);
-            }
+        fn abort(task: *Runtime.Task) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.abort(task);
+        }
 
-            fn stackAlloc() callconv(.{ .wasm_mvp = .{} }) usize {
-                return Runtime.allocateStack();
-            }
+        fn stackAlloc() callconv(.{ .wasm_mvp = .{} }) usize {
+            return Runtime.allocateStack();
+        }
 
-            fn stackFree(stack_top: usize) callconv(.{ .wasm_mvp = .{} }) void {
-                Runtime.freeStack(stack_top);
-            }
-        };
-        @export(&exports.run, .{ .name = "knots_worker_run" });
-        @export(&exports.complete, .{ .name = "knots_worker_complete" });
-        @export(&exports.release, .{ .name = "knots_worker_release" });
-        @export(&exports.abort, .{ .name = "knots_worker_abort" });
-        @export(&exports.stackAlloc, .{ .name = "knots_worker_stack_alloc" });
-        @export(&exports.stackFree, .{ .name = "knots_worker_stack_free" });
-    }
+        fn stackFree(stack_top: usize) callconv(.{ .wasm_mvp = .{} }) void {
+            Runtime.freeStack(stack_top);
+        }
+    };
+    @export(&exports.run, .{ .name = "knots_worker_run" });
+    @export(&exports.complete, .{ .name = "knots_worker_complete" });
+    @export(&exports.release, .{ .name = "knots_worker_release" });
+    @export(&exports.abort, .{ .name = "knots_worker_abort" });
+    @export(&exports.stackAlloc, .{ .name = "knots_worker_stack_alloc" });
+    @export(&exports.stackFree, .{ .name = "knots_worker_stack_free" });
 }
