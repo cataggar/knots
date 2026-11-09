@@ -44,7 +44,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tools: |
-            cataggar/zig@v0.17.0-wazig.5
+            cataggar/zig@v0.17.0-wazig.6
             bytecodealliance/wasmtime@v50.0.1
       - name: Cache Zig and Wasmtime
         uses: actions/cache@v4
@@ -52,9 +52,9 @@ jobs:
           path: |
             .zig-global-cache
             ~/.cache/wasmtime
-          key: wazig5-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
           restore-keys: |
-            wazig5-cache-${{ runner.os }}-
+            wazig6-cache-${{ runner.os }}-
       - name: Configure Wasmtime cache
         run: |
           mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"

@@ -1,8 +1,8 @@
-# wazig (v0.17.0-wazig.5) & wazigl (v0.17.0-wazigl.4) vs zig v0.17.0 Comprehensive Benchmark Report
+# wazig (v0.17.0-wazig.6) & wazigl (v0.17.0-wazigl.6) vs zig v0.17.0 Comprehensive Benchmark Report
 
 Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-wazig.py`) comparing:
-- **`wazig v0.17.0-wazig.5`** (`cataggar/zig@v0.17.0-wazig.5`, `-fno-llvm`): universal `wasm64-wasip3` self-hosted Wasm backend executed via `wasmtime v50.0.1` (`8.08 MiB` `.tar.zst`, `58.87 MiB` unpacked), including `cataggar/zig#158`–`#224` and `cataggar/knots#11`–`#30`
-- **`wazigl v0.17.0-wazigl.4`** (`cataggar/zig@v0.17.0-wazigl.4`, `-fllvm`): universal `wasm64-wasip3` compiler with full LLVM 22 Wasm backend executed via `wasmtime v50.0.1` (`36.48 MiB` `.tar.zst`, `226.02 MiB` unpacked)
+- **`wazig v0.17.0-wazig.6`** (`cataggar/zig@v0.17.0-wazig.6`, `-fno-llvm`): universal `wasm64-wasip3` self-hosted Wasm backend executed via `wasmtime v50.0.1` (`8.08 MiB` `.tar.zst`, `58.87 MiB` unpacked), including `cataggar/zig#158`–`#224` and `cataggar/knots#11`–`#30`
+- **`wazigl v0.17.0-wazigl.6`** (`cataggar/zig@v0.17.0-wazigl.6`, `-fllvm`): universal `wasm64-wasip3` compiler with full LLVM 22 Wasm backend executed via `wasmtime v50.0.1` (`36.26 MiB` `.tar.zst`, `221.57 MiB` unpacked)
 - **`zig v0.17.0 -fno-llvm`** (`cataggar/zig@v0.17.0`, native `0.17.0` binary with self-hosted Wasm backend)
 - **`zig v0.17.0 -fllvm`** (`cataggar/zig@v0.17.0`, native `0.17.0` binary with LLVM 22 backend)
 
@@ -10,10 +10,10 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 ## A. Toolchain & CI Footprint
 
-| Metric | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0` (Standard) | Reduction / Advantage |
+| Metric | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0` (Standard) | Reduction / Advantage |
 | :--- | :--- | :--- | :--- | :--- |
-| **Release Archive Size** | **8.08 MiB** (`wazig.tar.zst`) | **36.48 MiB** (`wazigl.tar.zst`) | 50.43 MiB (`zig-aarch64-linux-0.17.0.tar.xz`) | **`wazig`: 6.24x smaller (-84.0%) / `wazigl`: 1.38x smaller (-27.7%)** |
-| **Unpacked Release Size** | **58.87 MiB** (`30.31 MiB` `wazig.wasm` + `28.55 MiB` `lib/`) | **226.02 MiB** (`197.48 MiB` `wazigl.wasm` + `28.54 MiB` `lib/`) | 343.65 MiB (`163.74 MiB` `zig` + `178.95 MiB` `lib/`; `397.74 MiB` on disk) | **`wazig`: 5.84x smaller (-82.9%) / `wazigl`: 1.52x smaller (-34.2%)** |
+| **Release Archive Size** | **8.08 MiB** (`wazig.tar.zst`) | **36.26 MiB** (`wazigl.tar.zst`) | 50.43 MiB (`zig-aarch64-linux-0.17.0.tar.xz`) | **`wazig`: 6.24x smaller (-84.0%) / `wazigl`: 1.39x smaller (-28.1%)** |
+| **Unpacked Release Size** | **58.87 MiB** (`30.31 MiB` `wazig.wasm` + `28.55 MiB` `lib/`) | **221.57 MiB** (`193.02 MiB` `wazigl.wasm` + `28.55 MiB` `lib/`) | 343.65 MiB (`163.74 MiB` `zig` + `178.95 MiB` `lib/`; `397.74 MiB` on disk) | **`wazig`: 5.84x smaller (-82.9%) / `wazigl`: 1.55x smaller (-35.5%)** |
 | **Installed File Count** | **1,324 files** | **1,324 files** | 19,506 files | **14.7x fewer files (-93.2%)** |
 | **Binary Portability** | wasm64-wasip3 (universal single binary across Linux/macOS/Windows x86_64 & aarch64) | wasm64-wasip3 + LLVM 22 (universal single binary across Linux/macOS/Windows x86_64 & aarch64) | OS/arch-specific native binaries (x86_64-linux, aarch64-linux, aarch64-macos, x86_64-windows, etc.) | **Single universal artifact per tier** |
 | **Supply-Chain Attestation** | Native Sigstore bundle verified via ghr | Native Sigstore bundle verified via ghr | minisign signature (external tool required) | **Zero extra verification tools** |
@@ -25,7 +25,7 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 > All `wazig` and `wazigl` measurements run with Wasmtime's compiled module cache warmed.
 
-| Workload | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` (LLVM 22) |
+| Workload | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` (LLVM 22) |
 | :--- | ---: | ---: | ---: | ---: |
 | `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **0.460s** | 1.699s | 0.044s | 0.044s |
 | `wasm_bench_runner.zig` (`Debug`) | 13.41s (cold) / 6.95s (warm) | 32.42s (cold) / 16.79s (warm) | 3.38s (cold) / 0.27s (warm) | 5.75s (cold) / 2.47s (warm) |
@@ -46,16 +46,16 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 | `examples/benchmark` + `translate-c` `TracyC.h` (`Debug`) | 7.78s | 20.54s | 0.36s | 2.90s |
 | `examples/benchmark` + `translate-c` `TracyC.h` (`ReleaseSmall`) | 5.93s | 20.16s | 0.30s | 6.26s |
 
-**Compilation Speed Analysis (`wazig.5` vs `wazigl.4` vs `zig 0.17.0`):**
-- **`wazig v0.17.0-wazig.5` (`-fno-llvm`) vs `wazigl v0.17.0-wazigl.4` (`-fllvm`)**: Because `wazig` uses Zig's self-hosted WebAssembly backend (`src/codegen/wasm/CodeGen.zig` + `src/link/Wasm/component/Optimizer.zig`) without invoking LLVM's optimization passes, `wazig.5` compiles **1.93x–4.78x faster** than `wazigl.4` across every workload (`4.90s` vs `15.12s` warm on `wasm_bench_runner ReleaseSmall`, `5.93s` vs `28.34s` warm on `ReleaseFast +simd128`, `21.32s` vs `62.42s` wall time across all `wasm32-wasi` test suites, and `0.460s` vs `1.699s` on `fmt --check`).
-- **`wazig v0.17.0-wazig.5` vs Native `zig v0.17.0 -fllvm`**: Even running inside Wasmtime (`wasm64-wasip3`), `wazig.5` warm-cache builds (`4.90s` `ReleaseSmall`, `6.04s` `ReleaseFast`, `5.93s` `ReleaseFast +simd128`) are **faster than or competitive with native `zig 0.17.0 -fllvm`** (`4.74s` `ReleaseSmall`, `9.21s` `ReleaseFast`, `10.17s` `ReleaseFast +simd128` — **up to 1.72x faster**), and `triangle` (`5.72s` vs `5.99s` warm) and `embedded` (`4.63s` vs `4.60s`) build at near-native LLVM speed.
-- **`wazigl v0.17.0-wazigl.4` vs Native `zig v0.17.0 -fllvm`**: Running the full LLVM 22 + Clang C++ toolchain inside Wasmtime (`wazigl.wasm`, `197.48 MiB`) incurs a ~2.8x–3.5x Wasmtime guest execution multiplier relative to native `zig -fllvm` (`15.12s` vs `4.74s` warm on `ReleaseSmall`, `36.29s` vs `11.61s` on `playground ReleaseSmall`), making `wazig.5` ideal for fast CI test/check inner loops and `wazigl.4` ideal when maximum LLVM codegen optimization is desired without OS/arch-specific native compiler binaries.
+**Compilation Speed Analysis (`wazig.6` vs `wazigl.6` vs `zig 0.17.0`):**
+- **`wazig v0.17.0-wazig.6` (`-fno-llvm`) vs `wazigl v0.17.0-wazigl.6` (`-fllvm`)**: Because `wazig` uses Zig's self-hosted WebAssembly backend (`src/codegen/wasm/CodeGen.zig` + `src/link/Wasm/component/Optimizer.zig`) without invoking LLVM's optimization passes, `wazig.6` compiles **1.93x–4.78x faster** than `wazigl.6` across every workload (`4.90s` vs `15.12s` warm on `wasm_bench_runner ReleaseSmall`, `5.93s` vs `28.34s` warm on `ReleaseFast +simd128`, `21.32s` vs `62.42s` wall time across all `wasm32-wasi` test suites, and `0.460s` vs `1.699s` on `fmt --check`).
+- **`wazig v0.17.0-wazig.6` vs Native `zig v0.17.0 -fllvm`**: Even running inside Wasmtime (`wasm64-wasip3`), `wazig.6` warm-cache builds (`4.90s` `ReleaseSmall`, `6.04s` `ReleaseFast`, `5.93s` `ReleaseFast +simd128`) are **faster than or competitive with native `zig 0.17.0 -fllvm`** (`4.74s` `ReleaseSmall`, `9.21s` `ReleaseFast`, `10.17s` `ReleaseFast +simd128` — **up to 1.72x faster**), and `triangle` (`5.72s` vs `5.99s` warm) and `embedded` (`4.63s` vs `4.60s`) build at near-native LLVM speed.
+- **`wazigl v0.17.0-wazigl.6` vs Native `zig v0.17.0 -fllvm`**: Running the full LLVM 22 + Clang C++ toolchain inside Wasmtime (`wazigl.wasm`, `193.02 MiB`) incurs a ~2.8x–3.5x Wasmtime guest execution multiplier relative to native `zig -fllvm` (`15.12s` vs `4.74s` warm on `ReleaseSmall`, `36.29s` vs `11.61s` on `playground ReleaseSmall`), making `wazig.6` ideal for fast CI test/check inner loops and `wazigl.6` ideal when maximum LLVM codegen optimization is desired without OS/arch-specific native compiler binaries.
 
 ---
 
 ## C. Output `.wasm` Binary Size (`Raw / gzip -9 / zstd -19`)
 
-| Target Artifact | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | `wazig` vs `zig -fno-llvm` / `wazigl` vs `zig -fllvm` |
+| Target Artifact | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | `wazig` vs `zig -fno-llvm` / `wazigl` vs `zig -fllvm` |
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | `playground` (`Debug`, WebGPU, `web_threads=false`) | 2,815.4 KB / 961.4 KB / **755.1 KB** | 6,116.3 KB / 1,979.0 KB / **1,511.5 KB** | 3,362.5 KB / 1,028.7 KB / **764.9 KB** | 6,117.2 KB / 1,978.7 KB / **1,533.8 KB** | `wazig`: **-16.3%** / `wazigl`: **-0.02%** |
 | `playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | 2,264.5 KB / 824.3 KB / **661.4 KB** | 1,782.7 KB / 700.1 KB / **575.7 KB** | 2,795.1 KB / 877.7 KB / **684.9 KB** | 1,782.7 KB / 700.1 KB / **590.6 KB** | `wazig`: **-19.0%** / `wazigl`: **0 B (same raw size)** |
@@ -76,11 +76,11 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 | All 12 `wasm32-wasi` Test Binaries (`Debug` Total) | 7,449.8 KB / 2,601.1 KB / **2,150.1 KB** | 29,118.9 KB / 8,867.0 KB / **7,192.6 KB** | 10,404.0 KB / 3,053.4 KB / **2,418.1 KB** | 29,079.3 KB / 8,847.2 KB / **7,162.3 KB** | `wazig`: **-28.4%** / `wazigl`: **+0.14%** |
 
 **Key Binary Size Takeaways:**
-- **`wazigl v0.17.0-wazigl.4` (`-fllvm`) produces identical raw-size `ReleaseSmall` `.wasm` binaries (`0 B` raw size difference) to native `zig v0.17.0 -fllvm` across every single `ReleaseSmall` target:** `679.7 KB` raw (`297.5 KB` zstd) on `wasm_bench_runner`, `1,782.7 KB` raw (`575.7 KB` zstd) on `playground` WebGPU, `1,748.5 KB` raw (`584.8 KB` zstd) on `playground` WebGL2, `1,786.8 KB` raw (`570.8 KB` zstd) on `playground` WebGPU + threads, `801.0 KB` raw (`325.9 KB` zstd) on `triangle`, `734.4 KB` raw (`302.4 KB` zstd) on `embedded`, and `807.3 KB` raw (`328.7 KB` zstd) on `benchmark` — delivering full LLVM 22 codegen from a single universal `wasm64-wasip3` compiler.
-- **`wazig v0.17.0-wazig.5` (`-fno-llvm`) produces the smallest `Debug` and `ReleaseFast` `.wasm` binaries of all four compilers:**
-  - In **`Debug`** builds, `wazig.5` is **16.7%–31.1% smaller** than upstream `zig 0.17.0 -fno-llvm` and **54.0%–73.8% smaller (2.17x–3.82x smaller)** than `wazigl.4` and `zig 0.17.0 -fllvm`.
-  - In **`ReleaseFast +simd128`** builds, `wazig.5` (`990.3 KB` raw / `377.2 KB` zstd) is **2.86x smaller** than `wazigl.4` (`2,831.7 KB` raw / `828.9 KB` zstd) and `zig 0.17.0 -fllvm` (`2,832.1 KB` raw / `829.2 KB` zstd), because LLVM's `ReleaseFast` loop unrolling and aggressive inlining expand `.wasm` binary size by **4.16x** over `ReleaseSmall` (`679.7 KB` → `2,831.7 KB`), whereas `wazig.5`'s targeted 2-pass inliner and MIR/linker optimizations (`Optimize.zig` + `Optimizer.zig`, `cataggar/zig#214`/`#217`/`#223`/`#224`) add only `+14.1%` over `ReleaseSmall` (`868.1 KB` → `990.3 KB`).
-  - Across all 12 `wasm32-wasi` test binaries (`Debug`), `wazig.5` emits **7.28 MiB** (`7,449.8 KB`) raw (`2.15 MiB` zstd) vs **28.44 MiB** raw (`7.02 MiB` zstd) with `wazigl.4` / `zig -fllvm` (**3.82x smaller**), enabling the fastest test suite execution (`0.843s`).
+- **`wazigl v0.17.0-wazigl.6` (`-fllvm`) produces identical raw-size `ReleaseSmall` `.wasm` binaries (`0 B` raw size difference) to native `zig v0.17.0 -fllvm` across every single `ReleaseSmall` target:** `679.7 KB` raw (`297.5 KB` zstd) on `wasm_bench_runner`, `1,782.7 KB` raw (`575.7 KB` zstd) on `playground` WebGPU, `1,748.5 KB` raw (`584.8 KB` zstd) on `playground` WebGL2, `1,786.8 KB` raw (`570.8 KB` zstd) on `playground` WebGPU + threads, `801.0 KB` raw (`325.9 KB` zstd) on `triangle`, `734.4 KB` raw (`302.4 KB` zstd) on `embedded`, and `807.3 KB` raw (`328.7 KB` zstd) on `benchmark` — delivering full LLVM 22 codegen from a single universal `wasm64-wasip3` compiler.
+- **`wazig v0.17.0-wazig.6` (`-fno-llvm`) produces the smallest `Debug` and `ReleaseFast` `.wasm` binaries of all four compilers:**
+  - In **`Debug`** builds, `wazig.6` is **16.7%–31.1% smaller** than upstream `zig 0.17.0 -fno-llvm` and **54.0%–73.8% smaller (2.17x–3.82x smaller)** than `wazigl.6` and `zig 0.17.0 -fllvm`.
+  - In **`ReleaseFast +simd128`** builds, `wazig.6` (`990.3 KB` raw / `377.2 KB` zstd) is **2.86x smaller** than `wazigl.6` (`2,831.7 KB` raw / `828.9 KB` zstd) and `zig 0.17.0 -fllvm` (`2,832.1 KB` raw / `829.2 KB` zstd), because LLVM's `ReleaseFast` loop unrolling and aggressive inlining expand `.wasm` binary size by **4.16x** over `ReleaseSmall` (`679.7 KB` → `2,831.7 KB`), whereas `wazig.6`'s targeted 2-pass inliner and MIR/linker optimizations (`Optimize.zig` + `Optimizer.zig`, `cataggar/zig#214`/`#217`/`#223`/`#224`) add only `+14.1%` over `ReleaseSmall` (`868.1 KB` → `990.3 KB`).
+  - Across all 12 `wasm32-wasi` test binaries (`Debug`), `wazig.6` emits **7.28 MiB** (`7,449.8 KB`) raw (`2.15 MiB` zstd) vs **28.44 MiB** raw (`7.02 MiB` zstd) with `wazigl.6` / `zig -fllvm` (**3.82x smaller**), enabling the fastest test suite execution (`0.843s`).
 
 ---
 
@@ -88,7 +88,7 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 ### D.1 `wasm_bench_runner.wasm` — `ReleaseSmall`
 
-| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
 | **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.112 ms** / 0.116 ms (**8,886.7 FPS**) | **0.107 ms** / 0.111 ms (**9,262.3 FPS**) | 0.267 ms / 0.271 ms (3,736.0 FPS) | 0.107 ms / 0.112 ms (9,274.3 FPS) | `417689973924794692` |
 | **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.384 ms** / 0.393 ms (**2,585.0 FPS**) | **0.371 ms** / 0.385 ms (**2,674.0 FPS**) | 1.022 ms / 1.047 ms (976.2 FPS) | 0.369 ms / 0.378 ms (2,689.7 FPS) | `12606774574179943755` / `7686275582076872382` |
@@ -99,7 +99,7 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 #### `ReleaseFast (+simd128)` (Default Wasm Target Features in `web_build.zig`)
 
-| Workload | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | :--- |
 | **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.087 ms** / 0.091 ms (**11,463.1 FPS**) | **0.101 ms** / 0.105 ms (**9,837.8 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.100 ms / 0.105 ms (9,917.2 FPS) | `417689973924794692` |
 | **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.342 ms** / 0.352 ms (**2,902.5 FPS**) | **0.327 ms** / 0.336 ms (**3,040.7 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.327 ms / 0.338 ms (3,037.8 FPS) | `12606774574179943755` / `7686275582076872382` |
@@ -108,7 +108,7 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 #### `ReleaseFast` (Baseline Wasm CPU without `+simd128`)
 
-| Workload | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | :--- |
 | **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.088 ms** / 0.092 ms (**11,339.4 FPS**) | **0.104 ms** / 0.108 ms (**9,566.6 FPS**) | 0.264 ms / 0.269 ms (3,777.9 FPS) | 0.104 ms / 0.108 ms (9,546.6 FPS) | `417689973924794692` |
 | **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.341 ms** / 0.351 ms (**2,906.1 FPS**) | **0.303 ms** / 0.320 ms (**3,259.1 FPS**) | 1.007 ms / 1.019 ms (991.1 FPS) | 0.300 ms / 0.312 ms (3,302.8 FPS) | `12606774574179943755` / `7686275582076872382` |
@@ -116,31 +116,31 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 | **4. Combined Full UI Frame (`combined_frame`)** | **0.384 ms** / 0.396 ms (**2,582.2 FPS**) | **0.289 ms** / 0.304 ms (**3,416.8 FPS**) | 1.454 ms / 1.476 ms (687.1 FPS) | 0.291 ms / 0.307 ms (3,397.5 FPS) | `8133605907336869050` |
 
 **`ReleaseFast` & `+simd128` vs `ReleaseSmall` Analysis:**
-- **`wazig v0.17.0-wazig.5` (`-fno-llvm`, `ReleaseFast +simd128`) exceeds all `cataggar/knots#19` FPS targets and beats the pre-`#19` `zig v0.17.0 -fllvm` baseline (`9,919.8` / `2,582.0` / `6,114.7` / `2,271.5 FPS`) across all 4 workloads, while surpassing post-`#19` `zig v0.17.0 -fllvm` and `wazigl v0.17.0-wazigl.4` on `layout_bench`:** With `cataggar/zig#189`–`#224` and `cataggar/knots#20`–`#30`, `wazig.5` reaches **`11,463.1 FPS` (`0.087 ms`)** on `layout_bench` (faster than `9,917.2 FPS` / `0.100 ms` in post-`#19` `zig -fllvm`), **`10,112.4 FPS` (`0.097 ms`)** on `render_bench` (vs `10,931.3 FPS` / `0.090 ms` in post-`#19` `zig -fllvm`), **`2,902.5 FPS` (`0.342 ms`)** on `text_bench` (vs `3,037.8 FPS` / `0.327 ms` in post-`#19` `zig -fllvm`), and **`2,695.3 FPS` (`0.368 ms`)** on `combined_frame` (vs `3,638.6 FPS` / `0.272 ms` in post-`#19` `zig -fllvm`) — while compiling in a **2.86x smaller** `.wasm` binary (`990.3 KB` vs `2,787.6 KB`).
-- **`wazig v0.17.0-wazig.5` (`-fno-llvm`) vs `zig v0.17.0 -fno-llvm`**: With `cataggar/zig#158`–`#224` and `cataggar/knots#11`–`#30`, `wazig.5` is **2.93x–4.44x faster** than upstream `zig 0.17.0 -fno-llvm` on the exact same `knots` source (`11,463.1 FPS` vs `3,777.9 FPS` on `layout_bench`, `2,902.5 FPS` vs `991.1 FPS` on `text_bench`, `10,112.4 FPS` vs `2,275.7 FPS` on `render_bench`, and `2,695.3 FPS` vs `687.1 FPS` on `combined_frame`), and **8.86x–18.05x faster** than `wazig v0.17.0-wazig.3`.
-- **`wazigl v0.17.0-wazigl.4` (`-fllvm`) matches native `zig v0.17.0 -fllvm` runtime throughput across every mode:** In `ReleaseSmall`, `wazigl.4` achieves `9,262.3 FPS` (`layout_bench`), `2,674.0 FPS` (`text_bench`), `9,778.3 FPS` (`render_bench`), and `2,417.6 FPS` (`combined_frame`). In `ReleaseFast +simd128`, `wazigl.4` reaches **`9,837.8 FPS` (`0.101 ms`)** on `layout_bench`, **`11,122.0 FPS` (`0.089 ms`)** on `render_bench`, **`3,040.7 FPS` (`0.327 ms`)** on `text_bench`, and **`3,655.8 FPS` (`0.271 ms`)** on `combined_frame`.
+- **`wazig v0.17.0-wazig.6` (`-fno-llvm`, `ReleaseFast +simd128`) exceeds all `cataggar/knots#19` FPS targets and beats the pre-`#19` `zig v0.17.0 -fllvm` baseline (`9,919.8` / `2,582.0` / `6,114.7` / `2,271.5 FPS`) across all 4 workloads, while surpassing post-`#19` `zig v0.17.0 -fllvm` and `wazigl v0.17.0-wazigl.6` on `layout_bench`:** With `cataggar/zig#189`–`#224` and `cataggar/knots#20`–`#30`, `wazig.6` reaches **`11,463.1 FPS` (`0.087 ms`)** on `layout_bench` (faster than `9,917.2 FPS` / `0.100 ms` in post-`#19` `zig -fllvm`), **`10,112.4 FPS` (`0.097 ms`)** on `render_bench` (vs `10,931.3 FPS` / `0.090 ms` in post-`#19` `zig -fllvm`), **`2,902.5 FPS` (`0.342 ms`)** on `text_bench` (vs `3,037.8 FPS` / `0.327 ms` in post-`#19` `zig -fllvm`), and **`2,695.3 FPS` (`0.368 ms`)** on `combined_frame` (vs `3,638.6 FPS` / `0.272 ms` in post-`#19` `zig -fllvm`) — while compiling in a **2.86x smaller** `.wasm` binary (`990.3 KB` vs `2,787.6 KB`).
+- **`wazig v0.17.0-wazig.6` (`-fno-llvm`) vs `zig v0.17.0 -fno-llvm`**: With `cataggar/zig#158`–`#224` and `cataggar/knots#11`–`#30`, `wazig.6` is **2.93x–4.44x faster** than upstream `zig 0.17.0 -fno-llvm` on the exact same `knots` source (`11,463.1 FPS` vs `3,777.9 FPS` on `layout_bench`, `2,902.5 FPS` vs `991.1 FPS` on `text_bench`, `10,112.4 FPS` vs `2,275.7 FPS` on `render_bench`, and `2,695.3 FPS` vs `687.1 FPS` on `combined_frame`), and **8.86x–18.05x faster** than `wazig v0.17.0-wazig.3`.
+- **`wazigl v0.17.0-wazigl.6` (`-fllvm`) matches native `zig v0.17.0 -fllvm` runtime throughput across every mode:** In `ReleaseSmall`, `wazigl.6` achieves `9,262.3 FPS` (`layout_bench`), `2,674.0 FPS` (`text_bench`), `9,778.3 FPS` (`render_bench`), and `2,417.6 FPS` (`combined_frame`). In `ReleaseFast +simd128`, `wazigl.6` reaches **`9,837.8 FPS` (`0.101 ms`)** on `layout_bench`, **`11,122.0 FPS` (`0.089 ms`)** on `render_bench`, **`3,040.7 FPS` (`0.327 ms`)** on `text_bench`, and **`3,655.8 FPS` (`0.271 ms`)** on `combined_frame`.
 
 ### D.3 `wasm_bench_runner.wasm` — `Debug`
 
-| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.5` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.4` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
 | **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.258 ms** / 0.262 ms (**3,866.9 FPS**) | 0.611 ms / 0.615 ms (1,638.0 FPS) | 0.657 ms / 0.662 ms (1,521.1 FPS) | 0.615 ms / 0.620 ms (1,627.3 FPS) | `417689973924794692` |
 | **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.601 ms** / 0.607 ms (**1,670.8 FPS**) | 1.141 ms / 1.153 ms (875.1 FPS) | 1.657 ms / 1.669 ms (603.2 FPS) | 1.142 ms / 1.155 ms (873.9 FPS) | `12606774574179943755` / `7686275582076872382` |
 | **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.182 ms** / 0.195 ms (**5,439.3 FPS**) | 0.440 ms / 0.459 ms (2,245.0 FPS) | 0.629 ms / 0.635 ms (1,598.0 FPS) | 0.440 ms / 0.457 ms (2,246.9 FPS) | `8226312248921777708` |
 | **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.648 ms** / 0.658 ms (**1,546.2 FPS**) | 1.742 ms / 1.754 ms (574.2 FPS) | 1.798 ms / 1.806 ms (556.1 FPS) | 1.739 ms / 1.756 ms (574.8 FPS) | `8133605907336869050` |
 
-**`Debug` Runtime Highlight:** In `Debug` builds, `wazig v0.17.0-wazig.5` (`-fno-llvm`) is **2.14x–2.77x faster at runtime than both `wazigl v0.17.0-wazigl.4` and `zig v0.17.0 -fllvm` (LLVM 22)** across all four workloads (`3,866.9 FPS` vs `1,395.2` / `1,393.8 FPS` on `layout_bench`, `1,670.8 FPS` vs `569.8` / `569.1 FPS` on `text_bench`, `5,439.3 FPS` vs `2,541.5` / `2,533.1 FPS` on `render_bench`, and `1,546.2 FPS` vs `568.5` / `565.6 FPS` on `combined_frame`) while producing **3.07x smaller** `.wasm` binaries (`1,167.5 KB` vs `3,588.3 KB`).
+**`Debug` Runtime Highlight:** In `Debug` builds, `wazig v0.17.0-wazig.6` (`-fno-llvm`) is **2.14x–2.77x faster at runtime than both `wazigl v0.17.0-wazigl.6` and `zig v0.17.0 -fllvm` (LLVM 22)** across all four workloads (`3,866.9 FPS` vs `1,395.2` / `1,393.8 FPS` on `layout_bench`, `1,670.8 FPS` vs `569.8` / `569.1 FPS` on `text_bench`, `5,439.3 FPS` vs `2,541.5` / `2,533.1 FPS` on `render_bench`, and `1,546.2 FPS` vs `568.5` / `565.6 FPS` on `combined_frame`) while producing **3.07x smaller** `.wasm` binaries (`1,167.5 KB` vs `3,588.3 KB`).
 
 ### D.4 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)
 
 | Compiler | Test Binaries Passed | Total Test `.wasm` Size (Raw / Zstd) | Total `wasmtime run` Execution Time | Speedup vs `zig -fllvm` |
 | :--- | :---: | ---: | ---: | ---: |
-| **`wazig v0.17.0-wazig.5` (`-fno-llvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | **7,449.8 KB** / **2,150.1 KB** | **0.843 s** | **1.38x faster** |
-| **`wazigl v0.17.0-wazigl.4` (`-fllvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | 29,118.9 KB / 7,192.6 KB | **1.148 s** | 1.02x |
+| **`wazig v0.17.0-wazig.6` (`-fno-llvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | **7,449.8 KB** / **2,150.1 KB** | **0.843 s** | **1.38x faster** |
+| **`wazigl v0.17.0-wazigl.6` (`-fllvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | 29,118.9 KB / 7,192.6 KB | **1.148 s** | 1.02x |
 | **`zig v0.17.0 -fno-llvm`** | 0 / 12 with `+atomics`/`+simd128`* (12 / 12 stripped) | 10,404.0 KB / 2,418.1 KB | 1.254 s | 0.93x |
 | **`zig v0.17.0 -fllvm`** | 12 / 12 (with `+atomics` + `+simd128`) | 29,079.3 KB / 7,162.3 KB | 1.167 s | 1.00x (baseline) |
 
-> *\*Upstream `zig 0.17.0 -fno-llvm` emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled, emits invalid `v128` Wasm instructions (`type mismatch: expected v128, found i32` in `scrollbar.render` & `mem.findScalarPos` failing Wasmtime validation) or `IllDefinedMemoryLayout` when `+simd128` is enabled (so non-SIMD `zig -fno-llvm` rows above are measured with `+simd128` and `+atomics` stripped), and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.0-wazig.5` fixes all three bugs.*
+> *\*Upstream `zig 0.17.0 -fno-llvm` emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled, emits invalid `v128` Wasm instructions (`type mismatch: expected v128, found i32` in `scrollbar.render` & `mem.findScalarPos` failing Wasmtime validation) or `IllDefinedMemoryLayout` when `+simd128` is enabled (so non-SIMD `zig -fno-llvm` rows above are measured with `+simd128` and `+atomics` stripped), and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.0-wazig.6` fixes all three bugs.*
 
 ---
 
@@ -148,25 +148,25 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 ### E.1 Verified Impact of `cataggar/zig#158`–`#224` & `cataggar/knots#11`–`#30` (`#9` & `#19`)
 
-Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **14.58x** from `21,457` (`v0.17.0-wazig.3`) → `6,984`/`6,513`/`6,287` (initial `wazig.4`) → `3,209` (post-`#9`) → `1,674` (`wazig.4` post-`#19`) → **`1,472` (`ReleaseFast +simd128`)** in **`wazig v0.17.0-wazig.5`** (`cataggar/zig@v0.17.0-wazig.5`) + `cataggar/knots#11`–`#30`, exceeding all `cataggar/knots#9`, `#14`, and `#19` targets:
+Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **14.58x** from `21,457` (`v0.17.0-wazig.3`) → `6,984`/`6,513`/`6,287` (initial `wazig.4`) → `3,209` (post-`#9`) → `1,674` (`wazig.4` post-`#19`) → **`1,472` (`ReleaseFast +simd128`)** in **`wazig v0.17.0-wazig.6`** (`cataggar/zig@v0.17.0-wazig.6`) + `cataggar/knots#11`–`#30`, exceeding all `cataggar/knots#9`, `#14`, and `#19` targets:
 
-| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.5` (`ReleaseSmall`) | `wazig.5` (`ReleaseFast +simd128`) | `wazigl.4` (`ReleaseFast +simd128`) | `wazig.5` Speedup vs `wazig.3` | `knots#19` Goal |
+| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.6` (`ReleaseSmall`) | `wazig.6` (`ReleaseFast +simd128`) | `wazigl.6` (`ReleaseFast +simd128`) | `wazig.6` Speedup vs `wazig.3` | `knots#19` Goal |
 | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
 | **`layout_bench`** | 1.575 ms (635.2 FPS) | 0.112 ms (8,886.7 FPS) | **0.087 ms (11,463.1 FPS)** | **0.101 ms (9,837.8 FPS)** | **18.05x faster** | `>= 9,500–10,000+ FPS` (**Exceeded**) |
 | **`text_bench`** | 5.505 ms (181.7 FPS) | 0.384 ms (2,585.0 FPS) | **0.342 ms (2,902.5 FPS)** | **0.327 ms (3,040.7 FPS)** | **15.97x faster** | `>= 2,300–2,600+ FPS` (**Exceeded**) |
 | **`render_bench`** | 1.282 ms (779.1 FPS) | 0.150 ms (6,589.0 FPS) | **0.097 ms (10,112.4 FPS)** | **0.089 ms (11,122.0 FPS)** | **12.98x faster** | `>= 5,000–6,100+ FPS` (**Exceeded**) |
 | **`combined_frame`** | 3.286 ms (304.2 FPS) | 0.506 ms (1,983.0 FPS) | **0.368 ms (2,695.3 FPS)** | **0.271 ms (3,655.8 FPS)** | **8.86x faster** | `>= 1,800–2,270+ FPS` (**Exceeded**) |
 
-- **[`cataggar/zig#158`](https://github.com/cataggar/zig/pull/158) (fixes `#153`) — Inline `f32`/`f64` `@min`/`@max` and `i128` shifts/muls**: Eliminated all **6,065 samples (28.3%)** previously spent in `fmaxf`/`fminf`/`isNan`/`signbit` and `__lshrti3`/`__multi3` (`0` samples in `wazig.4`/`wazig.5`).
+- **[`cataggar/zig#158`](https://github.com/cataggar/zig/pull/158) (fixes `#153`) — Inline `f32`/`f64` `@min`/`@max` and `i128` shifts/muls**: Eliminated all **6,065 samples (28.3%)** previously spent in `fmaxf`/`fminf`/`isNan`/`signbit` and `__lshrti3`/`__multi3` (`0` samples in `wazig.4`/`wazig.6`).
 - **[`cataggar/zig#159`](https://github.com/cataggar/zig/pull/159) (fixes `#154`) — Scalar Replacement of Aggregates (SROA) to Wasm locals**: Promoted non-escaped slices, optionals, error unions, `Vec2`, `Rect`, `Color`, and `Element.Sizing` into Wasm locals, eliminating `Rect.fromMinMax`, `Rect.min`, `Rect.max`, `Rect.size`, `Rect.pos`, `Rect.intersect`, and `GlyphKey.hash` shadow-stack traffic.
 - **[`cataggar/zig#163`](https://github.com/cataggar/zig/pull/163) (fixes `#155`) & [`cataggar/zig#169`](https://github.com/cataggar/zig/issues/169) — `Optimizer.zig` parameterized leaf inlining, single-caller `.small` inlining, and local peepholes**: Inlined `band.curveExtent`, `ElementPool.get`, `DrawList.Box.add`, `mem.swap`, `hash_map.header`, `hash_map.capacity`, and `appendAssumeCapacity`.
 - **[`cataggar/zig#164`](https://github.com/cataggar/zig/pull/164) (fixes `#156`) & [`cataggar/zig#168`](https://github.com/cataggar/zig/issues/168) — `@Vector` layout, `v128` `+simd128` SIMD arithmetic, and fused `cmp_vector` + `@reduce(.And/.Or)` lowering**: Lowered `Rect.eql` to `f32x4.eq` + `i32x4.all_true` (`12 B`).
 - **[`cataggar/zig#170`](https://github.com/cataggar/zig/issues/170) — Wasm multivalue return ABI for 2-scalar aggregates (`[2]f32`, `Vec2`, `HMetrics`, `[2]u8`, `u128`)**: Eliminated linear-memory `sret` stack frames for 2-scalar returns, allowing `curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`, and `fmt.digits2` to be completely inlined and removed in `ReleaseFast`.
 - **[`cataggar/zig#171`](https://github.com/cataggar/zig/issues/171) — Atomic temp-file rename for WASI cache manifests & bounds-checked `Archive`/`Object` magic parsing**: Parallel 4-way cold-cache `wasm32-wasi` test suite compilation completes with zero `Archive.zig` race panics (`21.32s` wall / `63.63s` CPU; **`0.843s`** total test execution time across all 12 suites — the fastest of all 4 compilers).
 - **[`cataggar/zig#174`](https://github.com/cataggar/zig/issues/174)–[`#224`](https://github.com/cataggar/zig/pull/224) — By-value scalar parameter ABI (`classifyAutoParam`), read-only by-ref load & alloc alias elision across subblocks/`try` (`#215`/`#220`), `umulh` (`Wyhash.mum`) inline lowering, `tryElideMemcpyStackFrame` / `tryElideLeafStackFrame`, `0xfd` SIMD stack deltas (`#193`), `@Vector` lane & `u128` SROA (`#194`/`#222`), post-inlining shadow-stack scalarization (`#195`), single-scalar payload union SROA (`#213`), inline zero-fill stores (`#216`/`#218`), Wasm SIMD `pmin`/`pmax` (`#205`/`#212`), `Optimize.zig` MIR & `Optimizer.zig` LICM/DSE/store coalescing/2-pass inlining (`#214`/`#217`/`#223`/`#224`), and `.auto` multi-value ABI up to 4 scalars (`#223`/`#224`)**: Eliminated `memory.copy` aggregate parameter staging, inlined `Wyhash.round`/`mum`, promoted `sizing.Axis` tagged unions and `u128` values to scalar locals, and shrunk `wazig.wasm` itself from `31.57 MiB` to `30.31 MiB`.
-- **[`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11)–[`#17`](https://github.com/cataggar/knots/pull/17) (`#9`) & [`cataggar/knots#20`](https://github.com/cataggar/knots/pull/20)–[`#30`](https://github.com/cataggar/knots/pull/30) (`#19`, `#27`, `#28`) — Precomputed curve extents & scatter-first per-band sort (`#11`, `#15`, `#20`, `#25`, `#26`), 2-pass child layout, `comptime is_row` flex layout, O(1) `grow_main_total`, `IdContext`/`CodepointContext` integer hash contexts, compact 2-scalar `Key`, settled transition & `Style.resolve` fast paths (`#16`, `#17`, `#21`, `#25`), and in-place `DrawList` writes, single-pass `commandBounds` + grid insertion, and `comptime std.mem.zeroes` instance templates (`#22`, `#23`, `#26`)**: Boosted `wazig.5` `ReleaseFast +simd128` to **`11,463.1 FPS` (`layout_bench`)**, **`2,902.5 FPS` (`text_bench`)**, **`10,112.4 FPS` (`render_bench`)**, and **`2,695.3 FPS` (`combined_frame`)**.
+- **[`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11)–[`#17`](https://github.com/cataggar/knots/pull/17) (`#9`) & [`cataggar/knots#20`](https://github.com/cataggar/knots/pull/20)–[`#30`](https://github.com/cataggar/knots/pull/30) (`#19`, `#27`, `#28`) — Precomputed curve extents & scatter-first per-band sort (`#11`, `#15`, `#20`, `#25`, `#26`), 2-pass child layout, `comptime is_row` flex layout, O(1) `grow_main_total`, `IdContext`/`CodepointContext` integer hash contexts, compact 2-scalar `Key`, settled transition & `Style.resolve` fast paths (`#16`, `#17`, `#21`, `#25`), and in-place `DrawList` writes, single-pass `commandBounds` + grid insertion, and `comptime std.mem.zeroes` instance templates (`#22`, `#23`, `#26`)**: Boosted `wazig.6` `ReleaseFast +simd128` to **`11,463.1 FPS` (`layout_bench`)**, **`2,902.5 FPS` (`text_bench`)**, **`10,112.4 FPS` (`render_bench`)**, and **`2,695.3 FPS` (`combined_frame`)**.
 
-### E.2 Top 15 Functions in `wazig v0.17.0-wazig.5` `ReleaseFast +simd128` (`1,472` total samples @ 100us)
+### E.2 Top 15 Functions in `wazig v0.17.0-wazig.6` `ReleaseFast +simd128` (`1,472` total samples @ 100us)
 
 | Self | Self% | Total | Tot% | Bytes | Function |
 | ---: | ---: | ---: | ---: | ---: | :--- |
@@ -199,6 +199,7 @@ Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wa
 - **[`cataggar/zig#218`](https://github.com/cataggar/zig/issues/218)** (fixed in `v0.17.0-wazig.5`): `wasm: SroaAnalysis does not forward .bit_cast on layout-compatible byref values (e.g. []T -> []const T slice coercions), and all-zero >16B @splat(0) arrays load from .rodata instead of v128.const 0`.
 - **[`cataggar/zig#219`](https://github.com/cataggar/zig/issues/219)**: `aarch64: self-hosted backend (-Denable-llvm=false) miscompiles std.Build runner (maker) into an infinite loop`.
 - **[`cataggar/zig#222`](https://github.com/cataggar/zig/pull/222)**–**[`#224`](https://github.com/cataggar/zig/pull/224)** (landed in `v0.17.0-wazig.5`): `wasm: u128 SROA + .auto 4-scalar multi-value ABI + Optimize.zig MIR & Optimizer.zig LICM/DSE/store coalescing/2-pass inlining`.
+- **[`cataggar/zig#226`](https://github.com/cataggar/zig/issues/226)** (fixed in [`#227`](https://github.com/cataggar/zig/pull/227) / `v0.17.0-wazig.6` & `v0.17.0-wazigl.6`): `wasm(Optimizer): cache moduleUsesSimd per module to avoid O(functions * body_len) rescans on non-SIMD modules`.
 
 ---
 
