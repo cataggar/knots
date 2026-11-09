@@ -433,6 +433,7 @@ class KnotsBrowserHost {
       };
       let callResult;
       try {
+        this.wasmExports?.knots_worker_ack_complete?.();
         callResult = this.frameCallback(timestamp);
       } catch (err) {
         this.frameInFlight = false;
@@ -823,7 +824,7 @@ export function createKnotsImports(options = {}, extraOptions = null) {
   const wrapExports = (exports) => {
     if (!exports || !wasmCapabilities.jspi || options.isWorker) return exports;
     const wrapped = Object.create(exports);
-    for (const name of [dispatchSymbol, startSymbol, "knots_frame", "knots_init"]) {
+    for (const name of [dispatchSymbol, startSymbol, "knots_init", "knots_event"]) {
       if (typeof exports[name] === "function") {
         Object.defineProperty(wrapped, name, {
           value: wrapPromisingExport(exports[name], host),
@@ -847,7 +848,7 @@ export function createKnotsImports(options = {}, extraOptions = null) {
     if (!wasmCapabilities.waitAsync || !(memory?.buffer instanceof SharedArrayBuffer)) {
       return 2;
     }
-    const index = (Number(addrPtr) >>> 0) >>> 2;
+    const index = Math.floor(Number(addrPtr) / 4);
     const view = new Int32Array(memory.buffer);
     const expectedVal = Number(expected) | 0;
     if (Atomics.load(view, index) !== expectedVal) return 1;
@@ -883,7 +884,7 @@ export function createKnotsImports(options = {}, extraOptions = null) {
   const waitAsync32SyncFallback = (addrPtr, expected, _timeoutNsLo, _timeoutNsHi) => {
     const memory = resolveMemory();
     if (!(memory?.buffer instanceof SharedArrayBuffer)) return 2;
-    const index = (Number(addrPtr) >>> 0) >>> 2;
+    const index = Math.floor(Number(addrPtr) / 4);
     const view = new Int32Array(memory.buffer);
     return Atomics.load(view, index) === (Number(expected) | 0) ? 2 : 1;
   };
@@ -907,6 +908,10 @@ export function createKnotsImports(options = {}, extraOptions = null) {
         (wasmCapabilities.bitmask & 0x7) |
         ((host.activePromisingDepth ?? 0) > 0 ? CAP_PROMISING_ACTIVE : 0)
       ) >>> 0,
+    knots_host_notify_complete: () => {
+      wasmExports?.knots_worker_ack_complete?.();
+      host.requestFrame();
+    },
     knots_host_wait_async32: useJspiSuspending
       ? wrapSuspendingImport(waitAsync32Impl, host)
       : waitAsync32SyncFallback,
@@ -1135,9 +1140,13 @@ export async function startKnots({
       memory: instantiated.memory,
       exports: result.instance.exports,
       pointerSize: instantiated.pointerSize,
+      capabilities: imports.wasmCapabilities.bitmask,
       extensions: extensionUrls,
       minWorkers,
-      onComplete: () => imports.host.requestFrame(),
+      onComplete: () => {
+        result.instance.exports.knots_worker_ack_complete?.();
+        imports.host.requestFrame();
+      },
       onError: (error) => imports.host.fatalError(errorMessage(error)),
     });
     await workerPool.init();

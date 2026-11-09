@@ -21,6 +21,12 @@ const thread_export_symbol_names = [_][]const u8{
     "knots_worker_abort",
     "knots_worker_stack_alloc",
     "knots_worker_stack_free",
+    "knots_worker_loop",
+    "knots_worker_poll",
+    "knots_worker_wake_all",
+    "knots_worker_ack_complete",
+    "knots_worker_current_task",
+    "knots_worker_set_max_workers",
     "__stack_pointer",
 };
 

@@ -17,6 +17,23 @@
  *        - JSPI suspend/resume (`Promise.resolve()` vs `queueMicrotask`)
  *        - Cooperative frame-budgeted polygon triangulation loop (10,000 steps, yield every 1,000)
  *        - Main-thread `std.Io` futex wait (`Atomics.waitAsync` + JSPI vs spin-wait on `SharedArrayBuffer`)
+ *   5. Benchmarks Issue #28 Part 1 Shared-Linear-Memory Worker Pool Enhancements:
+ *        - Persistent Wasm Futex Work Queue: production `src/wasm/WorkerRuntime.zig` uses a 256-slot ring buffer
+ *          + intrusive FIFO overflow list protected by `queue_lock`, a `work_seq` futex sequence word
+ *          (`memory.atomic.wait32` / `memory.atomic.notify`), pre-warmed workers parked in `knots_worker_loop(workerId)`,
+ *          and coalesced main-thread completion notifications (`notify_pending` -> `knots_host_notify_complete` /
+ *          `knots_worker_ack_complete`); the standalone Node V8 microbenchmark kernel models shared-memory futex
+ *          ring dispatch vs per-task `worker.postMessage({ type: "run" })` round-trips across 4 `worker_threads`
+ *        - Per-Worker Sharded Slab Allocator: production `src/wasm/ShardedAllocator.zig` implements `num_shards = 16`
+ *          cache-line-aligned (`align(64)`) shards indexed by `currentWorkerId() % 16` (packed into the low 6 bits of
+ *          the 64-byte-aligned `Task` pointer in `knots_worker_task`), with 9 power-of-two size classes (`16 B..4096 B`,
+ *          `min_class_shift = 4`, `max_class_shift = 12`), per-shard spinlocks, O(1) lock-free same-class `resize`/`remap`,
+ *          and cross-worker frees returned to the freeing worker's shard up to `max_cached_per_class = 64` before evicting
+ *          to `std.heap.wasm_allocator`
+ *        - Frame-Safe Non-Blocking Task Polling: `src/web/host.js` keeps `knots_frame` unwrapped in `wrapExports`
+ *          (not wrapped in `WebAssembly.promising`) and exposes non-blocking `threads.poll(max_tasks)`,
+ *          `threads.pollGroup(&group)`, `threads.pollFuture(T, &future)`, and `knots_worker_poll` vs
+ *          `WebAssembly.promising(knots_frame)`
  */
 
 import { spawnSync } from "node:child_process";
@@ -118,6 +135,71 @@ const JSPI_BENCH_MODULE_BASE64 =
   "AQhleHBlY3RlZAYDAANwdHIBCGV4cGVjdGVkAgVzcGlucwMaBQIBAAFsAwEAAWwEAQABbAUBAAF3" +
   "BgEAAXc=";
 
+/**
+ * Compiled from WAT (via `wat2wasm --enable-threads --debug-names`):
+ * Imports:
+ *   - `env.memory` (shared 16..64 pages)
+ *   - `env.knots_host_notify_complete: () -> void`
+ * Exports:
+ *   - `reset_queue_state: () -> void`
+ *   - `reset_batch_stats: () -> void`
+ *   - `knots_worker_run_one: (arg: i32) -> i32`
+ *   - `enqueue_batch: (count: i32, base_arg: i32) -> void`
+ *   - `knots_worker_loop: (worker_id: i32) -> void`
+ *   - `knots_worker_wake_all: () -> void`
+ *   - `knots_worker_ack_complete: () -> void`
+ *   - `knots_worker_poll: (max_tasks: i32) -> i32`
+ *   - `knots_frame: (dt_us: i32) -> i32`
+ *   - `init_global_freelist: (num_blocks: i32) -> void`
+ *   - `init_sharded_freelists: (num_workers: i32, blocks_per_worker: i32) -> void`
+ *   - `bench_global_lock_alloc: (worker_id: i32, iterations: i32, expected_workers: i32) -> i32`
+ *   - `bench_sharded_slab_alloc: (worker_id: i32, iterations: i32, expected_workers: i32) -> i32`
+ */
+const WORKER_POOL_BENCH_MODULE_BASE64 =
+  "AGFzbQEAAAABHQZgAABgAX8AYAF/AX9gAn9/AGAAAX9gA39/fwF/AjECA2VudgZtZW1vcnkCAxBA" +
+  "A2Vudhprbm90c19ob3N0X25vdGlmeV9jb21wbGV0ZQAAAxIRAQEAAAIDBAABAAACAgEDBQUHnwIN" +
+  "EXJlc2V0X3F1ZXVlX3N0YXRlAAMRcmVzZXRfYmF0Y2hfc3RhdHMABBRrbm90c193b3JrZXJfcnVu" +
+  "X29uZQAFDWVucXVldWVfYmF0Y2gABhFrbm90c193b3JrZXJfbG9vcAAJFWtub3RzX3dvcmtlcl93" +
+  "YWtlX2FsbAAKGWtub3RzX3dvcmtlcl9hY2tfY29tcGxldGUACxFrbm90c193b3JrZXJfcG9sbAAM" +
+  "C2tub3RzX2ZyYW1lAA0UaW5pdF9nbG9iYWxfZnJlZWxpc3QADhZpbml0X3NoYXJkZWRfZnJlZWxp" +
+  "c3RzAA8XYmVuY2hfZ2xvYmFsX2xvY2tfYWxsb2MAEBhiZW5jaF9zaGFyZGVkX3NsYWJfYWxsb2MA" +
+  "EQqsCxEXAAJAA0AgAEEAQQH+SAIARQ0BDAALCwsKACAAQQD+FwIACycBAX9BACEAAkADQCAAQYAG" +
+  "Tw0BIABBAP4XAgAgAEEEaiEADAALCwsvAEHAA0EA/hcCAEGABEEA/hcCAEHABEEA/hcCAEGABUEA" +
+  "/hcCAEHABUEA/hcCAAtRAQJ/IABBAXIhAkEAIQECQANAIAFBwABPDQEgAiACIAFqQbHz3fF5bHMh" +
+  "AiACQQd3QZX4qfoHaiECIAFBAWohAQwACwtBgAUgAv4eAgAaIAILnwEBBH9BwARBAP4XAgBBgAMg" +
+  "AP4eAgAaQQAQAUHAACgCACEDQcQAKAIAIQRBACECAkADQCACIABPDQEgAyAEakH/A3EhBUGACCAF" +
+  "QQJ0aiABIAJqNgIAIARBAWohBCACQQFqIQIMAAsLQcQAIAQ2AgBBwAEgAP4eAgAaQYABQQH+HgIA" +
+  "GkEAEAJBgAL+EAIAQQBLBEBBgAEgAP4AAgAaCwtrAQN/QcAB/hACAEUEQEF/DwtBABABQcQAKAIA" +
+  "IQEgAUUEQEEAEAJBfw8LQcAAKAIAIQBBgAggAEECdGooAgAhAkHAACAAQQFqQf8DcTYCAEHEACAB" +
+  "QQFrNgIAQcABQQH+JQIAGkEAEAIgAgs6AQF/QcADQQH+HgIAGkGAA0EB/iUCACEAIABBAUYEQEGA" +
+  "A0F//gACABpBwARBAf5BAgBFBEAQAAsLC5MBAQJ/AkADQEHAAv4QAgBBAEcNAQJAA0AQByEBIAFB" +
+  "AEgNASABEAUaEAhBwAL+EAIAQQBHDQMMAAsLQYAB/hACACECQcAB/hACAEEARw0AQcAC/hACAEEA" +
+  "Rw0AQYACQQH+HgIAGkHAAf4QAgBFQcAC/hACAEVxBEBBgAEgAkJ//gECABoLQYACQQH+JQIAGgwA" +
+  "CwsLHwBBwAJBAf4XAgBBgAFBAf4eAgAaQYABQX/+AAIAGgsLAEHABEEA/hcCAAtSAQR/QcAEQQD+" +
+  "FwIAQQAhAQJAA0AgASAATw0BEAchAiACQQBIDQEgAhAFGhAIIAFBAWohAQwACwtBwAP+EAIAIQNB" +
+  "gAQgA/5BAgAhBCADIARrCxkBAX9BABAMIQFBwAUgACABav4eAgAaIAELVgEDf0GAwABBAP4XAgBB" +
+  "wMAAQQD+FwIAQQAhAkEAIQECQANAIAEgAE8NAUGAgAEgAUEGdGohAyADIAI2AgAgAyECIAFBAWoh" +
+  "AQwACwtBxMAAIAI2AgALkgEBBn9BgMAAQQD+FwIAQQEhAgJAA0AgAiAASw0BQYDCACACQQZ0aiEE" +
+  "IARBAP4XAgBBACEFIAJBAWsgAWwhB0EAIQMCQANAIAMgAU8NAUGAgAEgByADakEGdGohBiAGIAU2" +
+  "AgAgBiEFIANBAWohAwwACwsgBEEEaiAFNgIAIARBCGogATYCACACQQFqIQIMAAsLC6QBAQR/QYDA" +
+  "AEEB/h4CABoCQANAQYDAAP4QAgAgAk8NAQwACwtBACEGQQAhAwJAA0AgAyABTw0BQcDAABABQcTA" +
+  "ACgCACEEIAQoAgAhBUHEwAAgBTYCAEHAwAAQAiAEQQhqIAMgAHM2AgAgBiAEQQhqKAIAaiEGQcDA" +
+  "ABABIARBxMAAKAIANgIAQcTAACAENgIAQcDAABACIANBAWohAwwACwsgBgvVAQEFf0GAwgAgAEEP" +
+  "cUEGdGohBEGAwABBAf4eAgAaAkADQEGAwAD+EAIAIAJPDQEMAAsLQQAhB0EAIQMCQANAIAMgAU8N" +
+  "ASAEEAEgBEEEaigCACEFIAUoAgAhBiAEQQRqIAY2AgAgBEEIaiAEQQhqKAIAQQFrNgIAIAQQAiAF" +
+  "QQhqIAMgAHM2AgAgByAFQQhqKAIAaiEHIAQQASAFIARBBGooAgA2AgAgBEEEaiAFNgIAIARBCGog" +
+  "BEEIaigCAEEBajYCACAEEAIgA0EBaiEDDAALCyAHCwCdBARuYW1lAWwHABprbm90c19ob3N0X25v" +
+  "dGlmeV9jb21wbGV0ZQEEbG9jawIGdW5sb2NrBQ9ydW5fdGFza19rZXJuZWwHDHRyeV9wb3BfdGFz" +
+  "awgNY29tcGxldGVfdGFzawwRa25vdHNfd29ya2VyX3BvbGwCpwMSAAABAQAEYWRkcgIBAARhZGRy" +
+  "AwEABGFkZHIEAAUDAANhcmcBAWkCA2FjYwYGAAVjb3VudAEIYmFzZV9hcmcCAWkDBGhlYWQEBnJj" +
+  "b3VudAUEdGFpbAcDAARoZWFkAQZyY291bnQCA2FyZwgBAARwcmV2CQMACXdvcmtlcl9pZAEDYXJn" +
+  "AgNzZXEKAAsADAUACW1heF90YXNrcwEDcmFuAgNhcmcDA2N1cgQEcHJldg0CAAVkdF91cwEJY29t" +
+  "cGxldGVkDgQACm51bV9ibG9ja3MBAWkCBGhlYWQDA2Jsaw8IAAtudW1fd29ya2VycwERYmxvY2tz" +
+  "X3Blcl93b3JrZXICAXcDAWkEBXNoYXJkBQRoZWFkBgNibGsHCGJhc2VfaWR4EAcACXdvcmtlcl9p" +
+  "ZAEKaXRlcmF0aW9ucwIQZXhwZWN0ZWRfd29ya2VycwMBaQQDYmxrBQRuZXh0BgNhY2MRCAAJd29y" +
+  "a2VyX2lkAQppdGVyYXRpb25zAhBleHBlY3RlZF93b3JrZXJzAwFpBAVzaGFyZAUDYmxrBgRuZXh0" +
+  "BwNhY2M=";
+
 export function detectWasmCapabilities() {
   const jspi =
     typeof WebAssembly.Suspending === "function" &&
@@ -159,7 +241,10 @@ function parseArgs(argv) {
 
 function findExecutable(name) {
   const pathEnv = process.env.PATH || "";
-  const dirs = pathEnv.split(path.delimiter);
+  const dirs = [
+    ...pathEnv.split(path.delimiter),
+    path.join(os.homedir(), ".local", "bin"),
+  ];
   for (const dir of dirs) {
     if (!dir) continue;
     const candidate = path.join(dir, name);
@@ -171,6 +256,30 @@ function findExecutable(name) {
     }
   }
   return null;
+}
+
+function ensureWasmtimeEnv(workDir) {
+  const env = { ...process.env };
+  const existingToml = path.join(REPO_ROOT, ".zig-global-cache", "wasmtime-cache.toml");
+  if (!env.WASMTIME_CACHE_CONFIG) {
+    if (fs.existsSync(existingToml)) {
+      env.WASMTIME_CACHE_CONFIG = existingToml;
+    } else {
+      const wtCacheDir = path.join(workDir, "wasmtime-cache");
+      fs.mkdirSync(wtCacheDir, { recursive: true });
+      const wtToml = path.join(workDir, "wasmtime-cache.toml");
+      fs.writeFileSync(
+        wtToml,
+        `[cache]\nenabled = true\ndirectory = "${wtCacheDir}"\n`,
+        "utf8",
+      );
+      env.WASMTIME_CACHE_CONFIG = wtToml;
+    }
+  }
+  const xdgCache = path.join(workDir, "xdg-cache");
+  fs.mkdirSync(xdgCache, { recursive: true });
+  env.XDG_CACHE_HOME = xdgCache;
+  return env;
 }
 
 function resolveCompiler() {
@@ -194,7 +303,7 @@ function resolveCompiler() {
 
 function resolveTrueTypeZig(workDir) {
   const findInRoot = (cacheRoot) => {
-    if (!fs.existsSync(cacheRoot)) return null;
+    if (!cacheRoot || !fs.existsSync(cacheRoot)) return null;
     for (const entry of fs.readdirSync(cacheRoot).sort()) {
       if (!entry.startsWith("TrueType-")) continue;
       for (const rel of ["TrueType.zig", path.join("src", "TrueType.zig")]) {
@@ -209,21 +318,31 @@ function resolveTrueTypeZig(workDir) {
   if (localHit) {
     return path.relative(REPO_ROOT, localHit);
   }
-  const homeHit = findInRoot(path.join(os.homedir(), ".cache", "zig", "p"));
-  if (homeHit) {
-    const staged = path.join(workDir, "TrueType.zig");
-    fs.copyFileSync(homeHit, staged);
-    return path.relative(REPO_ROOT, staged);
+  const externalRoots = [
+    process.env.ZIG_GLOBAL_CACHE_DIR
+      ? path.join(process.env.ZIG_GLOBAL_CACHE_DIR, "p")
+      : null,
+    path.resolve(REPO_ROOT, "..", "..", "zig-global-cache", "p"),
+    path.resolve(REPO_ROOT, "..", ".zig-global-cache", "p"),
+    path.resolve(REPO_ROOT, "..", "knots", ".zig-global-cache", "p"),
+  ];
+  for (const root of externalRoots) {
+    const hit = findInRoot(root);
+    if (hit) {
+      const staged = path.join(workDir, "TrueType.zig");
+      fs.copyFileSync(hit, staged);
+      return path.relative(REPO_ROOT, staged);
+    }
   }
   throw new Error(
-    "Could not locate unpacked TrueType.zig in .zig-global-cache/p or ~/.cache/zig/p.",
+    "Could not locate unpacked TrueType.zig in .zig-global-cache/p or ZIG_GLOBAL_CACHE_DIR.",
   );
 }
 
 function buildWasmBenchRunner() {
-  const workDir = path.join(REPO_ROOT, ".cache-bench", "wasmfx");
+  const workDir = path.join(REPO_ROOT, ".tmp", "bench-wasmfx");
   const localCacheDir = path.join(workDir, "zig-local");
-  const globalCacheDir = path.join(REPO_ROOT, ".zig-global-cache");
+  const globalCacheDir = path.join(workDir, "zig-global");
   fs.mkdirSync(localCacheDir, { recursive: true });
   fs.mkdirSync(globalCacheDir, { recursive: true });
 
@@ -303,10 +422,12 @@ function buildWasmBenchRunner() {
     `-femit-bin=${relOutput}`,
   ];
 
+  const env = ensureWasmtimeEnv(workDir);
   const t0 = performance.now();
   const res = spawnSync(compiler.bin, args, {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    env,
   });
   const compileMs = performance.now() - t0;
   if (res.status !== 0) {
@@ -467,12 +588,17 @@ async function runMicrobenchmarks() {
   });
   const sharedI32 = new Int32Array(sharedMem.buffer);
 
-  // 1. JSPI with Promise.resolve()
-  const yieldResolvedImport = new WebAssembly.Suspending(() => Promise.resolve());
-  const waitAsyncImport = new WebAssembly.Suspending((byteOffset, expected) => {
-    const res = Atomics.waitAsync(sharedI32, byteOffset >> 2, expected);
-    return res.async ? res.value : Promise.resolve(res.value);
-  });
+  // 1. JSPI with Promise.resolve() (when WebAssembly.Suspending / promising are available)
+  const hasJspi = caps.jspi;
+  const yieldResolvedImport = hasJspi
+    ? new WebAssembly.Suspending(() => Promise.resolve())
+    : () => {};
+  const waitAsyncImport = hasJspi
+    ? new WebAssembly.Suspending((byteOffset, expected) => {
+        const res = Atomics.waitAsync(sharedI32, byteOffset >> 2, expected);
+        return res.async ? res.value : Promise.resolve(res.value);
+      })
+    : () => {};
 
   const instResolved = new WebAssembly.Instance(jspiModule, {
     env: {
@@ -483,9 +609,11 @@ async function runMicrobenchmarks() {
   });
 
   // 2. JSPI with queueMicrotask
-  const yieldMicrotaskImport = new WebAssembly.Suspending(
-    () => new Promise((resolve) => queueMicrotask(resolve)),
-  );
+  const yieldMicrotaskImport = hasJspi
+    ? new WebAssembly.Suspending(
+        () => new Promise((resolve) => queueMicrotask(resolve)),
+      )
+    : () => {};
   const instMicrotask = new WebAssembly.Instance(jspiModule, {
     env: {
       memory: sharedMem,
@@ -494,41 +622,46 @@ async function runMicrobenchmarks() {
     },
   });
 
-  const jspiYieldResolved = WebAssembly.promising(
-    instResolved.exports.bench_jspi_yield,
-  );
-  const jspiYieldMicrotask = WebAssembly.promising(
-    instMicrotask.exports.bench_jspi_yield,
-  );
+  const jspiYieldResolved = hasJspi
+    ? WebAssembly.promising(instResolved.exports.bench_jspi_yield)
+    : null;
+  const jspiYieldMicrotask = hasJspi
+    ? WebAssembly.promising(instMicrotask.exports.bench_jspi_yield)
+    : null;
   const triangulateBaseline = instResolved.exports.triangulate_baseline;
-  const triangulateJspi = WebAssembly.promising(
-    instResolved.exports.triangulate_jspi,
-  );
-  const futexWaitJspi = WebAssembly.promising(
-    instResolved.exports.futex_wait_jspi,
-  );
+  const triangulateJspi = hasJspi
+    ? WebAssembly.promising(instResolved.exports.triangulate_jspi)
+    : null;
+  const futexWaitJspi = hasJspi
+    ? WebAssembly.promising(instResolved.exports.futex_wait_jspi)
+    : null;
   const futexSpinWait = instResolved.exports.futex_spin_wait;
 
-  // Warmup JSPI
-  await jspiYieldResolved(2000);
-  await jspiYieldMicrotask(2000);
+  let jspiResolvedNsPerOp = null;
+  let jspiMicrotaskNsPerOp = null;
+  let jspiFullCallNsPerOp = null;
 
-  const jspiOps = 50000;
-  const tJspiRes0 = performance.now();
-  await jspiYieldResolved(jspiOps);
-  const jspiResolvedNsPerOp = ((performance.now() - tJspiRes0) * 1e6) / jspiOps;
+  if (hasJspi) {
+    // Warmup JSPI
+    await jspiYieldResolved(2000);
+    await jspiYieldMicrotask(2000);
 
-  const tJspiMic0 = performance.now();
-  await jspiYieldMicrotask(jspiOps);
-  const jspiMicrotaskNsPerOp = ((performance.now() - tJspiMic0) * 1e6) / jspiOps;
+    const jspiOps = 50000;
+    const tJspiRes0 = performance.now();
+    await jspiYieldResolved(jspiOps);
+    jspiResolvedNsPerOp = ((performance.now() - tJspiRes0) * 1e6) / jspiOps;
 
-  const jspiFullOps = 20000;
-  const tJspiFull0 = performance.now();
-  for (let i = 0; i < jspiFullOps; i++) {
-    await jspiYieldMicrotask(1);
+    const tJspiMic0 = performance.now();
+    await jspiYieldMicrotask(jspiOps);
+    jspiMicrotaskNsPerOp = ((performance.now() - tJspiMic0) * 1e6) / jspiOps;
+
+    const jspiFullOps = 20000;
+    const tJspiFull0 = performance.now();
+    for (let i = 0; i < jspiFullOps; i++) {
+      await jspiYieldMicrotask(1);
+    }
+    jspiFullCallNsPerOp = ((performance.now() - tJspiFull0) * 1e6) / jspiFullOps;
   }
-  const jspiFullCallNsPerOp =
-    ((performance.now() - tJspiFull0) * 1e6) / jspiFullOps;
 
   // WasmFX continuation benchmarks (if enabled in this V8 process)
   let wasmfxActiveNsPerOp = null;
@@ -536,23 +669,27 @@ async function runMicrobenchmarks() {
   let wasmfxInstance = null;
 
   if (caps.wasmfx) {
-    const fxBytes = Buffer.from(WASMFX_BENCH_MODULE_BASE64, "base64");
-    const fxMod = new WebAssembly.Module(fxBytes);
-    wasmfxInstance = new WebAssembly.Instance(fxMod);
+    try {
+      const fxBytes = Buffer.from(WASMFX_BENCH_MODULE_BASE64, "base64");
+      const fxMod = new WebAssembly.Module(fxBytes);
+      wasmfxInstance = new WebAssembly.Instance(fxMod);
 
-    // Warmup WasmFX
-    wasmfxInstance.exports.bench_active_yield(10000);
-    wasmfxInstance.exports.bench_full_cont(5000);
+      // Warmup WasmFX
+      wasmfxInstance.exports.bench_active_yield(10000);
+      wasmfxInstance.exports.bench_full_cont(5000);
 
-    const fxActiveOps = 500000;
-    const tFxAct0 = performance.now();
-    wasmfxInstance.exports.bench_active_yield(fxActiveOps);
-    wasmfxActiveNsPerOp = ((performance.now() - tFxAct0) * 1e6) / fxActiveOps;
+      const fxActiveOps = 500000;
+      const tFxAct0 = performance.now();
+      wasmfxInstance.exports.bench_active_yield(fxActiveOps);
+      wasmfxActiveNsPerOp = ((performance.now() - tFxAct0) * 1e6) / fxActiveOps;
 
-    const fxFullOps = 100000;
-    const tFxFull0 = performance.now();
-    wasmfxInstance.exports.bench_full_cont(fxFullOps);
-    wasmfxFullContNsPerOp = ((performance.now() - tFxFull0) * 1e6) / fxFullOps;
+      const fxFullOps = 100000;
+      const tFxFull0 = performance.now();
+      wasmfxInstance.exports.bench_full_cont(fxFullOps);
+      wasmfxFullContNsPerOp = ((performance.now() - tFxFull0) * 1e6) / fxFullOps;
+    } catch {
+      wasmfxInstance = null;
+    }
   }
 
   // 3. Cooperative frame-budgeted geometry/triangulation loop (10,000 iterations, yield every 1,000)
@@ -563,7 +700,9 @@ async function runMicrobenchmarks() {
   // Warmup triangulation
   for (let i = 0; i < 30; i++) {
     triangulateBaseline(triSteps);
-    await triangulateJspi(triSteps, yieldInterval);
+    if (triangulateJspi) {
+      await triangulateJspi(triSteps, yieldInterval);
+    }
     if (wasmfxInstance) {
       wasmfxInstance.exports.triangulate_wasmfx(triSteps, yieldInterval);
     }
@@ -590,12 +729,15 @@ async function runMicrobenchmarks() {
     triWasmfxUs = ((performance.now() - tTriFx0) * 1000) / triRuns;
   }
 
-  const tTriJspi0 = performance.now();
-  for (let i = 0; i < triRuns; i++) {
-    const c = await triangulateJspi(triSteps, yieldInterval);
-    if (c !== expectedChecksum) throw new Error("Checksum mismatch in JSPI");
+  let triJspiUs = null;
+  if (triangulateJspi) {
+    const tTriJspi0 = performance.now();
+    for (let i = 0; i < triRuns; i++) {
+      const c = await triangulateJspi(triSteps, yieldInterval);
+      if (c !== expectedChecksum) throw new Error("Checksum mismatch in JSPI");
+    }
+    triJspiUs = ((performance.now() - tTriJspi0) * 1000) / triRuns;
   }
-  const triJspiUs = ((performance.now() - tTriJspi0) * 1000) / triRuns;
 
   // 4. Main-thread std.Io futex wait (Atomics.waitAsync + JSPI vs spin-wait on SharedArrayBuffer)
   const futexRounds = 12;
@@ -624,9 +766,11 @@ async function runMicrobenchmarks() {
 
   try {
     // Warmup both paths
-    Atomics.store(sharedI32, 0, 0);
-    notifier.postMessage({ cmd: "notify_after", delayMs: 1 });
-    await futexWaitJspi(0, 0);
+    if (futexWaitJspi) {
+      Atomics.store(sharedI32, 0, 0);
+      notifier.postMessage({ cmd: "notify_after", delayMs: 1 });
+      await futexWaitJspi(0, 0);
+    }
 
     Atomics.store(sharedI32, 0, 0);
     notifier.postMessage({ cmd: "notify_after", delayMs: 1 });
@@ -638,24 +782,26 @@ async function runMicrobenchmarks() {
     let jspiWakeLatencyTotalUs = 0;
     let jspiEventLoopTicks = 0;
 
-    for (let r = 0; r < futexRounds; r++) {
-      Atomics.store(sharedI32, 0, 0);
-      const tickTimer = setInterval(() => {
-        jspiEventLoopTicks++;
-      }, 0);
-      notifier.postMessage({ cmd: "notify_after", delayMs: notifyDelayMs });
-      const cpu0 = process.cpuUsage();
-      const wall0 = performance.now();
-      await futexWaitJspi(0, 0);
-      const wallUs = (performance.now() - wall0) * 1000;
-      const cpuDelta = process.cpuUsage(cpu0);
-      const wakeNowUs = Math.trunc(performance.now() * 1000);
-      const notifySentUs = Atomics.load(sharedI32, 2);
-      clearInterval(tickTimer);
+    if (futexWaitJspi) {
+      for (let r = 0; r < futexRounds; r++) {
+        Atomics.store(sharedI32, 0, 0);
+        const tickTimer = setInterval(() => {
+          jspiEventLoopTicks++;
+        }, 0);
+        notifier.postMessage({ cmd: "notify_after", delayMs: notifyDelayMs });
+        const cpu0 = process.cpuUsage();
+        const wall0 = performance.now();
+        await futexWaitJspi(0, 0);
+        const wallUs = (performance.now() - wall0) * 1000;
+        const cpuDelta = process.cpuUsage(cpu0);
+        const wakeNowUs = Math.trunc(performance.now() * 1000);
+        const notifySentUs = Atomics.load(sharedI32, 2);
+        clearInterval(tickTimer);
 
-      jspiWallTotalUs += wallUs;
-      jspiCpuTotalUs += cpuDelta.user + cpuDelta.system;
-      jspiWakeLatencyTotalUs += Math.max(0, wakeNowUs - notifySentUs);
+        jspiWallTotalUs += wallUs;
+        jspiCpuTotalUs += cpuDelta.user + cpuDelta.system;
+        jspiWakeLatencyTotalUs += Math.max(0, wakeNowUs - notifySentUs);
+      }
     }
 
     // Measure synchronous Wasm spin-wait
@@ -686,6 +832,8 @@ async function runMicrobenchmarks() {
       spinWakeLatencyTotalUs += Math.max(0, wakeNowUs - notifySentUs);
     }
 
+    const workerPool = await runWorkerPoolBenchmarks();
+
     return {
       suspension: {
         wasmfxActiveNsPerOp,
@@ -694,15 +842,15 @@ async function runMicrobenchmarks() {
         jspiMicrotaskNsPerOp,
         jspiFullCallNsPerOp,
         activeSpeedupVsJspiResolved:
-          wasmfxActiveNsPerOp != null
+          wasmfxActiveNsPerOp != null && jspiResolvedNsPerOp != null
             ? jspiResolvedNsPerOp / wasmfxActiveNsPerOp
             : null,
         activeSpeedupVsJspiMicrotask:
-          wasmfxActiveNsPerOp != null
+          wasmfxActiveNsPerOp != null && jspiMicrotaskNsPerOp != null
             ? jspiMicrotaskNsPerOp / wasmfxActiveNsPerOp
             : null,
         fullContSpeedupVsJspiFullCall:
-          wasmfxFullContNsPerOp != null
+          wasmfxFullContNsPerOp != null && jspiFullCallNsPerOp != null
             ? jspiFullCallNsPerOp / wasmfxFullContNsPerOp
             : null,
       },
@@ -718,7 +866,10 @@ async function runMicrobenchmarks() {
           triWasmfxUs != null
             ? ((triWasmfxUs - triBaselineUs) / triBaselineUs) * 100
             : null,
-        jspiOverheadPct: ((triJspiUs - triBaselineUs) / triBaselineUs) * 100,
+        jspiOverheadPct:
+          triJspiUs != null
+            ? ((triJspiUs - triBaselineUs) / triBaselineUs) * 100
+            : null,
       },
       futexWait: {
         rounds: futexRounds,
@@ -737,11 +888,430 @@ async function runMicrobenchmarks() {
           avgSpinLoads: totalSpinIterations / futexRounds,
         },
       },
+      workerPool,
+      futexWorkQueue: workerPool.futexWorkQueue,
+      shardedAllocator: workerPool.shardedAllocator,
+      framePolling: workerPool.framePolling,
     };
   } finally {
     notifier.postMessage({ cmd: "exit" });
     await notifier.terminate();
   }
+}
+
+async function runWorkerPoolBenchmarks() {
+  const numWorkers = 4;
+  const tasksPerBatch = 400;
+  const batchRounds = 20;
+
+  const wpBytes = Buffer.from(WORKER_POOL_BENCH_MODULE_BASE64, "base64");
+  const wasmModule = new WebAssembly.Module(wpBytes);
+
+  const sharedMem = new WebAssembly.Memory({
+    initial: 16,
+    maximum: 64,
+    shared: true,
+  });
+  const sharedI32 = new Int32Array(sharedMem.buffer);
+
+  const mainInstance = new WebAssembly.Instance(wasmModule, {
+    env: {
+      memory: sharedMem,
+      knots_host_notify_complete: () => {},
+    },
+  });
+  const exports = mainInstance.exports;
+
+  // --- Benchmark 4a: Baseline per-task postMessage({ type: "run" }) dispatch ---
+  const postMsgWorkerCode = `
+    const { parentPort, workerData } = require("node:worker_threads");
+    const inst = new WebAssembly.Instance(workerData.wasmModule, {
+      env: {
+        memory: workerData.sharedMem,
+        knots_host_notify_complete: () => {},
+      },
+    });
+    const runOne = inst.exports.knots_worker_run_one;
+    parentPort.postMessage({ type: "ready" });
+    parentPort.on("message", (msg) => {
+      if (msg.type === "run") {
+        runOne(msg.arg);
+        parentPort.postMessage({ type: "done", task: msg.task });
+      } else if (msg.type === "exit") {
+        process.exit(0);
+      }
+    });
+  `;
+
+  const pmWorkers = [];
+  await Promise.all(
+    Array.from({ length: numWorkers }, (_, idx) => {
+      return new Promise((resolve, reject) => {
+        const w = new Worker(postMsgWorkerCode, {
+          eval: true,
+          workerData: { wasmModule, sharedMem },
+        });
+        const entry = { worker: w, id: idx + 1, busy: false };
+        pmWorkers.push(entry);
+        w.once("message", (m) => {
+          if (m.type === "ready") resolve();
+        });
+        w.once("error", reject);
+      });
+    }),
+  );
+
+  function dispatchPostMessageBatch(count, baseArg) {
+    return new Promise((resolve) => {
+      let nextIdx = 0;
+      let remaining = count;
+      const pumpWorker = (entry) => {
+        if (nextIdx < count) {
+          const idx = nextIdx++;
+          entry.busy = true;
+          entry.worker.postMessage({
+            type: "run",
+            task: idx,
+            arg: baseArg + idx,
+          });
+        } else {
+          entry.busy = false;
+        }
+      };
+      for (const entry of pmWorkers) {
+        entry.worker.removeAllListeners("message");
+        entry.worker.on("message", (msg) => {
+          if (msg.type === "done") {
+            remaining--;
+            if (remaining === 0) {
+              resolve();
+              return;
+            }
+            pumpWorker(entry);
+          }
+        });
+      }
+      for (const entry of pmWorkers) {
+        pumpWorker(entry);
+      }
+    });
+  }
+
+  let pmTotalMs = 0;
+  let pmAccum = 0;
+  try {
+    exports.reset_queue_state();
+    for (let r = 0; r < 3; r++) {
+      await dispatchPostMessageBatch(tasksPerBatch, r * tasksPerBatch);
+    }
+
+    exports.reset_batch_stats();
+    const tPm0 = performance.now();
+    for (let r = 0; r < batchRounds; r++) {
+      await dispatchPostMessageBatch(tasksPerBatch, r * tasksPerBatch);
+    }
+    pmTotalMs = performance.now() - tPm0;
+    pmAccum = Atomics.load(sharedI32, 0x0280 >> 2);
+  } finally {
+    await Promise.all(
+      pmWorkers.map(async (e) => {
+        e.worker.postMessage({ type: "exit" });
+        await e.worker.terminate();
+      }),
+    );
+  }
+
+  // --- Benchmark 4b: Persistent Wasm Futex Work Queue (`knots_worker_loop` + coalesced completion) ---
+  const futexWorkerCode = `
+    const { parentPort, workerData } = require("node:worker_threads");
+    const inst = new WebAssembly.Instance(workerData.wasmModule, {
+      env: {
+        memory: workerData.sharedMem,
+        knots_host_notify_complete: () => {
+          parentPort.postMessage({ type: "complete" });
+        },
+      },
+    });
+    parentPort.postMessage({ type: "ready" });
+    parentPort.on("message", (msg) => {
+      if (msg.type === "park") {
+        inst.exports.knots_worker_loop(msg.workerId);
+        parentPort.postMessage({ type: "exited" });
+      }
+    });
+  `;
+
+  exports.reset_queue_state();
+  let onBatchComplete = null;
+  const futexWorkers = [];
+  await Promise.all(
+    Array.from({ length: numWorkers }, (_, idx) => {
+      return new Promise((resolve, reject) => {
+        const w = new Worker(futexWorkerCode, {
+          eval: true,
+          workerData: { wasmModule, sharedMem },
+        });
+        const workerId = idx + 1;
+        w.on("message", (msg) => {
+          if (msg.type === "ready") {
+            w.postMessage({ type: "park", workerId });
+            resolve();
+          } else if (msg.type === "complete") {
+            exports.knots_worker_ack_complete();
+            if (onBatchComplete) {
+              const cb = onBatchComplete;
+              onBatchComplete = null;
+              cb();
+            }
+          }
+        });
+        w.once("error", reject);
+        futexWorkers.push(w);
+      });
+    }),
+  );
+
+  let fqTotalMs = 0;
+  let fqAccum = 0;
+  try {
+    while (Atomics.load(sharedI32, 0x0100 >> 2) < numWorkers) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+
+    const dispatchFutexBatch = (count, baseArg) =>
+      new Promise((resolve) => {
+        onBatchComplete = resolve;
+        exports.enqueue_batch(count, baseArg);
+      });
+
+    for (let r = 0; r < 3; r++) {
+      await dispatchFutexBatch(tasksPerBatch, r * tasksPerBatch);
+    }
+
+    exports.reset_batch_stats();
+    const tFq0 = performance.now();
+    for (let r = 0; r < batchRounds; r++) {
+      await dispatchFutexBatch(tasksPerBatch, r * tasksPerBatch);
+    }
+    fqTotalMs = performance.now() - tFq0;
+    fqAccum = Atomics.load(sharedI32, 0x0280 >> 2);
+    if (fqAccum !== pmAccum) {
+      throw new Error(
+        `Worker queue checksum mismatch: futex=${fqAccum} vs postMessage=${pmAccum}`,
+      );
+    }
+  } finally {
+    exports.knots_worker_wake_all();
+    await Promise.all(futexWorkers.map((w) => w.terminate()));
+  }
+
+  // --- Benchmark 5: Per-Worker Sharded Slab Allocator vs Global Spinlock Allocator ---
+  const allocWorkerCode = `
+    const { parentPort, workerData } = require("node:worker_threads");
+    const inst = new WebAssembly.Instance(workerData.wasmModule, {
+      env: {
+        memory: workerData.sharedMem,
+        knots_host_notify_complete: () => {},
+      },
+    });
+    parentPort.postMessage({ type: "ready" });
+    parentPort.on("message", (msg) => {
+      if (msg.type === "global_lock") {
+        const t0 = performance.now();
+        const checksum = inst.exports.bench_global_lock_alloc(
+          msg.workerId,
+          msg.iterations,
+          msg.expectedWorkers,
+        );
+        const elapsedMs = performance.now() - t0;
+        parentPort.postMessage({ type: "alloc_done", checksum, elapsedMs });
+      } else if (msg.type === "sharded_slab") {
+        const t0 = performance.now();
+        const checksum = inst.exports.bench_sharded_slab_alloc(
+          msg.workerId,
+          msg.iterations,
+          msg.expectedWorkers,
+        );
+        const elapsedMs = performance.now() - t0;
+        parentPort.postMessage({ type: "alloc_done", checksum, elapsedMs });
+      } else if (msg.type === "exit") {
+        process.exit(0);
+      }
+    });
+  `;
+
+  const allocWorkers = [];
+  await Promise.all(
+    Array.from({ length: numWorkers }, (_, idx) => {
+      return new Promise((resolve, reject) => {
+        const w = new Worker(allocWorkerCode, {
+          eval: true,
+          workerData: { wasmModule, sharedMem },
+        });
+        allocWorkers.push({ worker: w, workerId: idx + 1 });
+        w.once("message", (m) => {
+          if (m.type === "ready") resolve();
+        });
+        w.once("error", reject);
+      });
+    }),
+  );
+
+  let globalKernelTotalMs = 0;
+  let shardedKernelTotalMs = 0;
+  let globalChecksum = 0;
+  let shardedChecksum = 0;
+  const allocItersPerWorker = 25000;
+  const allocRounds = 12;
+
+  try {
+    const runAllocRound = async (mode, iterationsPerWorker) => {
+      if (mode === "global_lock") {
+        exports.init_global_freelist(64);
+      } else {
+        exports.init_sharded_freelists(numWorkers, 16);
+      }
+      const results = await Promise.all(
+        allocWorkers.map(
+          ({ worker, workerId }) =>
+            new Promise((resolve) => {
+              worker.once("message", (msg) => {
+                if (msg.type === "alloc_done") resolve(msg);
+              });
+              worker.postMessage({
+                type: mode,
+                workerId,
+                iterations: iterationsPerWorker,
+                expectedWorkers: numWorkers,
+              });
+            }),
+        ),
+      );
+      const maxWorkerKernelMs = Math.max(...results.map((r) => r.elapsedMs));
+      const checksum = results.reduce((acc, r) => (acc + r.checksum) | 0, 0);
+      return { maxWorkerKernelMs, checksum };
+    };
+
+    for (let r = 0; r < 3; r++) {
+      await runAllocRound("global_lock", 5000);
+      await runAllocRound("sharded_slab", 5000);
+    }
+
+    for (let r = 0; r < allocRounds; r++) {
+      const g = await runAllocRound("global_lock", allocItersPerWorker);
+      const s = await runAllocRound("sharded_slab", allocItersPerWorker);
+      globalKernelTotalMs += g.maxWorkerKernelMs;
+      shardedKernelTotalMs += s.maxWorkerKernelMs;
+      globalChecksum = g.checksum;
+      shardedChecksum = s.checksum;
+    }
+
+    if (globalChecksum !== shardedChecksum) {
+      throw new Error(
+        `Allocator checksum mismatch: sharded=${shardedChecksum} vs global=${globalChecksum}`,
+      );
+    }
+  } finally {
+    await Promise.all(
+      allocWorkers.map(async ({ worker }) => {
+        worker.postMessage({ type: "exit" });
+        await worker.terminate();
+      }),
+    );
+  }
+
+  // --- Benchmark 6: Frame-Safe Synchronous `knots_frame` + `knots_worker_poll(0)` vs `WebAssembly.promising(knots_frame)` ---
+  const frameCalls = 10000;
+  const syncFrame = exports.knots_frame;
+  const promisingFrame =
+    typeof WebAssembly.promising === "function"
+      ? WebAssembly.promising(exports.knots_frame)
+      : null;
+
+  for (let i = 0; i < 2000; i++) {
+    syncFrame(16);
+    if (promisingFrame) {
+      await promisingFrame(16);
+    }
+  }
+
+  let syncSink = 0;
+  const tSyncFrame0 = performance.now();
+  for (let i = 0; i < frameCalls; i++) {
+    syncSink = (syncSink + syncFrame(16)) | 0;
+  }
+  const syncFrameTotalUs = (performance.now() - tSyncFrame0) * 1000;
+  const syncFrameNsPerCall = (syncFrameTotalUs * 1000) / frameCalls;
+
+  let promisingFrameTotalUs = null;
+  let promisingFrameNsPerCall = null;
+  let promSink = 0;
+  if (promisingFrame) {
+    const tPromFrame0 = performance.now();
+    for (let i = 0; i < frameCalls; i++) {
+      promSink = (promSink + (await promisingFrame(16))) | 0;
+    }
+    promisingFrameTotalUs = (performance.now() - tPromFrame0) * 1000;
+    promisingFrameNsPerCall = (promisingFrameTotalUs * 1000) / frameCalls;
+  }
+
+  const totalTasksDispatched = batchRounds * tasksPerBatch;
+  const postMessageBatchMs = pmTotalMs / batchRounds;
+  const postMessageUsPerTask = (pmTotalMs * 1000) / totalTasksDispatched;
+  const futexRingBatchMs = fqTotalMs / batchRounds;
+  const futexRingUsPerTask = (fqTotalMs * 1000) / totalTasksDispatched;
+
+  const totalAllocOpsPerRound = numWorkers * allocItersPerWorker;
+  const globalLockAvgMs = globalKernelTotalMs / allocRounds;
+  const globalLockNsPerOp = (globalLockAvgMs * 1e6) / totalAllocOpsPerRound;
+  const shardedSlabAvgMs = shardedKernelTotalMs / allocRounds;
+  const shardedSlabNsPerOp = (shardedSlabAvgMs * 1e6) / totalAllocOpsPerRound;
+
+  return {
+    futexWorkQueue: {
+      numWorkers,
+      tasksPerBatch,
+      batchRounds,
+      totalTasks: totalTasksDispatched,
+      postMessageBatchMs,
+      postMessageUsPerTask,
+      postMessageKTasksPerSec: tasksPerBatch / postMessageBatchMs,
+      futexRingBatchMs,
+      futexRingUsPerTask,
+      futexRingKTasksPerSec: tasksPerBatch / futexRingBatchMs,
+      speedup: pmTotalMs / fqTotalMs,
+      checksum: fqAccum,
+    },
+    shardedAllocator: {
+      numWorkers,
+      itersPerWorker: allocItersPerWorker,
+      totalOpsPerRound: totalAllocOpsPerRound,
+      rounds: allocRounds,
+      globalLockAvgMs,
+      globalLockNsPerOp,
+      globalLockMOpsPerSec: 1000 / globalLockNsPerOp,
+      shardedSlabAvgMs,
+      shardedSlabNsPerOp,
+      shardedSlabMOpsPerSec: 1000 / shardedSlabNsPerOp,
+      speedup: globalKernelTotalMs / shardedKernelTotalMs,
+      checksum: shardedChecksum,
+    },
+    framePolling: {
+      frameCalls,
+      syncFrameTotalUs,
+      syncFrameNsPerCall,
+      syncFrameMCallsPerSec: 1000 / syncFrameNsPerCall,
+      promisingFrameTotalUs,
+      promisingFrameNsPerCall,
+      promisingFrameMCallsPerSec:
+        promisingFrameNsPerCall != null ? 1000 / promisingFrameNsPerCall : null,
+      speedup:
+        promisingFrameNsPerCall != null
+          ? promisingFrameNsPerCall / syncFrameNsPerCall
+          : null,
+      sink: syncSink ^ promSink,
+    },
+  };
 }
 
 function getWasmtimeVersion() {
@@ -831,19 +1401,19 @@ function renderMarkdownReport(report) {
   );
   lines.push("|---|---|---:|---:|---:|");
   lines.push(
-    `| **WasmFX (active stack)** | \`suspend $yield\` + \`resume $ct\` on warm continuation | ${formatNum(susp.wasmfxActiveNsPerOp, 2)} ns | ${formatNum(1000 / susp.wasmfxActiveNsPerOp, 2)} M/s | **${formatNum(susp.activeSpeedupVsJspiResolved, 2)}x faster** than JSPI (\`Promise.resolve\`), **${formatNum(susp.activeSpeedupVsJspiMicrotask, 2)}x faster** than JSPI (\`queueMicrotask\`) |`,
+    `| **WasmFX (active stack)** | \`suspend $yield\` + \`resume $ct\` on warm continuation | ${susp.wasmfxActiveNsPerOp != null ? `${formatNum(susp.wasmfxActiveNsPerOp, 2)} ns` : "n/a"} | ${susp.wasmfxActiveNsPerOp != null ? `${formatNum(1000 / susp.wasmfxActiveNsPerOp, 2)} M/s` : "n/a"} | ${susp.activeSpeedupVsJspiResolved != null ? `**${formatNum(susp.activeSpeedupVsJspiResolved, 2)}x faster** than JSPI (\`Promise.resolve\`), **${formatNum(susp.activeSpeedupVsJspiMicrotask, 2)}x faster** than JSPI (\`queueMicrotask\`)` : "n/a (requires V8 14+ WasmFX opcodes)"} |`,
   );
   lines.push(
-    `| **JSPI (active stack, \`Promise.resolve\`)** | \`WebAssembly.Suspending\` + \`WebAssembly.promising\` immediate Promise | ${formatNum(susp.jspiResolvedNsPerOp, 2)} ns | ${formatNum(1000 / susp.jspiResolvedNsPerOp, 2)} M/s | 1.00x (active-stack JSPI baseline) |`,
+    `| **JSPI (active stack, \`Promise.resolve\`)** | \`WebAssembly.Suspending\` + \`WebAssembly.promising\` immediate Promise | ${susp.jspiResolvedNsPerOp != null ? `${formatNum(susp.jspiResolvedNsPerOp, 2)} ns` : "n/a"} | ${susp.jspiResolvedNsPerOp != null ? `${formatNum(1000 / susp.jspiResolvedNsPerOp, 2)} M/s` : "n/a"} | 1.00x (active-stack JSPI baseline) |`,
   );
   lines.push(
-    `| **JSPI (active stack, \`queueMicrotask\`)** | \`WebAssembly.Suspending\` + \`new Promise(r => queueMicrotask(r))\` | ${formatNum(susp.jspiMicrotaskNsPerOp, 2)} ns | ${formatNum(1000 / susp.jspiMicrotaskNsPerOp, 2)} M/s | ${formatNum(susp.jspiMicrotaskNsPerOp / susp.jspiResolvedNsPerOp, 2)}x of JSPI (\`Promise.resolve\`) |`,
+    `| **JSPI (active stack, \`queueMicrotask\`)** | \`WebAssembly.Suspending\` + \`new Promise(r => queueMicrotask(r))\` | ${susp.jspiMicrotaskNsPerOp != null ? `${formatNum(susp.jspiMicrotaskNsPerOp, 2)} ns` : "n/a"} | ${susp.jspiMicrotaskNsPerOp != null ? `${formatNum(1000 / susp.jspiMicrotaskNsPerOp, 2)} M/s` : "n/a"} | ${susp.jspiMicrotaskNsPerOp != null && susp.jspiResolvedNsPerOp != null ? `${formatNum(susp.jspiMicrotaskNsPerOp / susp.jspiResolvedNsPerOp, 2)}x of JSPI (\`Promise.resolve\`)` : "n/a"} |`,
   );
   lines.push(
-    `| **WasmFX (full lifecycle)** | \`cont.new\` + \`resume\` (1 suspend) + \`resume\` to completion | ${formatNum(susp.wasmfxFullContNsPerOp, 2)} ns | ${formatNum(1000 / susp.wasmfxFullContNsPerOp, 2)} M/s | **${formatNum(susp.fullContSpeedupVsJspiFullCall, 2)}x faster** than full-lifecycle JSPI |`,
+    `| **WasmFX (full lifecycle)** | \`cont.new\` + \`resume\` (1 suspend) + \`resume\` to completion | ${susp.wasmfxFullContNsPerOp != null ? `${formatNum(susp.wasmfxFullContNsPerOp, 2)} ns` : "n/a"} | ${susp.wasmfxFullContNsPerOp != null ? `${formatNum(1000 / susp.wasmfxFullContNsPerOp, 2)} M/s` : "n/a"} | ${susp.fullContSpeedupVsJspiFullCall != null ? `**${formatNum(susp.fullContSpeedupVsJspiFullCall, 2)}x faster** than full-lifecycle JSPI` : "n/a (requires V8 14+ WasmFX opcodes)"} |`,
   );
   lines.push(
-    `| **JSPI (full lifecycle, \`queueMicrotask\`)** | \`await promisingExport(1)\` (enter stack + 1 suspend + exit) | ${formatNum(susp.jspiFullCallNsPerOp, 2)} ns | ${formatNum(1000 / susp.jspiFullCallNsPerOp, 2)} M/s | 1.00x (full-lifecycle JSPI baseline) |`,
+    `| **JSPI (full lifecycle, \`queueMicrotask\`)** | \`await promisingExport(1)\` (enter stack + 1 suspend + exit) | ${susp.jspiFullCallNsPerOp != null ? `${formatNum(susp.jspiFullCallNsPerOp, 2)} ns` : "n/a"} | ${susp.jspiFullCallNsPerOp != null ? `${formatNum(1000 / susp.jspiFullCallNsPerOp, 2)} M/s` : "n/a"} | 1.00x (full-lifecycle JSPI baseline) |`,
   );
   lines.push("");
 
@@ -860,10 +1430,10 @@ function renderMarkdownReport(report) {
     `| **Un-instrumented Wasm baseline** | 0 | ${formatNum(tri.baselineUs, 2)} us | 0.00 us | 0.0% | \`${tri.checksum}\` |`,
   );
   lines.push(
-    `| **WasmFX (\`suspend\` / \`resume\`)** | ${tri.yieldsPerCall} | ${formatNum(tri.wasmfxUs, 2)} us | +${formatNum(tri.wasmfxUs - tri.baselineUs, 2)} us | +${formatNum(tri.wasmfxOverheadPct, 1)}% | \`${tri.checksum}\` |`,
+    `| **WasmFX (\`suspend\` / \`resume\`)** | ${tri.yieldsPerCall} | ${tri.wasmfxUs != null ? `${formatNum(tri.wasmfxUs, 2)} us` : "n/a"} | ${tri.wasmfxUs != null ? `+${formatNum(tri.wasmfxUs - tri.baselineUs, 2)} us` : "n/a"} | ${tri.wasmfxOverheadPct != null ? `+${formatNum(tri.wasmfxOverheadPct, 1)}%` : "n/a"} | \`${tri.checksum}\` |`,
   );
   lines.push(
-    `| **JSPI (\`Suspending\` / \`promising\`)** | ${tri.yieldsPerCall} | ${formatNum(tri.jspiUs, 2)} us | +${formatNum(tri.jspiUs - tri.baselineUs, 2)} us | +${formatNum(tri.jspiOverheadPct, 1)}% | \`${tri.checksum}\` |`,
+    `| **JSPI (\`Suspending\` / \`promising\`)** | ${tri.yieldsPerCall} | ${tri.jspiUs != null ? `${formatNum(tri.jspiUs, 2)} us` : "n/a"} | ${tri.jspiUs != null ? `+${formatNum(tri.jspiUs - tri.baselineUs, 2)} us` : "n/a"} | ${tri.jspiOverheadPct != null ? `+${formatNum(tri.jspiOverheadPct, 1)}%` : "n/a"} | \`${tri.checksum}\` |`,
   );
   lines.push("");
 
@@ -877,15 +1447,83 @@ function renderMarkdownReport(report) {
   );
   lines.push("|---|---:|---:|---:|---:|");
   const cpuSavedPct =
-    ((fw.spinWait.avgCpuUs - fw.waitAsyncJspi.avgCpuUs) /
-      fw.spinWait.avgCpuUs) *
-    100;
+    fw.waitAsyncJspi.avgCpuUs > 0
+      ? ((fw.spinWait.avgCpuUs - fw.waitAsyncJspi.avgCpuUs) /
+          fw.spinWait.avgCpuUs) *
+        100
+      : null;
   lines.push(
     `| **\`Atomics.waitAsync\` + JSPI** | ${formatNum(fw.waitAsyncJspi.avgWallUs, 1)} us | **${formatNum(fw.waitAsyncJspi.avgCpuUs, 1)} us** | ${formatNum(fw.waitAsyncJspi.eventLoopTicksPerWait, 1)} ticks (non-blocking) | **${formatNum(cpuSavedPct, 1)}% less CPU** |`,
   );
   lines.push(
     `| **Synchronous Wasm Spin-Wait (\`i32.atomic.load\`)** | ${formatNum(fw.spinWait.avgWallUs, 1)} us | ${formatNum(fw.spinWait.avgCpuUs, 1)} us | ${formatNum(fw.spinWait.eventLoopTicksPerWait, 1)} ticks (blocked) | 0.0% (100% core pinned) |`,
   );
+  lines.push("");
+
+  const wp = report.workerPoolBenchmarks || report.microbenchmarks.workerPool;
+  if (wp) {
+    const fq = wp.futexWorkQueue;
+    lines.push(
+      `## 6. Issue #28 Part 1: Persistent Wasm Futex Work Queue vs \`postMessage({ type: "run" })\` Dispatch (${fq.numWorkers} Workers, ${fq.tasksPerBatch} Tasks/Batch)`,
+    );
+    lines.push("");
+    lines.push(
+      "| Dispatch Path | Workers | Tasks / Batch | Avg Batch Time (ms) | Per-Task Latency (us/task) | Throughput (K tasks/s) | Speedup | Checksum |",
+    );
+    lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+    lines.push(
+      `| **Persistent Wasm Futex Ring (\`knots_worker_loop\` + \`memory.atomic.wait32\` + coalesced notify)** | ${fq.numWorkers} | ${fq.tasksPerBatch} | **${formatNum(fq.futexRingBatchMs, 3)} ms** | **${formatNum(fq.futexRingUsPerTask, 2)} us** | **${formatNum(fq.futexRingKTasksPerSec, 1)} K/s** | **${formatNum(fq.speedup, 2)}x faster** | \`${fq.checksum}\` |`,
+    );
+    lines.push(
+      `| **Per-Task \`postMessage({ type: "run" })\` + \`{ type: "done" }\` (Baseline)** | ${fq.numWorkers} | ${fq.tasksPerBatch} | ${formatNum(fq.postMessageBatchMs, 3)} ms | ${formatNum(fq.postMessageUsPerTask, 2)} us | ${formatNum(fq.postMessageKTasksPerSec, 1)} K/s | 1.00x (baseline) | \`${fq.checksum}\` |`,
+    );
+    lines.push("");
+    lines.push(
+      "- **Production Runtime (`src/wasm/WorkerRuntime.zig`) vs Standalone V8 Microbenchmark Kernel**: Production uses a 256-slot ring buffer + intrusive FIFO overflow list protected by a lightweight spinlock (`queue_lock`), a `work_seq` futex sequence word (`memory.atomic.wait32` / `memory.atomic.notify`), pre-warmed workers parked in `knots_worker_loop(workerId)`, and coalesced main-thread completion notifications (`notify_pending` -> `knots_host_notify_complete` / `knots_worker_ack_complete`), while the standalone Node V8 microbenchmark kernel models shared-memory futex ring dispatch vs per-task `worker.postMessage({ type: \"run\" })` round-trips.",
+    );
+    lines.push("");
+
+    const sa = wp.shardedAllocator;
+    lines.push(
+      `## 7. Issue #28 Part 1: Per-Worker 64B-Aligned Sharded Slab Allocator vs Global Spinlock Allocator (${sa.numWorkers} Workers, ${sa.itersPerWorker.toLocaleString()} Alloc+Free/Worker)`,
+    );
+    lines.push("");
+    lines.push(
+      "| Allocator Strategy (`SharedArrayBuffer` Wasm Linear Memory) | Workers | Concurrent Ops / Round | Avg Round Time (ms) | Effective Latency (ns/op) | Throughput (M ops/s) | Speedup | Checksum |",
+    );
+    lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+    lines.push(
+      `| **Per-Worker 64B-Aligned Sharded Slab (\`ShardedAllocator\`, \`currentWorkerId() % 16\`, \`align(64)\`)** | ${sa.numWorkers} | ${sa.totalOpsPerRound.toLocaleString()} | **${formatNum(sa.shardedSlabAvgMs, 3)} ms** | **${formatNum(sa.shardedSlabNsPerOp, 2)} ns** | **${formatNum(sa.shardedSlabMOpsPerSec, 2)} M/s** | **${formatNum(sa.speedup, 2)}x faster** | \`${sa.checksum}\` |`,
+    );
+    lines.push(
+      `| **Global Atomic Spinlock Freelist (\`i32.atomic.rmw.cmpxchg\`)** | ${sa.numWorkers} | ${sa.totalOpsPerRound.toLocaleString()} | ${formatNum(sa.globalLockAvgMs, 3)} ms | ${formatNum(sa.globalLockNsPerOp, 2)} ns | ${formatNum(sa.globalLockMOpsPerSec, 2)} M/s | 1.00x (baseline) | \`${sa.checksum}\` |`,
+    );
+    lines.push("");
+    lines.push(
+      "- **Production Runtime (`src/wasm/ShardedAllocator.zig`)**: Implements `num_shards = 16` cache-line-aligned (`align(64)`) shards indexed by `currentWorkerId() % 16` (packed into the low 6 bits of the 64-byte-aligned `Task` pointer in `knots_worker_task`), with 9 power-of-two size classes from `16 B` to `4096 B` (`min_class_shift = 4`, `max_class_shift = 12`), per-shard spinlocks, O(1) lock-free same-class `resize`/`remap`, and cross-worker frees returned to the freeing worker's shard up to `max_cached_per_class = 64` before evicting to `std.heap.wasm_allocator`.",
+    );
+    lines.push("");
+
+    const fp = wp.framePolling;
+    lines.push(
+      `## 8. Issue #28 Part 1: Frame-Safe Non-Blocking Task Polling (\`knots_frame\` + \`knots_worker_poll(0)\`) vs \`WebAssembly.promising(knots_frame)\` (${fp.frameCalls.toLocaleString()} Calls)`,
+    );
+    lines.push("");
+    lines.push(
+      "| Frame Entry / Poll Mode | Calls | Total Time (us) | Per-Frame Latency (ns/call) | Throughput (M calls/s) | Speedup |",
+    );
+    lines.push("|---|---:|---:|---:|---:|---:|");
+    lines.push(
+      `| **Synchronous \`knots_frame\` + non-blocking \`knots_worker_poll(0)\`** | ${fp.frameCalls.toLocaleString()} | **${formatNum(fp.syncFrameTotalUs, 2)} us** | **${formatNum(fp.syncFrameNsPerCall, 2)} ns** | **${formatNum(fp.syncFrameMCallsPerSec, 2)} M/s** | **${fp.speedup != null ? `${formatNum(fp.speedup, 2)}x faster` : "1.00x"}** |`,
+    );
+    lines.push(
+      `| **\`WebAssembly.promising(knots_frame)\` (JSPI Promise + Stack Switch)** | ${fp.frameCalls.toLocaleString()} | ${formatNum(fp.promisingFrameTotalUs, 2)} us | ${formatNum(fp.promisingFrameNsPerCall, 2)} ns | ${formatNum(fp.promisingFrameMCallsPerSec, 2)} M/s | ${fp.speedup != null ? "1.00x (JSPI baseline)" : "n/a (JSPI unavailable)"} |`,
+    );
+    lines.push("");
+    lines.push(
+      "- **Frame-Safe Non-Blocking Task Polling (`src/web/host.js`, `src/wasm/threads.zig`)**: `src/web/host.js` keeps `knots_frame` unwrapped in `wrapExports` (not wrapped in `WebAssembly.promising`) and exposes non-blocking `threads.poll(max_tasks)`, `threads.pollGroup(&group)`, `threads.pollFuture(T, &future)`, and `knots_worker_poll` so frame callbacks can drain and inspect completed background tasks synchronously without JSPI suspension or `Promise` allocation overhead.",
+    );
+  }
 
   return lines.join("\n");
 }
@@ -922,7 +1560,7 @@ async function main() {
       }
     : {
         ...buildWasmBenchRunner(),
-        tempDir: path.join(REPO_ROOT, ".cache-bench", "wasmfx"),
+        tempDir: path.join(REPO_ROOT, ".tmp", "bench-wasmfx"),
       };
 
   try {
@@ -949,15 +1587,17 @@ async function main() {
         ],
         { cwd: REPO_ROOT, encoding: "utf8" },
       );
-      if (childRes.status !== 0) {
-        throw new Error(
-          `WasmFX child process failed:\n${childRes.stderr || childRes.stdout}`,
-        );
+      if (childRes.status === 0) {
+        const parsedChild = JSON.parse(childRes.stdout.trim());
+        syncNodeWasmfx = parsedChild.syncNodeWasmfx;
+        capWasmfx = parsedChild.capWasmfx;
+        micro = parsedChild.micro;
+      } else {
+        // Fallback for older Node/V8 builds (e.g. Node 22 / V8 12.4) that lack --experimental-wasm-wasmfx
+        syncNodeWasmfx = syncNodeDefault;
+        capWasmfx = capDefault;
+        micro = await runMicrobenchmarks();
       }
-      const parsedChild = JSON.parse(childRes.stdout.trim());
-      syncNodeWasmfx = parsedChild.syncNodeWasmfx;
-      capWasmfx = parsedChild.capWasmfx;
-      micro = parsedChild.micro;
     } else {
       syncNodeWasmfx = runAllSyncBenchmarksInNode(buildInfo.wasmPath);
       capWasmfx = benchmarkCapabilityDetection();
@@ -1014,6 +1654,7 @@ async function main() {
         nodeWasmfx: capWasmfx,
       },
       microbenchmarks: micro,
+      workerPoolBenchmarks: micro.workerPool,
     };
 
     if (opts.json) {

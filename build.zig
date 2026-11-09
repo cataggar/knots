@@ -471,6 +471,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(render_tests).step);
     test_step.dependOn(&b.addRunArtifact(renderer_tests).step);
     test_step.dependOn(&b.addRunArtifact(mod_tests).step);
+    if (wasm_threads_mod) |wasm_threads| {
+        test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = wasm_threads })).step);
+    }
     if (platform == .native and gpu_backend == .vulkan) {
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = gpu_impl_mod })).step);
     }
