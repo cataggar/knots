@@ -68,7 +68,7 @@ const entries = [_]Entry{
     .{ .demo = .glass, .name = "Glass", .icon = "\u{e3a5}", .description = "Style.backdrop: blur, saturation and refraction over an animated scene." },
     .{ .demo = .canvas, .name = "Canvas", .icon = "\u{e3ae}", .description = "Painter primitives: gradient grid, clock face, bar chart, polygon." },
     .{ .demo = .gpu_shader, .name = "GPU geometry", .icon = "\u{e1b1}", .description = "Thousands of indexed, instanced facets forming an interactive torus knot." },
-    .{ .demo = .async_dispatch, .name = "Async dispatch", .icon = "\u{e627}", .description = "Schedule background work via app.dispatch and react to wakeups." },
+    .{ .demo = .async_dispatch, .name = "Async dispatch", .icon = "\u{e627}", .description = "Schedule background work via app.dispatch, futex worker batches, sharded heap allocs, and non-blocking pollGroup." },
     .{ .demo = .windows, .name = "Windows", .icon = "\u{e30c}", .description = "Floating windows in the current viewport and secondary native windows." },
     .{ .demo = .drops, .name = "Drops", .icon = "\u{e2c6}", .description = "Drag files onto the window and consume the paths from the frame input." },
     .{ .demo = .text_wrap, .name = "Text wrap", .icon = "\u{e25b}", .description = "Text and TextInput with wrap=true." },
@@ -125,6 +125,9 @@ fn frame(view: *knots.View, context: *ui.Frame) !void {
     _ = try body.open(context);
     try self.renderNav(context);
     try context.e(Spacer{ .style = &.{ .width = .fixed(12) }, .key = .str("playground.nav-space") });
+    if (self.active != .async_dispatch and self.demos.async_dispatch.tick()) {
+        context.requestRedraw();
+    }
     inline for (entries) |entry| {
         if (self.active == entry.demo) try self.renderDemo(context, entry);
     }
