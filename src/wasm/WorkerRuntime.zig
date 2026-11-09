@@ -420,7 +420,11 @@ fn waitForTasks(state: *State) void {
 }
 
 fn destroyState(group: *std.Io.Group, state: *State) void {
-    worker_host.forgetConcurrentGroup(@intFromPtr(state));
+    if (worker_host.spawn_concurrent_hook != null or
+        (ready_workers.load(.acquire) == 0 and configured_max_workers.load(.acquire) == 0))
+    {
+        worker_host.forgetConcurrentGroup(@intFromPtr(state));
+    }
 
     while (true) {
         state.lock.lock();
