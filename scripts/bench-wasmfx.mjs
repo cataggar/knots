@@ -34,6 +34,10 @@
  *          (not wrapped in `WebAssembly.promising`) and exposes non-blocking `threads.poll(max_tasks)`,
  *          `threads.pollGroup(&group)`, `threads.pollFuture(T, &future)`, and `knots_worker_poll` vs
  *          `WebAssembly.promising(knots_frame)`
+ *   6. Benchmarks Real-World Application Impact & End-to-End 120 Hz (`8.33 ms`) Frame Budget Examples:
+ *        - Real-World App 1 (G.9.1): Sub-frame parallel task batch (64 tasks/frame × 50 frames across 4 workers, each running the synthetic 64-iteration ~100 ns compute kernel modeling fine-grained per-glyph / per-curve subdivision tasks), comparing `Wasm futex ring + coalesced notify (4 workers, main thread free)` and `Wasm futex ring + work-helping waitForTasks (4 workers + main helper)` against per-task `postMessage`
+ *        - Real-World App 2 (G.9.2): Concurrent multi-worker 9-size-class freelist allocation (2,000 ops/worker/frame = 8,000 concurrent alloc+free ops/frame across 4 workers cycling `class = iter % 9`, 20 frames)
+ *        - Real-World App 3 (G.9.3): 120 Hz frame poll check overhead (1,200 synchronous `knots_frame` + `knots_worker_poll(0)` empty-queue frame-entry ticks = 10s @ 120 Hz vs `WebAssembly.promising`-wrapped `knots_frame`)
  */
 
 import { spawnSync } from "node:child_process";
@@ -150,8 +154,8 @@ const JSPI_BENCH_MODULE_BASE64 =
  *   - `knots_worker_ack_complete: () -> void`
  *   - `knots_worker_poll: (max_tasks: i32) -> i32`
  *   - `knots_frame: (dt_us: i32) -> i32`
- *   - `init_global_freelist: (num_blocks: i32) -> void`
- *   - `init_sharded_freelists: (num_workers: i32, blocks_per_worker: i32) -> void`
+ *   - `init_global_freelist: (blocks_per_class: i32) -> void`
+ *   - `init_sharded_freelists: (num_workers: i32, blocks_per_class: i32) -> void`
  *   - `bench_global_lock_alloc: (worker_id: i32, iterations: i32, expected_workers: i32) -> i32`
  *   - `bench_sharded_slab_alloc: (worker_id: i32, iterations: i32, expected_workers: i32) -> i32`
  */
@@ -163,7 +167,7 @@ const WORKER_POOL_BENCH_MODULE_BASE64 =
   "YWtlX2FsbAAKGWtub3RzX3dvcmtlcl9hY2tfY29tcGxldGUACxFrbm90c193b3JrZXJfcG9sbAAM" +
   "C2tub3RzX2ZyYW1lAA0UaW5pdF9nbG9iYWxfZnJlZWxpc3QADhZpbml0X3NoYXJkZWRfZnJlZWxp" +
   "c3RzAA8XYmVuY2hfZ2xvYmFsX2xvY2tfYWxsb2MAEBhiZW5jaF9zaGFyZGVkX3NsYWJfYWxsb2MA" +
-  "EQqsCxEXAAJAA0AgAEEAQQH+SAIARQ0BDAALCwsKACAAQQD+FwIACycBAX9BACEAAkADQCAAQYAG" +
+  "EQryCxEXAAJAA0AgAEEAQQH+SAIARQ0BDAALCwsKACAAQQD+FwIACycBAX9BACEAAkADQCAAQYAG" +
   "Tw0BIABBAP4XAgAgAEEEaiEADAALCwsvAEHAA0EA/hcCAEGABEEA/hcCAEHABEEA/hcCAEGABUEA" +
   "/hcCAEHABUEA/hcCAAtRAQJ/IABBAXIhAkEAIQECQANAIAFBwABPDQEgAiACIAFqQbHz3fF5bHMh" +
   "AiACQQd3QZX4qfoHaiECIAFBAWohAQwACwtBgAUgAv4eAgAaIAILnwEBBH9BwARBAP4XAgBBgAMg" +
@@ -171,34 +175,25 @@ const WORKER_POOL_BENCH_MODULE_BASE64 =
   "QQJ0aiABIAJqNgIAIARBAWohBCACQQFqIQIMAAsLQcQAIAQ2AgBBwAEgAP4eAgAaQYABQQH+HgIA" +
   "GkEAEAJBgAL+EAIAQQBLBEBBgAEgAP4AAgAaCwtrAQN/QcAB/hACAEUEQEF/DwtBABABQcQAKAIA" +
   "IQEgAUUEQEEAEAJBfw8LQcAAKAIAIQBBgAggAEECdGooAgAhAkHAACAAQQFqQf8DcTYCAEHEACAB" +
-  "QQFrNgIAQcABQQH+JQIAGkEAEAIgAgs6AQF/QcADQQH+HgIAGkGAA0EB/iUCACEAIABBAUYEQEGA" +
-  "A0F//gACABpBwARBAf5BAgBFBEAQAAsLC5MBAQJ/AkADQEHAAv4QAgBBAEcNAQJAA0AQByEBIAFB" +
-  "AEgNASABEAUaEAhBwAL+EAIAQQBHDQMMAAsLQYAB/hACACECQcAB/hACAEEARw0AQcAC/hACAEEA" +
-  "Rw0AQYACQQH+HgIAGkHAAf4QAgBFQcAC/hACAEVxBEBBgAEgAkJ//gECABoLQYACQQH+JQIAGgwA" +
-  "CwsLHwBBwAJBAf4XAgBBgAFBAf4eAgAaQYABQX/+AAIAGgsLAEHABEEA/hcCAAtSAQR/QcAEQQD+" +
-  "FwIAQQAhAQJAA0AgASAATw0BEAchAiACQQBIDQEgAhAFGhAIIAFBAWohAQwACwtBwAP+EAIAIQNB" +
-  "gAQgA/5BAgAhBCADIARrCxkBAX9BABAMIQFBwAUgACABav4eAgAaIAELVgEDf0GAwABBAP4XAgBB" +
-  "wMAAQQD+FwIAQQAhAkEAIQECQANAIAEgAE8NAUGAgAEgAUEGdGohAyADIAI2AgAgAyECIAFBAWoh" +
-  "AQwACwtBxMAAIAI2AgALkgEBBn9BgMAAQQD+FwIAQQEhAgJAA0AgAiAASw0BQYDCACACQQZ0aiEE" +
-  "IARBAP4XAgBBACEFIAJBAWsgAWwhB0EAIQMCQANAIAMgAU8NAUGAgAEgByADakEGdGohBiAGIAU2" +
-  "AgAgBiEFIANBAWohAwwACwsgBEEEaiAFNgIAIARBCGogATYCACACQQFqIQIMAAsLC6QBAQR/QYDA" +
-  "AEEB/h4CABoCQANAQYDAAP4QAgAgAk8NAQwACwtBACEGQQAhAwJAA0AgAyABTw0BQcDAABABQcTA" +
-  "ACgCACEEIAQoAgAhBUHEwAAgBTYCAEHAwAAQAiAEQQhqIAMgAHM2AgAgBiAEQQhqKAIAaiEGQcDA" +
-  "ABABIARBxMAAKAIANgIAQcTAACAENgIAQcDAABACIANBAWohAwwACwsgBgvVAQEFf0GAwgAgAEEP" +
-  "cUEGdGohBEGAwABBAf4eAgAaAkADQEGAwAD+EAIAIAJPDQEMAAsLQQAhB0EAIQMCQANAIAMgAU8N" +
-  "ASAEEAEgBEEEaigCACEFIAUoAgAhBiAEQQRqIAY2AgAgBEEIaiAEQQhqKAIAQQFrNgIAIAQQAiAF" +
-  "QQhqIAMgAHM2AgAgByAFQQhqKAIAaiEHIAQQASAFIARBBGooAgA2AgAgBEEEaiAFNgIAIARBCGog" +
-  "BEEIaigCAEEBajYCACAEEAIgA0EBaiEDDAALCyAHCwCdBARuYW1lAWwHABprbm90c19ob3N0X25v" +
-  "dGlmeV9jb21wbGV0ZQEEbG9jawIGdW5sb2NrBQ9ydW5fdGFza19rZXJuZWwHDHRyeV9wb3BfdGFz" +
-  "awgNY29tcGxldGVfdGFzawwRa25vdHNfd29ya2VyX3BvbGwCpwMSAAABAQAEYWRkcgIBAARhZGRy" +
-  "AwEABGFkZHIEAAUDAANhcmcBAWkCA2FjYwYGAAVjb3VudAEIYmFzZV9hcmcCAWkDBGhlYWQEBnJj" +
-  "b3VudAUEdGFpbAcDAARoZWFkAQZyY291bnQCA2FyZwgBAARwcmV2CQMACXdvcmtlcl9pZAEDYXJn" +
-  "AgNzZXEKAAsADAUACW1heF90YXNrcwEDcmFuAgNhcmcDA2N1cgQEcHJldg0CAAVkdF91cwEJY29t" +
-  "cGxldGVkDgQACm51bV9ibG9ja3MBAWkCBGhlYWQDA2Jsaw8IAAtudW1fd29ya2VycwERYmxvY2tz" +
-  "X3Blcl93b3JrZXICAXcDAWkEBXNoYXJkBQRoZWFkBgNibGsHCGJhc2VfaWR4EAcACXdvcmtlcl9p" +
-  "ZAEKaXRlcmF0aW9ucwIQZXhwZWN0ZWRfd29ya2VycwMBaQQDYmxrBQRuZXh0BgNhY2MRCAAJd29y" +
-  "a2VyX2lkAQppdGVyYXRpb25zAhBleHBlY3RlZF93b3JrZXJzAwFpBAVzaGFyZAUDYmxrBgRuZXh0" +
-  "BwNhY2M=";
+  "QQFrNgIAQcABQQH+JQIAGkEAEAIgAgtFAQF/QcADQQH+HgIAGkGAA0EB/iUCACEAIABBAUYEQEGA" +
+  "A0F//gACABpBwARBAf5BAgBFBEBBzAD+EAIARQRAEAALCwsLkwEBAn8CQANAQcAC/hACAEEARw0B" +
+  "AkADQBAHIQEgAUEASA0BIAEQBRoQCEHAAv4QAgBBAEcNAwwACwtBgAH+EAIAIQJBwAH+EAIAQQBH" +
+  "DQBBwAL+EAIAQQBHDQBBgAJBAf4eAgAaQcAB/hACAEVBwAL+EAIARXEEQEGAASACQn/+AQIAGgtB" +
+  "gAJBAf4lAgAaDAALCwsfAEHAAkEB/hcCAEGAAUEB/h4CABpBgAFBf/4AAgAaCwsAQcAEQQD+FwIA" +
+  "C1IBBH9BwARBAP4XAgBBACEBAkADQCABIABPDQEQByECIAJBAEgNASACEAUaEAggAUEBaiEBDAAL" +
+  "C0HAA/4QAgAhA0GABCAD/kECACEEIAMgBGsLGQEBf0EAEAwhAUHABSAAIAFq/h4CABogAQuAAQEF" +
+  "f0GAwABBAP4XAgBBwMAAQQD+FwIAQQAhAQJAA0AgAUEJTw0BQQAhAyABIABsIQVBACECAkADQCAC" +
+  "IABPDQFBgIABIAUgAmpBBnRqIQQgBCADNgIAIAQhAyACQQFqIQIMAAsLQcTAACABQQJ0aiADNgIA" +
+  "IAFBAWohAQwACwsLrgEBB39BgMAAQQD+FwIAQQEhAgJAA0AgAiAASw0BQYDCACACQQZ0aiEFIAVB" +
+  "AP4XAgBBACEDAkADQCADQQlPDQFBACEGIAJBAWtBCWwgA2ogAWwhCEEAIQQCQANAIAQgAU8NAUGA" +
+  "gAEgCCAEakEGdGohByAHIAY2AgAgByEGIARBAWohBAwACwsgBUEEaiADQQJ0aiAGNgIAIANBAWoh" +
+  "AwwACwsgAkEBaiECDAALCwuvAQEFf0GAwABBAf4eAgAaAkADQEGAwAD+EAIAIAJPDQEMAAsLQQAh" +
+  "B0HEwAAhBEEAIQMCQANAIAMgAU8NAUHAwAAQASAEKAIAIQUgBSgCACEGIAQgBjYCAEHAwAAQAiAF" +
+  "IAMgAHM2AgggByAFKAIIaiEHQcDAABABIAUgBCgCADYCACAEIAU2AgBBwMAAEAJBxMAAIARBBGog" +
+  "BEHkwABGGyEEIANBAWohAwwACwsgBwu+AQEIf0GAwgAgAEEPcUEGdGohBCAEQQRqIQUgBEEkaiEG" +
+  "QYDAAEEB/h4CABoCQANAQYDAAP4QAgAgAk8NAQwACwtBACEKIAUhB0EAIQMCQANAIAMgAU8NASAE" +
+  "EAEgBygCACEIIAgoAgAhCSAHIAk2AgAgBBACIAggAyAAczYCCCAKIAgoAghqIQogBBABIAggBygC" +
+  "ADYCACAHIAg2AgAgBBACIAUgB0EEaiAHIAZGGyEHIANBAWohAwwACwsgCgs=";
 
 export function detectWasmCapabilities() {
   const jspi =
@@ -892,6 +887,7 @@ async function runMicrobenchmarks() {
       futexWorkQueue: workerPool.futexWorkQueue,
       shardedAllocator: workerPool.shardedAllocator,
       framePolling: workerPool.framePolling,
+      realWorldApps: workerPool.realWorldApps,
     };
   } finally {
     notifier.postMessage({ cmd: "exit" });
@@ -997,8 +993,15 @@ async function runWorkerPoolBenchmarks() {
     });
   }
 
+  const glyphTasksPerFrame = 64;
+  const glyphFrames = 50;
+  const frameBudget120HzUs = 8333.33;
+  const frameBudget60HzUs = 16666.67;
+
   let pmTotalMs = 0;
   let pmAccum = 0;
+  let pmGlyphTotalMs = 0;
+  let pmGlyphAccum = 0;
   try {
     exports.reset_queue_state();
     for (let r = 0; r < 3; r++) {
@@ -1012,6 +1015,18 @@ async function runWorkerPoolBenchmarks() {
     }
     pmTotalMs = performance.now() - tPm0;
     pmAccum = Atomics.load(sharedI32, 0x0280 >> 2);
+
+    // Real-World App 1 (Baseline): 64 complex glyphs/paths per 120 Hz frame across 50 frames
+    for (let f = 0; f < 3; f++) {
+      await dispatchPostMessageBatch(glyphTasksPerFrame, f * glyphTasksPerFrame);
+    }
+    exports.reset_batch_stats();
+    const tPmGlyph0 = performance.now();
+    for (let f = 0; f < glyphFrames; f++) {
+      await dispatchPostMessageBatch(glyphTasksPerFrame, f * glyphTasksPerFrame);
+    }
+    pmGlyphTotalMs = performance.now() - tPmGlyph0;
+    pmGlyphAccum = Atomics.load(sharedI32, 0x0280 >> 2);
   } finally {
     await Promise.all(
       pmWorkers.map(async (e) => {
@@ -1024,11 +1039,14 @@ async function runWorkerPoolBenchmarks() {
   // --- Benchmark 4b: Persistent Wasm Futex Work Queue (`knots_worker_loop` + coalesced completion) ---
   const futexWorkerCode = `
     const { parentPort, workerData } = require("node:worker_threads");
+    const i32 = new Int32Array(workerData.sharedMem.buffer);
     const inst = new WebAssembly.Instance(workerData.wasmModule, {
       env: {
         memory: workerData.sharedMem,
         knots_host_notify_complete: () => {
-          parentPort.postMessage({ type: "complete" });
+          if (Atomics.load(i32, 0x004c >> 2) === 0) {
+            parentPort.postMessage({ type: "complete" });
+          }
         },
       },
     });
@@ -1073,6 +1091,9 @@ async function runWorkerPoolBenchmarks() {
 
   let fqTotalMs = 0;
   let fqAccum = 0;
+  let fqGlyphTotalMs = 0;
+  let fqGlyphAsyncTotalMs = 0;
+  let fqGlyphAccum = 0;
   try {
     while (Atomics.load(sharedI32, 0x0100 >> 2) < numWorkers) {
       await new Promise((r) => setTimeout(r, 1));
@@ -1100,6 +1121,49 @@ async function runWorkerPoolBenchmarks() {
         `Worker queue checksum mismatch: futex=${fqAccum} vs postMessage=${pmAccum}`,
       );
     }
+
+    // Real-World App 1a (Wasm futex ring + coalesced notify, 4 workers, main thread free): 64 tasks/frame across 50 frames
+    for (let f = 0; f < 3; f++) {
+      await dispatchFutexBatch(glyphTasksPerFrame, f * glyphTasksPerFrame);
+    }
+    exports.reset_batch_stats();
+    const tFqGlyphAsync0 = performance.now();
+    for (let f = 0; f < glyphFrames; f++) {
+      await dispatchFutexBatch(glyphTasksPerFrame, f * glyphTasksPerFrame);
+    }
+    fqGlyphAsyncTotalMs = performance.now() - tFqGlyphAsync0;
+    const fqGlyphAsyncAccum = Atomics.load(sharedI32, 0x0280 >> 2);
+    if (fqGlyphAsyncAccum !== pmGlyphAccum) {
+      throw new Error(
+        `Async glyph frame checksum mismatch: futex=${fqGlyphAsyncAccum} vs postMessage=${pmGlyphAccum}`,
+      );
+    }
+
+    // Real-World App 1b (Wasm futex ring + work-helping waitForTasks, 4 workers + main helper): 64 tasks/frame across 50 frames
+    Atomics.store(sharedI32, 0x004c >> 2, 1);
+    const dispatchFutexSubFrame = (count, baseArg) => {
+      exports.enqueue_batch(count, baseArg);
+      while (Atomics.load(sharedI32, 0x0180 >> 2) !== 0) {
+        exports.knots_worker_poll(1);
+      }
+      exports.knots_worker_ack_complete();
+    };
+    for (let f = 0; f < 3; f++) {
+      dispatchFutexSubFrame(glyphTasksPerFrame, f * glyphTasksPerFrame);
+    }
+    exports.reset_batch_stats();
+    const tFqGlyph0 = performance.now();
+    for (let f = 0; f < glyphFrames; f++) {
+      dispatchFutexSubFrame(glyphTasksPerFrame, f * glyphTasksPerFrame);
+    }
+    fqGlyphTotalMs = performance.now() - tFqGlyph0;
+    fqGlyphAccum = Atomics.load(sharedI32, 0x0280 >> 2);
+    Atomics.store(sharedI32, 0x004c >> 2, 0);
+    if (fqGlyphAccum !== pmGlyphAccum) {
+      throw new Error(
+        `Glyph frame checksum mismatch: futex=${fqGlyphAccum} vs postMessage=${pmGlyphAccum}`,
+      );
+    }
   } finally {
     exports.knots_worker_wake_all();
     await Promise.all(futexWorkers.map((w) => w.terminate()));
@@ -1108,6 +1172,7 @@ async function runWorkerPoolBenchmarks() {
   // --- Benchmark 5: Per-Worker Sharded Slab Allocator vs Global Spinlock Allocator ---
   const allocWorkerCode = `
     const { parentPort, workerData } = require("node:worker_threads");
+    const i32 = new Int32Array(workerData.sharedMem.buffer);
     const inst = new WebAssembly.Instance(workerData.wasmModule, {
       env: {
         memory: workerData.sharedMem,
@@ -1117,6 +1182,8 @@ async function runWorkerPoolBenchmarks() {
     parentPort.postMessage({ type: "ready" });
     parentPort.on("message", (msg) => {
       if (msg.type === "global_lock") {
+        Atomics.add(i32, 0x0048 >> 2, 1);
+        while (Atomics.load(i32, 0x0048 >> 2) < msg.expectedWorkers) {}
         const t0 = performance.now();
         const checksum = inst.exports.bench_global_lock_alloc(
           msg.workerId,
@@ -1126,6 +1193,8 @@ async function runWorkerPoolBenchmarks() {
         const elapsedMs = performance.now() - t0;
         parentPort.postMessage({ type: "alloc_done", checksum, elapsedMs });
       } else if (msg.type === "sharded_slab") {
+        Atomics.add(i32, 0x0048 >> 2, 1);
+        while (Atomics.load(i32, 0x0048 >> 2) < msg.expectedWorkers) {}
         const t0 = performance.now();
         const checksum = inst.exports.bench_sharded_slab_alloc(
           msg.workerId,
@@ -1164,8 +1233,16 @@ async function runWorkerPoolBenchmarks() {
   const allocItersPerWorker = 25000;
   const allocRounds = 12;
 
+  const sceneAllocItersPerWorker = 2000;
+  const sceneAllocFrames = 20;
+  let sceneGlobalTotalMs = 0;
+  let sceneShardedTotalMs = 0;
+  let sceneGlobalChecksum = 0;
+  let sceneShardedChecksum = 0;
+
   try {
     const runAllocRound = async (mode, iterationsPerWorker) => {
+      Atomics.store(sharedI32, 0x0048 >> 2, 0);
       if (mode === "global_lock") {
         exports.init_global_freelist(64);
       } else {
@@ -1209,6 +1286,25 @@ async function runWorkerPoolBenchmarks() {
     if (globalChecksum !== shardedChecksum) {
       throw new Error(
         `Allocator checksum mismatch: sharded=${shardedChecksum} vs global=${globalChecksum}`,
+      );
+    }
+
+    // Real-World App 2: Parallel Document / JSON / Scene-Graph Parsing (2,000 alloc+free ops/worker/frame = 8,000 ops/frame)
+    for (let f = 0; f < 3; f++) {
+      await runAllocRound("global_lock", sceneAllocItersPerWorker);
+      await runAllocRound("sharded_slab", sceneAllocItersPerWorker);
+    }
+    for (let f = 0; f < sceneAllocFrames; f++) {
+      const g = await runAllocRound("global_lock", sceneAllocItersPerWorker);
+      const s = await runAllocRound("sharded_slab", sceneAllocItersPerWorker);
+      sceneGlobalTotalMs += g.maxWorkerKernelMs;
+      sceneShardedTotalMs += s.maxWorkerKernelMs;
+      sceneGlobalChecksum = g.checksum;
+      sceneShardedChecksum = s.checksum;
+    }
+    if (sceneGlobalChecksum !== sceneShardedChecksum) {
+      throw new Error(
+        `Scene-graph allocator checksum mismatch: sharded=${sceneShardedChecksum} vs global=${sceneGlobalChecksum}`,
       );
     }
   } finally {
@@ -1255,6 +1351,28 @@ async function runWorkerPoolBenchmarks() {
     promisingFrameNsPerCall = (promisingFrameTotalUs * 1000) / frameCalls;
   }
 
+  // Real-World App 3: 10 seconds of 120 Hz animation frames (1,200 frames, dt_us = 8333)
+  const streamingFrames120Hz = 1200;
+  let streamSyncSink = 0;
+  const tStreamSync0 = performance.now();
+  for (let f = 0; f < streamingFrames120Hz; f++) {
+    streamSyncSink = (streamSyncSink + syncFrame(8333)) | 0;
+  }
+  const streamSyncTotalUs = (performance.now() - tStreamSync0) * 1000;
+  const streamSyncNsPerFrame = (streamSyncTotalUs * 1000) / streamingFrames120Hz;
+
+  let streamPromTotalUs = null;
+  let streamPromNsPerFrame = null;
+  let streamPromSink = 0;
+  if (promisingFrame) {
+    const tStreamProm0 = performance.now();
+    for (let f = 0; f < streamingFrames120Hz; f++) {
+      streamPromSink = (streamPromSink + (await promisingFrame(8333))) | 0;
+    }
+    streamPromTotalUs = (performance.now() - tStreamProm0) * 1000;
+    streamPromNsPerFrame = (streamPromTotalUs * 1000) / streamingFrames120Hz;
+  }
+
   const totalTasksDispatched = batchRounds * tasksPerBatch;
   const postMessageBatchMs = pmTotalMs / batchRounds;
   const postMessageUsPerTask = (pmTotalMs * 1000) / totalTasksDispatched;
@@ -1266,6 +1384,25 @@ async function runWorkerPoolBenchmarks() {
   const globalLockNsPerOp = (globalLockAvgMs * 1e6) / totalAllocOpsPerRound;
   const shardedSlabAvgMs = shardedKernelTotalMs / allocRounds;
   const shardedSlabNsPerOp = (shardedSlabAvgMs * 1e6) / totalAllocOpsPerRound;
+
+  const pmGlyphUsPerFrame = (pmGlyphTotalMs * 1000) / glyphFrames;
+  const fqGlyphUsPerFrame = (fqGlyphTotalMs * 1000) / glyphFrames;
+  const fqGlyphAsyncUsPerFrame = (fqGlyphAsyncTotalMs * 1000) / glyphFrames;
+  const sceneOpsPerFrame = numWorkers * sceneAllocItersPerWorker;
+  const sceneGlobalUsPerFrame = (sceneGlobalTotalMs * 1000) / sceneAllocFrames;
+  const sceneShardedUsPerFrame = (sceneShardedTotalMs * 1000) / sceneAllocFrames;
+  const streamSyncUsPerFrame = streamSyncNsPerFrame / 1000;
+  const streamPromUsPerFrame =
+    streamPromNsPerFrame != null ? streamPromNsPerFrame / 1000 : null;
+
+  const combinedBaselineUsPerFrame =
+    streamPromUsPerFrame != null
+      ? pmGlyphUsPerFrame + sceneGlobalUsPerFrame + streamPromUsPerFrame
+      : null;
+  const combinedOptimizedUsPerFrame =
+    fqGlyphAsyncUsPerFrame + sceneShardedUsPerFrame + streamSyncUsPerFrame;
+  const combinedWorkHelpingUsPerFrame =
+    fqGlyphUsPerFrame + sceneShardedUsPerFrame + streamSyncUsPerFrame;
 
   return {
     futexWorkQueue: {
@@ -1309,7 +1446,108 @@ async function runWorkerPoolBenchmarks() {
         promisingFrameNsPerCall != null
           ? promisingFrameNsPerCall / syncFrameNsPerCall
           : null,
-      sink: syncSink ^ promSink,
+      sink: syncSink ^ promSink ^ streamSyncSink ^ streamPromSink,
+    },
+    realWorldApps: {
+      frameBudget120HzUs,
+      frameBudget60HzUs,
+      glyphShapingSubFrame: {
+        numWorkers,
+        glyphsPerFrame: glyphTasksPerFrame,
+        frames: glyphFrames,
+        postMessageUsPerFrame: pmGlyphUsPerFrame,
+        postMessageUsPerGlyph: pmGlyphUsPerFrame / glyphTasksPerFrame,
+        postMessageBudget120HzPct:
+          (pmGlyphUsPerFrame / frameBudget120HzUs) * 100,
+        postMessageBudget60HzPct:
+          (pmGlyphUsPerFrame / frameBudget60HzUs) * 100,
+        futexRingUsPerFrame: fqGlyphUsPerFrame,
+        futexRingUsPerGlyph: fqGlyphUsPerFrame / glyphTasksPerFrame,
+        futexRingBudget120HzPct:
+          (fqGlyphUsPerFrame / frameBudget120HzUs) * 100,
+        futexRingBudget60HzPct:
+          (fqGlyphUsPerFrame / frameBudget60HzUs) * 100,
+        futexAsyncUsPerFrame: fqGlyphAsyncUsPerFrame,
+        futexAsyncUsPerGlyph: fqGlyphAsyncUsPerFrame / glyphTasksPerFrame,
+        futexAsyncBudget120HzPct:
+          (fqGlyphAsyncUsPerFrame / frameBudget120HzUs) * 100,
+        futexAsyncBudget60HzPct:
+          (fqGlyphAsyncUsPerFrame / frameBudget60HzUs) * 100,
+        futexAsyncSpeedup: pmGlyphTotalMs / fqGlyphAsyncTotalMs,
+        savedUsPerFrame: pmGlyphUsPerFrame - fqGlyphUsPerFrame,
+        speedup: pmGlyphTotalMs / fqGlyphTotalMs,
+        checksum: fqGlyphAccum,
+      },
+      sceneGraphAlloc: {
+        numWorkers,
+        opsPerWorkerPerFrame: sceneAllocItersPerWorker,
+        concurrentOpsPerFrame: sceneOpsPerFrame,
+        frames: sceneAllocFrames,
+        globalLockUsPerFrame: sceneGlobalUsPerFrame,
+        globalLockNsPerOp: (sceneGlobalUsPerFrame * 1000) / sceneOpsPerFrame,
+        globalLockBudget120HzPct:
+          (sceneGlobalUsPerFrame / frameBudget120HzUs) * 100,
+        globalLockBudget60HzPct:
+          (sceneGlobalUsPerFrame / frameBudget60HzUs) * 100,
+        shardedSlabUsPerFrame: sceneShardedUsPerFrame,
+        shardedSlabNsPerOp: (sceneShardedUsPerFrame * 1000) / sceneOpsPerFrame,
+        shardedSlabBudget120HzPct:
+          (sceneShardedUsPerFrame / frameBudget120HzUs) * 100,
+        shardedSlabBudget60HzPct:
+          (sceneShardedUsPerFrame / frameBudget60HzUs) * 100,
+        savedUsPerFrame: sceneGlobalUsPerFrame - sceneShardedUsPerFrame,
+        speedup: sceneGlobalTotalMs / sceneShardedTotalMs,
+        checksum: sceneShardedChecksum,
+      },
+      assetStreamingPoll: {
+        frames120Hz: streamingFrames120Hz,
+        durationSecAt120Hz: streamingFrames120Hz / 120,
+        syncPollTotalUs: streamSyncTotalUs,
+        syncPollNsPerFrame: streamSyncNsPerFrame,
+        syncPollBudget120HzPct:
+          (streamSyncUsPerFrame / frameBudget120HzUs) * 100,
+        syncPromisesAllocatedPerSec: 0,
+        promisingTotalUs: streamPromTotalUs,
+        promisingNsPerFrame: streamPromNsPerFrame,
+        promisingBudget120HzPct:
+          streamPromNsPerFrame != null
+            ? (streamPromUsPerFrame / frameBudget120HzUs) * 100
+            : null,
+        promisingPromisesAllocatedPerSec: 120,
+        speedup:
+          streamPromNsPerFrame != null
+            ? streamPromNsPerFrame / streamSyncNsPerFrame
+            : null,
+      },
+      combinedFrameBudget120Hz: {
+        baselineUsPerFrame: combinedBaselineUsPerFrame,
+        baselineBudget120HzPct:
+          combinedBaselineUsPerFrame != null
+            ? (combinedBaselineUsPerFrame / frameBudget120HzUs) * 100
+            : null,
+        optimizedUsPerFrame: combinedOptimizedUsPerFrame,
+        optimizedBudget120HzPct:
+          (combinedOptimizedUsPerFrame / frameBudget120HzUs) * 100,
+        reclaimedUsPerFrame:
+          combinedBaselineUsPerFrame != null
+            ? combinedBaselineUsPerFrame - combinedOptimizedUsPerFrame
+            : null,
+        speedup:
+          combinedBaselineUsPerFrame != null
+            ? combinedBaselineUsPerFrame / combinedOptimizedUsPerFrame
+            : null,
+        workHelpingUsPerFrame: combinedWorkHelpingUsPerFrame,
+        workHelpingBudget120HzPct:
+          (combinedWorkHelpingUsPerFrame / frameBudget120HzUs) * 100,
+        workHelpingReclaimedUsPerFrame:
+          combinedBaselineUsPerFrame != null
+            ? combinedBaselineUsPerFrame - combinedWorkHelpingUsPerFrame
+            : null,
+        workHelpingSpeedup:
+          combinedBaselineUsPerFrame != null
+            ? combinedBaselineUsPerFrame / combinedWorkHelpingUsPerFrame
+            : null,
+      },
     },
   };
 }
@@ -1485,22 +1723,22 @@ function renderMarkdownReport(report) {
 
     const sa = wp.shardedAllocator;
     lines.push(
-      `## 7. Issue #28 Part 1: Per-Worker 64B-Aligned Sharded Slab Allocator vs Global Spinlock Allocator (${sa.numWorkers} Workers, ${sa.itersPerWorker.toLocaleString()} Alloc+Free/Worker)`,
+      `## 7. Issue #28 Part 1: Per-Worker 64B-Aligned 9-Class Sharded Slab Allocator vs Global Spinlock Allocator (${sa.numWorkers} Workers, ${sa.itersPerWorker.toLocaleString()} Alloc+Free/Worker)`,
     );
     lines.push("");
     lines.push(
-      "| Allocator Strategy (`SharedArrayBuffer` Wasm Linear Memory) | Workers | Concurrent Ops / Round | Avg Round Time (ms) | Effective Latency (ns/op) | Throughput (M ops/s) | Speedup | Checksum |",
+      "| Allocator Strategy (`SharedArrayBuffer` Wasm Linear Memory, 9 Freelists `class = iter % 9` of Fixed 64 B Blocks) | Workers | Concurrent Ops / Round | Avg Round Time (ms) | Effective Latency (ns/op) | Throughput (M ops/s) | Speedup | Checksum |",
     );
     lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
     lines.push(
-      `| **Per-Worker 64B-Aligned Sharded Slab (\`ShardedAllocator\`, \`currentWorkerId() % 16\`, \`align(64)\`)** | ${sa.numWorkers} | ${sa.totalOpsPerRound.toLocaleString()} | **${formatNum(sa.shardedSlabAvgMs, 3)} ms** | **${formatNum(sa.shardedSlabNsPerOp, 2)} ns** | **${formatNum(sa.shardedSlabMOpsPerSec, 2)} M/s** | **${formatNum(sa.speedup, 2)}x faster** | \`${sa.checksum}\` |`,
+      `| **Per-Worker 64B-Aligned 9-List Sharded Freelist (models \`ShardedAllocator\`, \`currentWorkerId() % 16\`, \`align(64)\`)** | ${sa.numWorkers} | ${sa.totalOpsPerRound.toLocaleString()} | **${formatNum(sa.shardedSlabAvgMs, 3)} ms** | **${formatNum(sa.shardedSlabNsPerOp, 2)} ns** | **${formatNum(sa.shardedSlabMOpsPerSec, 2)} M/s** | **${formatNum(sa.speedup, 2)}x faster** | \`${sa.checksum}\` |`,
     );
     lines.push(
-      `| **Global Atomic Spinlock Freelist (\`i32.atomic.rmw.cmpxchg\`)** | ${sa.numWorkers} | ${sa.totalOpsPerRound.toLocaleString()} | ${formatNum(sa.globalLockAvgMs, 3)} ms | ${formatNum(sa.globalLockNsPerOp, 2)} ns | ${formatNum(sa.globalLockMOpsPerSec, 2)} M/s | 1.00x (baseline) | \`${sa.checksum}\` |`,
+      `| **Global Atomic Spinlock 9-List Freelist (\`i32.atomic.rmw.cmpxchg\`)** | ${sa.numWorkers} | ${sa.totalOpsPerRound.toLocaleString()} | ${formatNum(sa.globalLockAvgMs, 3)} ms | ${formatNum(sa.globalLockNsPerOp, 2)} ns | ${formatNum(sa.globalLockMOpsPerSec, 2)} M/s | 1.00x (baseline) | \`${sa.checksum}\` |`,
     );
     lines.push("");
     lines.push(
-      "- **Production Runtime (`src/wasm/ShardedAllocator.zig`)**: Implements `num_shards = 16` cache-line-aligned (`align(64)`) shards indexed by `currentWorkerId() % 16` (packed into the low 6 bits of the 64-byte-aligned `Task` pointer in `knots_worker_task`), with 9 power-of-two size classes from `16 B` to `4096 B` (`min_class_shift = 4`, `max_class_shift = 12`), per-shard spinlocks, O(1) lock-free same-class `resize`/`remap`, and cross-worker frees returned to the freeing worker's shard up to `max_cached_per_class = 64` before evicting to `std.heap.wasm_allocator`.",
+      "- **Production Runtime (`src/wasm/ShardedAllocator.zig`) & Benchmark Kernel**: Production implements `num_shards = 16` cache-line-aligned (`align(64)`) `Shard` structs indexed by `currentWorkerId() % 16` (packed into the low 6 bits of the 64-byte-aligned `Task` pointer in `knots_worker_task`), each containing a 4-byte `SpinLock` at `+0`, 9 power-of-two size-class freelist heads (`16 B..4096 B`, `free_heads[0..8]` at `+4..+39`), and 9 `u16` slot counts (`counts[0..8]` at `+40..+57`), plus O(1) lock-free same-class `resize`/`remap` and cross-worker frees up to `max_cached_per_class = 64`. The Wasm benchmark kernel models this shard layout using 9 freelists of fixed 64 B blocks per 64-byte-aligned `Shard` (`lock` at `+0`, `free_heads[0..8]` at `+4..+39`) across 4 concurrent workers (`class = iter % 9`) vs a single global spinlock-protected 9-list freelist at `0x2040`.",
     );
     lines.push("");
 
@@ -1514,15 +1752,106 @@ function renderMarkdownReport(report) {
     );
     lines.push("|---|---:|---:|---:|---:|---:|");
     lines.push(
-      `| **Synchronous \`knots_frame\` + non-blocking \`knots_worker_poll(0)\`** | ${fp.frameCalls.toLocaleString()} | **${formatNum(fp.syncFrameTotalUs, 2)} us** | **${formatNum(fp.syncFrameNsPerCall, 2)} ns** | **${formatNum(fp.syncFrameMCallsPerSec, 2)} M/s** | **${fp.speedup != null ? `${formatNum(fp.speedup, 2)}x faster` : "1.00x"}** |`,
+      `| **Synchronous \`knots_frame\` + non-blocking \`knots_worker_poll(0)\` (empty-queue poll)** | ${fp.frameCalls.toLocaleString()} | **${formatNum(fp.syncFrameTotalUs, 2)} us** | **${formatNum(fp.syncFrameNsPerCall, 2)} ns** | **${formatNum(fp.syncFrameMCallsPerSec, 2)} M/s** | **${fp.speedup != null ? `${formatNum(fp.speedup, 2)}x faster` : "1.00x"}** |`,
     );
     lines.push(
       `| **\`WebAssembly.promising(knots_frame)\` (JSPI Promise + Stack Switch)** | ${fp.frameCalls.toLocaleString()} | ${formatNum(fp.promisingFrameTotalUs, 2)} us | ${formatNum(fp.promisingFrameNsPerCall, 2)} ns | ${formatNum(fp.promisingFrameMCallsPerSec, 2)} M/s | ${fp.speedup != null ? "1.00x (JSPI baseline)" : "n/a (JSPI unavailable)"} |`,
     );
     lines.push("");
     lines.push(
-      "- **Frame-Safe Non-Blocking Task Polling (`src/web/host.js`, `src/wasm/threads.zig`)**: `src/web/host.js` keeps `knots_frame` unwrapped in `wrapExports` (not wrapped in `WebAssembly.promising`) and exposes non-blocking `threads.poll(max_tasks)`, `threads.pollGroup(&group)`, `threads.pollFuture(T, &future)`, and `knots_worker_poll` so frame callbacks can drain and inspect completed background tasks synchronously without JSPI suspension or `Promise` allocation overhead.",
+      "- **Frame-Safe Non-Blocking Task Polling (`src/web/host.js`, `src/wasm/threads.zig`)**: `src/web/host.js` keeps `knots_frame` unwrapped in `wrapExports` (not wrapped in `WebAssembly.promising`) and exposes non-blocking `threads.poll(max_tasks)`, `threads.pollGroup(&group)`, `threads.pollFuture(T, &future)`, and `knots_worker_poll` so frame callbacks can inspect completion state synchronously without JSPI suspension or `Promise` allocation overhead.",
     );
+
+    if (wp.realWorldApps) {
+      const rw = wp.realWorldApps;
+      const gs = rw.glyphShapingSubFrame;
+      const sga = rw.sceneGraphAlloc;
+      const asp = rw.assetStreamingPoll;
+      const cfb = rw.combinedFrameBudget120Hz;
+
+      lines.push("");
+      lines.push(
+        "## 9. Real-World Application Impact & End-to-End Frame Budget Examples (120 Hz = `8.33 ms` / `8,333.3 us` Budget)",
+      );
+      lines.push("");
+      lines.push(
+        "### 9.1 Sub-Frame Parallel Task Batch (`64` Tasks/Frame × `50` Frames across `4` Workers)",
+      );
+      lines.push("");
+      lines.push(
+        "- **Workload & Kernel**: Each frame dispatches 64 fine-grained parallel tasks across the 4-worker pool (measured over 50 consecutive frames = 3,200 tasks). Each task executes the synthetic 64-iteration per-task compute kernel (`run_task_kernel`, ~100 ns/task, modeling fine-grained per-glyph / per-curve subdivision tasks). Two futex completion modes are measured against per-task `postMessage`: (1) `Wasm futex ring + coalesced notify (4 workers, main thread free)`, where all 64 tasks run strictly on the 4 background workers and the main thread remains completely free until the single coalesced completion notification arrives; and (2) `Wasm futex ring + main-thread spin-poll helper (4 workers + main helper, 5 executors)`, where the calling thread also spins on `knots_worker_poll(1)` to help execute queued tasks.",
+      );
+      lines.push("");
+      lines.push(
+        "| Dispatch Mode (`4` Workers, `64` Tasks/Frame × `50` Frames) | Tasks / Frame | Avg Time / Frame (us) | Per-Task Cost (us) | % of 120 Hz Frame (`8.33 ms`) | % of 60 Hz Frame (`16.67 ms`) | Speedup vs `postMessage` | Checksum |",
+      );
+      lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+      lines.push(
+        `| **Wasm futex ring + coalesced notify (4 workers, main thread free)** | ${gs.glyphsPerFrame} | **${formatNum(gs.futexAsyncUsPerFrame, 2)} us** | **${formatNum(gs.futexAsyncUsPerGlyph, 2)} us** | **${formatNum(gs.futexAsyncBudget120HzPct, 2)}%** | **${formatNum(gs.futexAsyncBudget60HzPct, 2)}%** | **${formatNum(gs.futexAsyncSpeedup, 2)}x faster** | \`${gs.checksum}\` |`,
+      );
+      lines.push(
+        `| **Wasm futex ring + main-thread spin-poll helper (4 workers + main helper, 5 executors)** | ${gs.glyphsPerFrame} | **${formatNum(gs.futexRingUsPerFrame, 2)} us** | **${formatNum(gs.futexRingUsPerGlyph, 2)} us** | **${formatNum(gs.futexRingBudget120HzPct, 2)}%** | **${formatNum(gs.futexRingBudget60HzPct, 2)}%** | **${formatNum(gs.speedup, 2)}x faster** | \`${gs.checksum}\` |`,
+      );
+      lines.push(
+        `| **Per-task \`postMessage({ type: "run" })\` + \`{ type: "done" }\` (4 workers, baseline)** | ${gs.glyphsPerFrame} | ${formatNum(gs.postMessageUsPerFrame, 2)} us | ${formatNum(gs.postMessageUsPerGlyph, 2)} us | ${formatNum(gs.postMessageBudget120HzPct, 2)}% | ${formatNum(gs.postMessageBudget60HzPct, 2)}% | 1.00x (baseline) | \`${gs.checksum}\` |`,
+      );
+      lines.push("");
+      lines.push(
+        `### 9.2 Concurrent Multi-Worker Allocation (\`${sga.opsPerWorkerPerFrame.toLocaleString()}\` Ops/Worker/Frame = \`${sga.concurrentOpsPerFrame.toLocaleString()}\` Alloc+Free Ops/Frame across \`${sga.numWorkers}\` Workers)`,
+      );
+      lines.push("");
+      lines.push(
+        `- **Workload & Kernel**: 4 workers concurrently execute ${sga.opsPerWorkerPerFrame.toLocaleString()} alloc + payload write/read + free cycles per worker per frame (${sga.concurrentOpsPerFrame.toLocaleString()} concurrent ops/frame across 20 frames), cycling through 9 freelists of fixed 64 B blocks (\`class = iter % 9\`) inside each worker's 64-byte-aligned \`Shard\` (\`lock\` at \`+0\`, \`free_heads[0..8]\` at \`+4..+39\`, modeling \`ShardedAllocator\`) vs a single global spinlock-protected 9-list freelist at \`0x2040\`.`,
+      );
+      lines.push("");
+      lines.push(
+        "| Allocator Architecture (`9` Freelists of Fixed `64 B` Blocks, `class = iter % 9`) | Concurrent Ops / Frame | Allocator Time / Frame (us) | Latency / Op (ns) | % of 120 Hz Frame (`8.33 ms`) | % of 60 Hz Frame (`16.67 ms`) | Speedup | Checksum |",
+      );
+      lines.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+      lines.push(
+        `| **Per-Worker 64B-Aligned 9-List Sharded Freelist (models \`ShardedAllocator\`)** | ${sga.concurrentOpsPerFrame.toLocaleString()} | **${formatNum(sga.shardedSlabUsPerFrame, 2)} us** | **${formatNum(sga.shardedSlabNsPerOp, 2)} ns** | **${formatNum(sga.shardedSlabBudget120HzPct, 2)}%** | **${formatNum(sga.shardedSlabBudget60HzPct, 2)}%** | **${formatNum(sga.speedup, 2)}x faster** | \`${sga.checksum}\` |`,
+      );
+      lines.push(
+        `| **Global Atomic Spinlock 9-List Freelist (Baseline)** | ${sga.concurrentOpsPerFrame.toLocaleString()} | ${formatNum(sga.globalLockUsPerFrame, 2)} us | ${formatNum(sga.globalLockNsPerOp, 2)} ns | ${formatNum(sga.globalLockBudget120HzPct, 2)}% | ${formatNum(sga.globalLockBudget60HzPct, 2)}% | 1.00x (baseline) | \`${sga.checksum}\` |`,
+      );
+      lines.push("");
+      lines.push(
+        `### 9.3 120 Hz Frame Poll Check Overhead (\`${asp.frames120Hz.toLocaleString()}\` Frame Ticks = \`${formatNum(asp.durationSecAt120Hz, 0)}s\` @ 120 Hz)`,
+      );
+      lines.push("");
+      lines.push(
+        "- **Workload & Kernel**: Measures 1,200 synchronous `knots_frame(8333)` + `knots_worker_poll(0)` frame-entry ticks (the number of frame ticks in 10 seconds at 120 Hz) on an empty completion queue vs a `WebAssembly.promising`-wrapped `knots_frame(8333)`, isolating the per-frame non-blocking poll check and JS-to-Wasm entry overhead without background tasks in flight.",
+      );
+      lines.push("");
+      lines.push(
+        "| Frame Entry / Poll Mode (1,200 Frame Ticks = 10s @ 120 Hz) | Frame Ticks | Total 1,200-Tick Overhead (us) | Per-Frame Poll Check Cost (ns/tick) | % of 120 Hz Frame (`8.33 ms`) | JS `Promise` Allocs / Sec | Speedup |",
+      );
+      lines.push("|---|---:|---:|---:|---:|---:|---:|");
+      lines.push(
+        `| **Synchronous \`knots_frame\` + non-blocking \`knots_worker_poll(0)\` (empty-queue poll)** | ${asp.frames120Hz.toLocaleString()} | **${formatNum(asp.syncPollTotalUs, 2)} us** | **${formatNum(asp.syncPollNsPerFrame, 2)} ns** | **${formatNum(asp.syncPollBudget120HzPct, 4)}%** | **${asp.syncPromisesAllocatedPerSec} / sec** | **${asp.speedup != null ? `${formatNum(asp.speedup, 2)}x faster` : "1.00x"}** |`,
+      );
+      lines.push(
+        `| **\`WebAssembly.promising(knots_frame)\` (JSPI Promise + Stack Switch)** | ${asp.frames120Hz.toLocaleString()} | ${formatNum(asp.promisingTotalUs, 2)} us | ${formatNum(asp.promisingNsPerFrame, 2)} ns | ${asp.promisingBudget120HzPct != null ? `${formatNum(asp.promisingBudget120HzPct, 4)}%` : "n/a"} | ${asp.promisingPromisesAllocatedPerSec} / sec | ${asp.speedup != null ? "1.00x (JSPI baseline)" : "n/a"} |`,
+      );
+      lines.push("");
+      lines.push(
+        "### 9.4 Combined End-to-End 120 Hz Frame Budget Summary (All 3 Workloads in One `8.33 ms` Frame)",
+      );
+      lines.push("");
+      lines.push(
+        "| Pipeline Configuration (64-Task Batch + 8,000-Op Multi-Worker Alloc + Frame Poll Check) | Total Coordination & Alloc Overhead / Frame (us) | % of 120 Hz Frame Budget (`8.33 ms`) | Remaining Frame Budget for Rendering (ms) | End-to-End Speedup |",
+      );
+      lines.push("|---|---:|---:|---:|---:|");
+      lines.push(
+        `| **Issue #28 Part 1 — 4 Workers + Coalesced Notify (main thread free) + \`ShardedAllocator\` + Sync \`knots_frame\` Poll** | **${formatNum(cfb.optimizedUsPerFrame, 2)} us** (**${formatNum(cfb.optimizedUsPerFrame / 1000, 3)} ms**) | **${formatNum(cfb.optimizedBudget120HzPct, 2)}%** | **${formatNum((rw.frameBudget120HzUs - cfb.optimizedUsPerFrame) / 1000, 3)} ms** | **${cfb.speedup != null ? `${formatNum(cfb.speedup, 2)}x faster (reclaims ${formatNum(cfb.reclaimedUsPerFrame / 1000, 2)} ms/frame)` : "n/a"}** |`,
+      );
+      lines.push(
+        `| *(Optional: Issue #28 Part 1 — 4 Workers + Main-Thread Spin-Poll Helper (5 executors) + \`ShardedAllocator\` + Sync \`knots_frame\` Poll)* | *${formatNum(cfb.workHelpingUsPerFrame, 2)} us (${formatNum(cfb.workHelpingUsPerFrame / 1000, 3)} ms)* | *${formatNum(cfb.workHelpingBudget120HzPct, 2)}%* | *${formatNum((rw.frameBudget120HzUs - cfb.workHelpingUsPerFrame) / 1000, 3)} ms* | *${cfb.workHelpingSpeedup != null ? `${formatNum(cfb.workHelpingSpeedup, 2)}x faster (reclaims ${formatNum(cfb.workHelpingReclaimedUsPerFrame / 1000, 2)} ms/frame)` : "n/a"}* |`,
+      );
+      lines.push(
+        `| **Baseline (\`postMessage\` per Task + Global Spinlock Allocator + \`WebAssembly.promising(knots_frame)\`)** | ${cfb.baselineUsPerFrame != null ? `${formatNum(cfb.baselineUsPerFrame, 2)} us (${formatNum(cfb.baselineUsPerFrame / 1000, 3)} ms)` : "n/a"} | ${cfb.baselineBudget120HzPct != null ? `${formatNum(cfb.baselineBudget120HzPct, 2)}%` : "n/a"} | ${cfb.baselineUsPerFrame != null ? `${formatNum((rw.frameBudget120HzUs - cfb.baselineUsPerFrame) / 1000, 3)} ms` : "n/a"} | ${cfb.baselineUsPerFrame != null ? "1.00x (baseline)" : "n/a"} |`,
+      );
+    }
   }
 
   return lines.join("\n");
