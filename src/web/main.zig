@@ -3,6 +3,9 @@ const js = @import("js-bridge");
 const config = @import("web_config");
 pub const threads = @import("wasm_threads");
 pub const worker_host = threads.worker_host;
+pub const pollWorkers = threads.poll;
+pub const pollGroup = threads.pollGroup;
+pub const pollFuture = threads.pollFuture;
 
 const error_buffer_len = 2048;
 

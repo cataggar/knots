@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const js = @import("js-bridge");
 
-const is_wasm = builtin.cpu.arch.isWasm();
+const is_wasm = builtin.cpu.arch.isWasm() and !builtin.is_test;
 const has_atomics = is_wasm and std.Target.wasm.featureSetHas(builtin.cpu.features, .atomics);
 
 pub const CAP_JSPI: u32 = 1 << 0;
@@ -11,8 +11,17 @@ pub const CAP_WASMFX: u32 = 1 << 2;
 pub const CAP_PROMISING_ACTIVE: u32 = 1 << 3;
 pub const CAP_STATIC_MASK: u32 = CAP_JSPI | CAP_WAIT_ASYNC | CAP_WASMFX;
 
+pub var notify_complete_hook: ?*const fn () void = null;
+pub var spawn_concurrent_hook: ?*const fn (task: usize, group: usize, start: usize, context: usize) bool = null;
+pub var forget_concurrent_group_hook: ?*const fn (group: usize) void = null;
+pub var atomic_wait_hook: ?*const fn (ptr: *const u32, expected: u32, timeout_ns: i64) u32 = null;
+pub var atomic_notify_hook: ?*const fn (ptr: *const u32, max_waiters: u32) void = null;
+
+var fallback_worker_task: usize = 0;
+
 const wasm_imports = struct {
     extern "env" fn knots_host_capabilities() u32;
+    extern "env" fn knots_host_notify_complete() void;
     extern "env" fn knots_host_wait_async32(
         addr_ptr: u32,
         expected: i32,
@@ -25,6 +34,14 @@ const wasm_imports = struct {
 pub fn capabilities() u32 {
     if (!is_wasm) return 0;
     return wasm_imports.knots_host_capabilities();
+}
+
+pub fn notifyComplete() void {
+    if (is_wasm) {
+        wasm_imports.knots_host_notify_complete();
+        return;
+    }
+    if (notify_complete_hook) |hook| hook();
 }
 
 pub fn hasJspi() bool {
@@ -71,6 +88,8 @@ pub fn sleepMs(ms: f64) void {
 }
 
 pub fn spawnConcurrent(task: usize, group: usize, start: usize, context: usize) bool {
+    if (spawn_concurrent_hook) |hook| return hook(task, group, start, context);
+    if (!is_wasm) return false;
     const host = js.host() catch return false;
     defer host.release();
     const spawned = host.call("spawnConcurrent", &.{
@@ -84,12 +103,18 @@ pub fn spawnConcurrent(task: usize, group: usize, start: usize, context: usize) 
 }
 
 pub fn forgetConcurrentGroup(group: usize) void {
+    if (forget_concurrent_group_hook) |hook| {
+        hook(group);
+        return;
+    }
+    if (!is_wasm) return;
     const host = js.host() catch return;
     defer host.release();
     host.callVoid("forgetConcurrentGroup", &.{js.Arg.usize(group)}) catch {};
 }
 
 pub fn now(_: ?*anyopaque, clock: std.Io.Clock) std.Io.Timestamp {
+    if (!is_wasm) return .zero;
     switch (clock) {
         .real, .awake, .boot => {
             const host = js.host() catch return .zero;
@@ -121,6 +146,7 @@ comptime {
 }
 
 pub fn currentTask() usize {
+    if (!has_atomics) return @atomicLoad(usize, &fallback_worker_task, .seq_cst);
     return asm volatile (
         \\ global.get knots_worker_task
         \\ local.set %[address]
@@ -129,6 +155,10 @@ pub fn currentTask() usize {
 }
 
 pub fn setCurrentTask(address: usize) void {
+    if (!has_atomics) {
+        @atomicStore(usize, &fallback_worker_task, address, .seq_cst);
+        return;
+    }
     asm volatile (
         \\ local.get %[address]
         \\ global.set knots_worker_task
@@ -138,6 +168,11 @@ pub fn setCurrentTask(address: usize) void {
 }
 
 pub fn atomicWait(ptr: *const u32, expected: u32, timeout_ns: i64) u32 {
+    if (!has_atomics) {
+        if (atomic_wait_hook) |hook| return hook(ptr, expected, timeout_ns);
+        if (@atomicLoad(u32, ptr, .seq_cst) != expected) return 1;
+        return 2;
+    }
     return asm volatile (
         \\ local.get %[ptr]
         \\ local.get %[expected]
@@ -152,6 +187,10 @@ pub fn atomicWait(ptr: *const u32, expected: u32, timeout_ns: i64) u32 {
 }
 
 pub fn atomicNotify(ptr: *const u32, max_waiters: u32) void {
+    if (!has_atomics) {
+        if (atomic_notify_hook) |hook| hook(ptr, max_waiters);
+        return;
+    }
     _ = asm volatile (
         \\ local.get %[ptr]
         \\ local.get %[max_waiters]
@@ -176,4 +215,16 @@ test "worker_host non-wasm capability and waitAsync32 fallbacks" {
     try std.testing.expectEqual(@as(u32, 2), waitAsync32(&state, 42, 1_000_000));
     sleepMs(0);
     sleepMs(1.0);
+
+    const HookState = struct {
+        var count: u32 = 0;
+        fn onNotify() void {
+            count += 1;
+        }
+    };
+    HookState.count = 0;
+    notify_complete_hook = &HookState.onNotify;
+    defer notify_complete_hook = null;
+    notifyComplete();
+    try std.testing.expectEqual(@as(u32, 1), HookState.count);
 }

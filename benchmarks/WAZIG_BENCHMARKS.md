@@ -358,4 +358,51 @@ Measured on Apple M4 Max (`darwin-arm64`) using `node scripts/bench-wasmfx.mjs` 
 
 - When the browser main thread waits on a worker-notified `std.Io.Mutex`, `Condition`, or `ResetEvent` inside a `WebAssembly.promising` export (`CAP_PROMISING_ACTIVE`), `knots_host_wait_async32` suspends the Wasm stack via `Atomics.waitAsync` + `WebAssembly.Suspending`, cutting main-thread CPU consumption by **92.6%** (`168.8 us` vs `2,279.6 us`) while keeping the browser event loop responsive.
 
+### G.6 Issue #28 Part 1: Persistent Wasm Futex Work Queue vs `postMessage({ type: "run" })` Dispatch
+
+Measured on `linux-arm64` via `node scripts/bench-wasmfx.mjs` across **4 pre-warmed `worker_threads`** sharing a 16–64 page WebAssembly `SharedArrayBuffer` (`new WebAssembly.Memory({ initial: 16, maximum: 64, shared: true })`), dispatching **20 batches × 400 tasks/batch (8,000 tasks)** with both **Node.js `v24.21.0` (V8 `13.6.233.17`)** and **Node.js `v22.15.0` (V8 `12.4.254.21`)**:
+
+| Dispatch Path | Runtime / V8 | Workers | Tasks / Batch | Avg Batch Time (ms) | Per-Task Latency (us/task) | Throughput (K tasks/s) | Speedup | Checksum |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Persistent Wasm Futex Ring (`knots_worker_loop` + `memory.atomic.wait32` + coalesced notify)** | Node `v24.21.0` / V8 `13.6.233.17` | 4 | 400 | **0.212 ms** | **0.53 us** | **1,883.1 K/s** | **21.04x faster** | `1257257586` |
+| **Per-Task `postMessage({ type: "run" })` + `{ type: "done" }` (Baseline)** | Node `v24.21.0` / V8 `13.6.233.17` | 4 | 400 | 4.469 ms | 11.17 us | 89.5 K/s | 1.00x (baseline) | `1257257586` |
+| **Persistent Wasm Futex Ring (`knots_worker_loop` + `memory.atomic.wait32` + coalesced notify)** | Node `v22.15.0` / V8 `12.4.254.21` | 4 | 400 | **0.240 ms** | **0.60 us** | **1,665.2 K/s** | **17.30x faster** | `1257257586` |
+| **Per-Task `postMessage({ type: "run" })` + `{ type: "done" }` (Baseline)** | Node `v22.15.0` / V8 `12.4.254.21` | 4 | 400 | 4.156 ms | 10.39 us | 96.3 K/s | 1.00x (baseline) | `1257257586` |
+
+- **Production Architecture (`src/wasm/WorkerRuntime.zig`, `src/web/worker-pool.js`, `src/web/worker.js`) vs Microbenchmark Kernel**:
+  - **Production Runtime (`src/wasm/WorkerRuntime.zig`)**: Uses a 256-slot ring buffer (`queue_capacity = 256`, `ring_tasks`) plus an intrusive FIFO overflow list (`overflow_head` / `overflow_tail` via `Task.queue_next`) protected by a lightweight spinlock (`queue_lock`), paired with a `work_seq` futex sequence word (`memory.atomic.wait32` / `memory.atomic.notify`), pre-warmed workers parked in `knots_worker_loop(workerId)`, and coalesced main-thread completion notifications (`notify_pending` -> `knots_host_notify_complete` / `knots_worker_ack_complete`).
+  - **Standalone Node V8 Microbenchmark Kernel (`scripts/bench-wasmfx.mjs`)**: Models shared-memory futex ring dispatch (`enqueue_batch`, `knots_worker_loop`, and coalesced `knots_host_notify_complete` / `knots_worker_ack_complete`) vs per-task `worker.postMessage({ type: "run" })` + `{ type: "done" }` structured-clone round-trips across 4 `worker_threads`.
+- **Key Takeaway**: Eliminating per-task `postMessage` serialization and event-loop hop overhead reduces per-task dispatch latency from **11.17 us to 0.53 us** (**21.04x speedup**, **1.88 million tasks/sec** across 4 workers) with bit-identical accumulation checksums (`1257257586`).
+
+### G.7 Issue #28 Part 1: Per-Worker 64B-Aligned Sharded Slab Allocator vs Global Spinlock Allocator (`SharedArrayBuffer` Wasm Memory)
+
+Measured across **4 concurrent `worker_threads`** synchronized at a Wasm atomic start barrier (`0x0040`), each executing **25,000 small-block (32-byte) alloc + write/read + free cycles per round** (**100,000 concurrent allocator round-trips per round**, 12 timed rounds):
+
+| Allocator Strategy (`SharedArrayBuffer` Wasm Linear Memory) | Runtime / V8 | Workers | Concurrent Ops / Round | Avg Round Time (ms) | Effective Latency (ns/op) | Throughput (M ops/s) | Speedup | Checksum |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Per-Worker 64B-Aligned Sharded Slab (`ShardedAllocator`, `currentWorkerId() % 16`, `align(64)`)** | Node `v24.21.0` / V8 `13.6.233.17` | 4 | 100,000 | **0.442 ms** | **4.42 ns** | **226.02 M/s** | **71.80x faster** | `1249950000` |
+| **Global Atomic Spinlock Freelist (`i32.atomic.rmw.cmpxchg` at `0x0300`)** | Node `v24.21.0` / V8 `13.6.233.17` | 4 | 100,000 | 31.768 ms | 317.68 ns | 3.15 M/s | 1.00x (baseline) | `1249950000` |
+| **Per-Worker 64B-Aligned Sharded Slab (`ShardedAllocator`, `currentWorkerId() % 16`, `align(64)`)** | Node `v22.15.0` / V8 `12.4.254.21` | 4 | 100,000 | **0.600 ms** | **6.00 ns** | **166.79 M/s** | **41.70x faster** | `1249950000` |
+| **Global Atomic Spinlock Freelist (`i32.atomic.rmw.cmpxchg` at `0x0300`)** | Node `v22.15.0` / V8 `12.4.254.21` | 4 | 100,000 | 25.002 ms | 250.02 ns | 4.00 M/s | 1.00x (baseline) | `1249950000` |
+
+- **Production Architecture (`src/wasm/ShardedAllocator.zig`, `src/wasm/WorkerRuntime.zig`) vs Microbenchmark Kernel**:
+  - **Baseline (Global Spinlock Freelist)**: All 4 workers contend on a single shared atomic spinlock (`i32.atomic.rmw.cmpxchg` at `0x0300`) protecting a shared freelist head (`0x0304`) before popping and pushing 32-byte blocks in shared linear memory.
+  - **Production Runtime (`src/wasm/ShardedAllocator.zig`)**: Implements `num_shards = 16` cache-line-aligned (`align(64)`) shards indexed by `currentWorkerId() % 16` (where `currentWorkerId()` is packed into the low 6 bits of the 64-byte-aligned `Task` pointer in the per-instance `knots_worker_task` global), with 9 power-of-two size classes from `16 B` to `4096 B` (`min_class_shift = 4`, `max_class_shift = 12`), per-shard spinlocks (`Shard.lock`), O(1) lock-free same-class `resize`/`remap`, and cross-worker frees returned to the freeing worker's shard (`rawFreeOnShard`) up to `max_cached_per_class = 64` before evicting to `std.heap.wasm_allocator`.
+- **Key Takeaway**: Isolating per-worker slab freelists and spinlocks onto separate 64-byte cache lines eliminates cache-line ping-pong and global lock contention in shared Wasm linear memory, accelerating 4-worker concurrent small-block allocation by **41.70x–71.80x** (`4.42 ns/op` vs `317.68 ns/op`, **226.02 million alloc+free cycles/sec**).
+
+### G.8 Issue #28 Part 1: Frame-Safe Non-Blocking Task Polling (`knots_frame` + `knots_worker_poll(0)`) vs `WebAssembly.promising(knots_frame)`
+
+Measured over **10,000 consecutive `requestAnimationFrame` entry calls** (`knots_frame(16)`):
+
+| Frame Entry / Poll Mode | Runtime / V8 | Calls | Total Time (us) | Per-Frame Latency (ns/call) | Throughput (M calls/s) | Speedup |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| **Synchronous `knots_frame` + non-blocking `knots_worker_poll(0)`** | Node `v24.21.0` / V8 `13.6.233.17` | 10,000 | **320.13 us** | **32.01 ns** | **31.24 M/s** | **23.67x faster** |
+| **`WebAssembly.promising(knots_frame)` (JSPI Promise + Secondary Stack Switch)** | Node `v24.21.0` / V8 `13.6.233.17` | 10,000 | 7,578.60 us | 757.86 ns | 1.32 M/s | 1.00x (JSPI baseline) |
+| **Synchronous `knots_frame` + non-blocking `knots_worker_poll(0)`** | Node `v22.15.0` / V8 `12.4.254.21` | 10,000 | **259.77 us** | **25.98 ns** | **38.50 M/s** | — |
+
+- **Frame-Safe Non-Blocking Task Polling (`src/web/host.js`, `src/wasm/threads.zig`, `src/wasm/WorkerRuntime.zig`)**:
+  - `src/web/host.js` keeps `knots_frame` unwrapped in `wrapExports` (not wrapped in `WebAssembly.promising`; only `[dispatchSymbol, startSymbol, "knots_init", "knots_event"]` are wrapped via `wrapPromisingExport`), clears `knots_worker_ack_complete()` at the start of each `requestFrame()` step so worker completions occurring mid-frame schedule a follow-up frame, and exposes non-blocking `threads.poll(max_tasks)`, `threads.pollGroup(&group)`, `threads.pollFuture(T, &future)`, and `knots_worker_poll` so frame callbacks can drain and inspect completed background tasks synchronously without JSPI suspension or `Promise` allocation overhead.
+  - In this synthetic frame-entry microbenchmark, calling a synchronous `knots_frame` export that polls worker completion via `knots_worker_poll(0)` costs only **25.98–32.01 ns/call** (**23.67x faster** than entering a `WebAssembly.promising` wrapper at **757.86 ns/call**) and allocates **zero `Promise` objects per 60/120 Hz frame**.
+
+
 
