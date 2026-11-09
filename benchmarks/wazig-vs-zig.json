@@ -2,190 +2,190 @@
   "compilers": {
     "wazig": {
       "compile_sec": {
-        "fmt_check": 0.461,
+        "fmt_check": 0.46,
         "wasm_bench_runner_debug": {
-          "cold": 13.428,
-          "warm": 6.791
+          "cold": 13.412,
+          "warm": 6.952
         },
         "wasm_bench_runner_releasesmall": {
-          "cold": 11.101,
-          "warm": 4.885
+          "cold": 11.146,
+          "warm": 4.898
         },
         "wasm_bench_runner_releasefast": {
-          "cold": 12.267,
-          "warm": 5.741
+          "cold": 12.576,
+          "warm": 6.039
         },
         "wasm_bench_runner_releasefast_simd": {
-          "cold": 12.216,
-          "warm": 5.756
+          "cold": 12.316,
+          "warm": 5.934
         },
         "tests_12_wasi": {
-          "wall_parallel_sec": 20.8,
-          "sum_cpu_sec": 62.99
+          "wall_parallel_sec": 21.321,
+          "sum_cpu_sec": 63.63
         },
         "triangle_debug": {
-          "cold": 10.3,
-          "warm": 7.58
+          "cold": 10.22,
+          "warm": 7.55
         },
         "triangle_release": {
-          "cold": 8.05,
-          "warm": 5.74
+          "cold": 7.98,
+          "warm": 5.72
         },
-        "playground_debug_webgpu_st": 17.65,
-        "playground_release_webgpu_st": 15.13,
-        "playground_debug_webgl2_st": 17.4,
-        "playground_release_webgl2_st": 15.5,
-        "playground_debug_webgpu_mt": 20.35,
-        "playground_release_webgpu_mt": 17.86,
-        "embedded_debug": 6.52,
-        "embedded_release": 4.84,
-        "benchmark_debug": 8.63,
-        "benchmark_release": 6.94
+        "playground_debug_webgpu_st": 17.59,
+        "playground_release_webgpu_st": 14.53,
+        "playground_debug_webgl2_st": 17.27,
+        "playground_release_webgl2_st": 14.51,
+        "playground_debug_webgpu_mt": 17.69,
+        "playground_release_webgpu_mt": 14.49,
+        "embedded_debug": 6.44,
+        "embedded_release": 4.63,
+        "benchmark_debug": 7.78,
+        "benchmark_release": 5.93
       },
       "binary_sizes": {
         "wasm_bench_runner_debug": {
-          "raw": 1236012,
-          "gzip": 493103,
-          "zstd": 422766
+          "raw": 1195470,
+          "gzip": 481913,
+          "zstd": 414751
         },
         "wasm_bench_runner_releasesmall": {
-          "raw": 920027,
-          "gzip": 400213,
-          "zstd": 350549
+          "raw": 888922,
+          "gzip": 396514,
+          "zstd": 347806
         },
         "wasm_bench_runner_releasefast": {
-          "raw": 1080973,
-          "gzip": 452217,
-          "zstd": 392737
+          "raw": 1004753,
+          "gzip": 441797,
+          "zstd": 384986
         },
         "wasm_bench_runner_releasefast_simd": {
-          "raw": 1086483,
-          "gzip": 453413,
-          "zstd": 393419
+          "raw": 1014102,
+          "gzip": 443271,
+          "zstd": 386214
         },
         "tests_12_wasi_total": {
-          "raw": 8001945,
-          "gzip": 2693948,
-          "zstd": 2184868
+          "raw": 7628620,
+          "gzip": 2663572,
+          "zstd": 2201659
         },
         "triangle_debug": {
-          "raw": 1530822,
-          "gzip": 558034,
-          "zstd": 463259
+          "raw": 1395000,
+          "gzip": 532591,
+          "zstd": 453959
         },
         "triangle_release": {
-          "raw": 1223068,
-          "gzip": 469614,
-          "zstd": 400813
+          "raw": 1071848,
+          "gzip": 443419,
+          "zstd": 384887
         },
         "playground_debug_webgpu_st": {
-          "raw": 2963577,
-          "gzip": 995347,
-          "zstd": 775294
+          "raw": 2882988,
+          "gzip": 984432,
+          "zstd": 773209
         },
         "playground_release_webgpu_st": {
-          "raw": 2556785,
-          "gzip": 887892,
-          "zstd": 675728
+          "raw": 2318866,
+          "gzip": 844084,
+          "zstd": 677263
         },
         "playground_debug_webgl2_st": {
-          "raw": 2928528,
-          "gzip": 990296,
-          "zstd": 765669
+          "raw": 2847889,
+          "gzip": 979293,
+          "zstd": 769121
         },
         "playground_release_webgl2_st": {
-          "raw": 2521720,
-          "gzip": 882880,
-          "zstd": 677342
+          "raw": 2283753,
+          "gzip": 838613,
+          "zstd": 673031
         },
         "playground_debug_webgpu_mt": {
-          "raw": 2974418,
-          "gzip": 998099,
-          "zstd": 771251
+          "raw": 2893923,
+          "gzip": 988490,
+          "zstd": 776174
         },
         "playground_release_webgpu_mt": {
-          "raw": 2564789,
-          "gzip": 890606,
-          "zstd": 702442
+          "raw": 2326090,
+          "gzip": 847145,
+          "zstd": 646234
         },
         "embedded_debug": {
-          "raw": 1345563,
-          "gzip": 490170,
-          "zstd": 412178
+          "raw": 1222900,
+          "gzip": 467999,
+          "zstd": 403631
         },
         "embedded_release": {
-          "raw": 1095859,
-          "gzip": 423447,
-          "zstd": 364432
+          "raw": 967052,
+          "gzip": 403275,
+          "zstd": 353343
         },
         "benchmark_debug": {
-          "raw": 1551947,
-          "gzip": 565392,
-          "zstd": 468933
+          "raw": 1414318,
+          "gzip": 537192,
+          "zstd": 458565
         },
         "benchmark_release": {
-          "raw": 1240247,
-          "gzip": 474656,
-          "zstd": 404864
+          "raw": 1085032,
+          "gzip": 447727,
+          "zstd": 388840
         }
       },
       "runtime": {
         "wasm_bench_runner_debug": {
           "optimize_mode": "debug",
           "target": "wasm32-wasi",
-          "total_bench_ms": 386.083,
+          "total_bench_ms": 359.91,
           "total_checksum": 2186326712793932228,
           "workloads": {
             "layout_bench": {
               "iterations": 300,
               "warmup_iterations": 50,
               "elements_per_iter": 2047,
-              "total_ms": 82.78,
-              "mean_ms": 0.2759,
-              "median_ms": 0.2751,
-              "p95_ms": 0.2795,
-              "min_ms": 0.2733,
-              "max_ms": 0.282,
-              "ops_per_sec": 3624.06,
+              "total_ms": 77.581,
+              "mean_ms": 0.2586,
+              "median_ms": 0.2577,
+              "p95_ms": 0.2618,
+              "min_ms": 0.2563,
+              "max_ms": 0.2767,
+              "ops_per_sec": 3866.93,
               "checksum": 417689973924794692
             },
             "text_bench": {
               "iterations": 200,
               "warmup_iterations": 20,
               "elements_per_iter": 3405,
-              "total_ms": 122.867,
-              "mean_ms": 0.6143,
-              "median_ms": 0.6171,
-              "p95_ms": 0.6239,
-              "min_ms": 0.6031,
-              "max_ms": 0.6353,
-              "ops_per_sec": 1627.78,
+              "total_ms": 119.7,
+              "mean_ms": 0.5985,
+              "median_ms": 0.6007,
+              "p95_ms": 0.607,
+              "min_ms": 0.5903,
+              "max_ms": 0.6128,
+              "ops_per_sec": 1670.84,
               "checksum": 12606774574179943755
             },
             "render_bench": {
               "iterations": 300,
               "warmup_iterations": 30,
               "elements_per_iter": 5100,
-              "total_ms": 65.203,
-              "mean_ms": 0.2173,
-              "median_ms": 0.2143,
-              "p95_ms": 0.2278,
-              "min_ms": 0.2132,
-              "max_ms": 0.2408,
-              "ops_per_sec": 4601.05,
+              "total_ms": 55.154,
+              "mean_ms": 0.1838,
+              "median_ms": 0.1816,
+              "p95_ms": 0.1948,
+              "min_ms": 0.1795,
+              "max_ms": 0.2029,
+              "ops_per_sec": 5439.27,
               "checksum": 8226312248921777708
             },
             "combined_frame": {
               "iterations": 100,
               "warmup_iterations": 15,
               "elements_per_iter": 514,
-              "total_ms": 69.734,
-              "mean_ms": 0.6973,
-              "median_ms": 0.6997,
-              "p95_ms": 0.7044,
-              "min_ms": 0.6863,
-              "max_ms": 0.7109,
-              "ops_per_sec": 1434.03,
+              "total_ms": 64.676,
+              "mean_ms": 0.6468,
+              "median_ms": 0.6482,
+              "p95_ms": 0.6578,
+              "min_ms": 0.6346,
+              "max_ms": 0.6656,
+              "ops_per_sec": 1546.17,
               "checksum": 8133605907336869050
             }
           }
@@ -193,59 +193,59 @@
         "wasm_bench_runner_releasesmall": {
           "optimize_mode": "small",
           "target": "wasm32-wasi",
-          "total_bench_ms": 251.933,
+          "total_bench_ms": 234.642,
           "total_checksum": 2186326712793932228,
           "workloads": {
             "layout_bench": {
               "iterations": 300,
               "warmup_iterations": 50,
               "elements_per_iter": 2047,
-              "total_ms": 32.042,
-              "mean_ms": 0.1068,
-              "median_ms": 0.1063,
-              "p95_ms": 0.1099,
-              "min_ms": 0.1058,
-              "max_ms": 0.1172,
-              "ops_per_sec": 9362.63,
+              "total_ms": 33.758,
+              "mean_ms": 0.1125,
+              "median_ms": 0.1121,
+              "p95_ms": 0.1155,
+              "min_ms": 0.1115,
+              "max_ms": 0.125,
+              "ops_per_sec": 8886.66,
               "checksum": 417689973924794692
             },
             "text_bench": {
               "iterations": 200,
               "warmup_iterations": 20,
               "elements_per_iter": 3405,
-              "total_ms": 84.814,
-              "mean_ms": 0.4241,
-              "median_ms": 0.4206,
-              "p95_ms": 0.434,
-              "min_ms": 0.4166,
-              "max_ms": 0.4394,
-              "ops_per_sec": 2358.1,
+              "total_ms": 77.37,
+              "mean_ms": 0.3869,
+              "median_ms": 0.384,
+              "p95_ms": 0.393,
+              "min_ms": 0.381,
+              "max_ms": 0.4083,
+              "ops_per_sec": 2584.97,
               "checksum": 12606774574179943755
             },
             "render_bench": {
               "iterations": 300,
               "warmup_iterations": 30,
               "elements_per_iter": 5100,
-              "total_ms": 51.852,
-              "mean_ms": 0.1728,
-              "median_ms": 0.1705,
-              "p95_ms": 0.1834,
-              "min_ms": 0.1696,
-              "max_ms": 0.1974,
-              "ops_per_sec": 5785.68,
+              "total_ms": 45.531,
+              "mean_ms": 0.1518,
+              "median_ms": 0.15,
+              "p95_ms": 0.1615,
+              "min_ms": 0.1486,
+              "max_ms": 0.1636,
+              "ops_per_sec": 6588.98,
               "checksum": 8226312248921777708
             },
             "combined_frame": {
               "iterations": 100,
               "warmup_iterations": 15,
               "elements_per_iter": 514,
-              "total_ms": 54.14,
-              "mean_ms": 0.5414,
-              "median_ms": 0.5424,
-              "p95_ms": 0.5533,
-              "min_ms": 0.5294,
-              "max_ms": 0.5601,
-              "ops_per_sec": 1847.06,
+              "total_ms": 50.428,
+              "mean_ms": 0.5043,
+              "median_ms": 0.5056,
+              "p95_ms": 0.5164,
+              "min_ms": 0.4953,
+              "max_ms": 0.5226,
+              "ops_per_sec": 1983.03,
               "checksum": 8133605907336869050
             }
           }
@@ -253,59 +253,59 @@
         "wasm_bench_runner_releasefast": {
           "optimize_mode": "fast",
           "target": "wasm32-wasi",
-          "total_bench_ms": 218.69,
+          "total_bench_ms": 196.47,
           "total_checksum": 2186326712793932228,
           "workloads": {
             "layout_bench": {
               "iterations": 300,
               "warmup_iterations": 50,
               "elements_per_iter": 2047,
-              "total_ms": 27.97,
-              "mean_ms": 0.0932,
-              "median_ms": 0.0928,
-              "p95_ms": 0.0969,
-              "min_ms": 0.0924,
-              "max_ms": 0.1006,
-              "ops_per_sec": 10725.96,
+              "total_ms": 26.456,
+              "mean_ms": 0.0882,
+              "median_ms": 0.0876,
+              "p95_ms": 0.0918,
+              "min_ms": 0.0873,
+              "max_ms": 0.1255,
+              "ops_per_sec": 11339.39,
               "checksum": 417689973924794692
             },
             "text_bench": {
               "iterations": 200,
               "warmup_iterations": 20,
               "elements_per_iter": 3405,
-              "total_ms": 77.294,
-              "mean_ms": 0.3865,
-              "median_ms": 0.3834,
-              "p95_ms": 0.3934,
-              "min_ms": 0.3798,
-              "max_ms": 0.4024,
-              "ops_per_sec": 2587.52,
+              "total_ms": 68.82,
+              "mean_ms": 0.3441,
+              "median_ms": 0.3413,
+              "p95_ms": 0.3509,
+              "min_ms": 0.3386,
+              "max_ms": 0.3608,
+              "ops_per_sec": 2906.12,
               "checksum": 12606774574179943755
             },
             "render_bench": {
               "iterations": 300,
               "warmup_iterations": 30,
               "elements_per_iter": 5100,
-              "total_ms": 43.529,
-              "mean_ms": 0.1451,
-              "median_ms": 0.143,
-              "p95_ms": 0.1562,
-              "min_ms": 0.1419,
-              "max_ms": 0.1643,
-              "ops_per_sec": 6892.02,
+              "total_ms": 39.368,
+              "mean_ms": 0.1312,
+              "median_ms": 0.1294,
+              "p95_ms": 0.143,
+              "min_ms": 0.1279,
+              "max_ms": 0.1572,
+              "ops_per_sec": 7620.35,
               "checksum": 8226312248921777708
             },
             "combined_frame": {
               "iterations": 100,
               "warmup_iterations": 15,
               "elements_per_iter": 514,
-              "total_ms": 44.463,
-              "mean_ms": 0.4446,
-              "median_ms": 0.4456,
-              "p95_ms": 0.451,
-              "min_ms": 0.4376,
-              "max_ms": 0.4543,
-              "ops_per_sec": 2249.04,
+              "total_ms": 38.727,
+              "mean_ms": 0.3873,
+              "median_ms": 0.3844,
+              "p95_ms": 0.3957,
+              "min_ms": 0.3804,
+              "max_ms": 0.4036,
+              "ops_per_sec": 2582.15,
               "checksum": 8133605907336869050
             }
           }
@@ -313,64 +313,64 @@
         "wasm_bench_runner_releasefast_simd": {
           "optimize_mode": "fast",
           "target": "wasm32-wasi",
-          "total_bench_ms": 208.63,
+          "total_bench_ms": 183.786,
           "total_checksum": 2186326712793932228,
           "workloads": {
             "layout_bench": {
               "iterations": 300,
               "warmup_iterations": 50,
               "elements_per_iter": 2047,
-              "total_ms": 28.107,
-              "mean_ms": 0.0937,
-              "median_ms": 0.0931,
-              "p95_ms": 0.0978,
-              "min_ms": 0.0927,
-              "max_ms": 0.1119,
-              "ops_per_sec": 10673.34,
+              "total_ms": 26.171,
+              "mean_ms": 0.0872,
+              "median_ms": 0.0868,
+              "p95_ms": 0.0908,
+              "min_ms": 0.0863,
+              "max_ms": 0.097,
+              "ops_per_sec": 11463.1,
               "checksum": 417689973924794692
             },
             "text_bench": {
               "iterations": 200,
               "warmup_iterations": 20,
               "elements_per_iter": 3405,
-              "total_ms": 76.581,
-              "mean_ms": 0.3829,
-              "median_ms": 0.3803,
-              "p95_ms": 0.3898,
-              "min_ms": 0.3764,
-              "max_ms": 0.3941,
-              "ops_per_sec": 2611.6,
+              "total_ms": 68.906,
+              "mean_ms": 0.3445,
+              "median_ms": 0.3417,
+              "p95_ms": 0.3519,
+              "min_ms": 0.3389,
+              "max_ms": 0.3682,
+              "ops_per_sec": 2902.51,
               "checksum": 12606774574179943755
             },
             "render_bench": {
               "iterations": 300,
               "warmup_iterations": 30,
               "elements_per_iter": 5100,
-              "total_ms": 35.625,
-              "mean_ms": 0.1187,
-              "median_ms": 0.1169,
-              "p95_ms": 0.1315,
-              "min_ms": 0.1159,
-              "max_ms": 0.1361,
-              "ops_per_sec": 8421.13,
+              "total_ms": 29.666,
+              "mean_ms": 0.0989,
+              "median_ms": 0.0972,
+              "p95_ms": 0.112,
+              "min_ms": 0.0962,
+              "max_ms": 0.1148,
+              "ops_per_sec": 10112.44,
               "checksum": 8226312248921777708
             },
             "combined_frame": {
               "iterations": 100,
               "warmup_iterations": 15,
               "elements_per_iter": 514,
-              "total_ms": 43.919,
-              "mean_ms": 0.4392,
-              "median_ms": 0.4394,
-              "p95_ms": 0.4494,
-              "min_ms": 0.43,
-              "max_ms": 0.4542,
-              "ops_per_sec": 2276.9,
+              "total_ms": 37.101,
+              "mean_ms": 0.371,
+              "median_ms": 0.3679,
+              "p95_ms": 0.3792,
+              "min_ms": 0.3636,
+              "max_ms": 0.3844,
+              "ops_per_sec": 2695.35,
               "checksum": 8133605907336869050
             }
           }
         },
-        "tests_12_wasi_exec_sec": 0.969
+        "tests_12_wasi_exec_sec": 0.843
       }
     },
     "wazigl": {
@@ -1432,22 +1432,22 @@
   },
   "toolchain_footprint": {
     "wazig": {
-      "version": "0.17.0-wazig.4",
-      "release": "cataggar/zig@v0.17.0-wazig.4",
+      "version": "0.17.0-wazig.5",
+      "release": "cataggar/zig@v0.17.0-wazig.5",
       "archive_format": "wazig.tar.zst",
-      "archive_bytes": 8879436,
-      "archive_mb": 8.47,
-      "archive_mb_decimal": 8.88,
-      "unpacked_release_bytes": 63019958,
-      "unpacked_release_mb": 60.11,
-      "unpacked_release_mb_decimal": 63.02,
+      "archive_bytes": 8468137,
+      "archive_mb": 8.08,
+      "archive_mb_decimal": 8.47,
+      "unpacked_release_bytes": 61724584,
+      "unpacked_release_mb": 58.87,
+      "unpacked_release_mb_decimal": 61.72,
       "wasm_binary_name": "wazig.wasm",
-      "wasm_binary_bytes": 33098759,
-      "wasm_binary_mb": 31.57,
-      "std_lib_bytes": 29921199,
-      "std_lib_mb": 28.54,
-      "ghr_installed_bytes": 70164480,
-      "ghr_installed_mb": 66.91,
+      "wasm_binary_bytes": 31784796,
+      "wasm_binary_mb": 30.31,
+      "std_lib_bytes": 29939788,
+      "std_lib_mb": 28.55,
+      "ghr_installed_bytes": 65335296,
+      "ghr_installed_mb": 62.31,
       "file_count": 1324,
       "architecture": "wasm64-wasip3 (universal single binary across Linux/macOS/Windows x86_64 & aarch64)",
       "attestation": "Native Sigstore bundle verified via ghr"
