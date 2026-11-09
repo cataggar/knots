@@ -75,6 +75,8 @@ def ensure_external_package(global_cache: Path, pkg_hash: str) -> Path:
     for candidate_base in [
         REPO_ROOT / ".zig-global-cache" / "p" / pkg_hash,
         Path("/d/knots/.zig-global-cache/p") / pkg_hash,
+        Path("/d/zig-global-cache/p") / pkg_hash,
+        Path("/d/zig/.zig-global-cache/p") / pkg_hash,
     ]:
         if candidate_base.exists() and any(candidate_base.iterdir()):
             pkg_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -92,7 +94,8 @@ def ensure_external_package(global_cache: Path, pkg_hash: str) -> Path:
     tar_path = tmp_dir / "pkg.tar.gz"
 
     try:
-        urllib.request.urlretrieve(info["archive_url"], tar_path)
+        with urllib.request.urlopen(info["archive_url"], timeout=20) as resp:
+            tar_path.write_bytes(resp.read())
         extract_dir = tmp_dir / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(tar_path, "r:gz") as tf:
@@ -104,18 +107,24 @@ def ensure_external_package(global_cache: Path, pkg_hash: str) -> Path:
             shutil.rmtree(pkg_dir)
         shutil.move(str(src_root), str(pkg_dir))
     except Exception:
+        clone_dir = tmp_dir / "clone"
+        if clone_dir.exists():
+            shutil.rmtree(clone_dir)
+        subprocess.run(
+            ["git", "clone", "--quiet", info["git_url"], str(clone_dir)],
+            check=True,
+            timeout=60,
+        )
+        subprocess.run(
+            ["git", "-C", str(clone_dir), "checkout", "--quiet", info["git_rev"]],
+            check=True,
+            timeout=30,
+        )
+        shutil.rmtree(clone_dir / ".git", ignore_errors=True)
+        pkg_dir.parent.mkdir(parents=True, exist_ok=True)
         if pkg_dir.exists():
             shutil.rmtree(pkg_dir)
-        pkg_dir.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", "--quiet", info["git_url"], str(pkg_dir)],
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(pkg_dir), "checkout", "--quiet", info["git_rev"]],
-            check=True,
-        )
-        shutil.rmtree(pkg_dir / ".git", ignore_errors=True)
+        shutil.move(str(clone_dir), str(pkg_dir))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

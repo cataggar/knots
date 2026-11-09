@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     }
     const optimize = b.standardOptimizeOption(.{});
 
-    const web_threads = b.option(bool, "web_threads", "Enable worker threads in the web playground.") orelse false;
+    const web_threads = b.option(bool, "web_threads", "Enable worker threads in the web playground.") orelse true;
     // Decides the shader language the GPU demo needs: WGSL for WebGPU, GLSL ES 3.00 for WebGL2, SPIR-V for Vulkan.
     const gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots.") orelse
         knots.defaultGpuBackend(target.result);

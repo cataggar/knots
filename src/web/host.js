@@ -1047,6 +1047,54 @@ function normalizeSymbols(symbols) {
   };
 }
 
+async function ensureCrossOriginIsolation() {
+  if (globalThis.crossOriginIsolated) {
+    try {
+      globalThis.sessionStorage?.removeItem("knots-coi-reloaded");
+    } catch {}
+    return true;
+  }
+  if (
+    typeof window === "undefined" ||
+    !window.isSecureContext ||
+    typeof navigator === "undefined" ||
+    !("serviceWorker" in navigator)
+  ) {
+    return false;
+  }
+  try {
+    const reloadKey = "knots-coi-reloaded";
+    if (window.sessionStorage?.getItem(reloadKey) === "1") {
+      window.sessionStorage.removeItem(reloadKey);
+      return false;
+    }
+    const swUrl = new URL("./coi-serviceworker.js", import.meta.url);
+    const registration = await navigator.serviceWorker.register(swUrl);
+    const worker =
+      registration.installing || registration.waiting || registration.active;
+    if (worker) {
+      if (worker.state !== "activated") {
+        await new Promise((resolve) => {
+          const onStateChange = () => {
+            if (worker.state === "activated" || worker.state === "redundant") {
+              worker.removeEventListener("statechange", onStateChange);
+              resolve();
+            }
+          };
+          worker.addEventListener("statechange", onStateChange);
+        });
+      }
+      if (worker.state === "redundant") {
+        return false;
+      }
+      window.sessionStorage?.setItem(reloadKey, "1");
+      window.location.reload();
+      return await new Promise(() => {});
+    }
+  } catch {}
+  return false;
+}
+
 export async function startKnots({
   wasmUrl,
   fallbackWasmUrl,
@@ -1067,7 +1115,7 @@ export async function startKnots({
   const threaded =
     module !== null &&
     WebAssembly.Module.exports(module).some(({ name }) => name === "knots_worker_run");
-  if (threaded && !globalThis.crossOriginIsolated)
+  if (threaded && !(await ensureCrossOriginIsolation()))
     throw new Error(
       "Knots worker dispatch requires cross-origin isolation (COOP and COEP headers)",
     );

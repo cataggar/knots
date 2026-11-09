@@ -37,6 +37,8 @@ jobs:
           key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
           restore-keys: |
             wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
       - name: Configure Wasmtime cache
         run: |
           mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
@@ -72,6 +74,8 @@ jobs:
           key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
           restore-keys: |
             wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
       - name: Configure Wasmtime cache
         run: |
           mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
@@ -113,6 +117,8 @@ jobs:
           key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
           restore-keys: |
             wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
       - name: Configure Wasmtime cache
         run: |
           mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
@@ -124,17 +130,17 @@ jobs:
           echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
           echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
       - name: Build playground (webgpu)
-        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgpu
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgpu -Dweb_threads=false
       - name: Build playground (webgl2)
-        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2 -Dweb_threads=false
       - name: Build playground (webgpu + web_threads)
         run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgpu -Dweb_threads=true
       - name: Build playground (webgl2 + web_threads)
         run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2 -Dweb_threads=true
       - name: Build playground (wasm64 webgpu)
-        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu -Dweb_threads=false
       - name: Build playground (wasm64 webgl2)
-        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgl2
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgl2 -Dweb_threads=false
       - name: Build playground (wasm64 webgpu + web_threads)
         run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu -Dweb_threads=true
       - name: Build playground (wasm64 webgl2 + web_threads)
@@ -163,6 +169,8 @@ jobs:
           key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
           restore-keys: |
             wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
       - name: Configure Wasmtime cache
         run: |
           mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"

@@ -55,6 +55,8 @@ jobs:
           key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
           restore-keys: |
             wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
       - name: Configure Wasmtime cache
         run: |
           mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
@@ -71,17 +73,20 @@ jobs:
           WASM64: ${{ inputs.wasm64 == true && 'true' || 'false' }}
         run: |
           if [ "$WASM64" = "true" ]; then
-            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dweb_threads=true -Doptimize=ReleaseSmall
             cp examples/playground/zig-out/web/app.wasm "$RUNNER_TEMP/app-wasm32.wasm"
-            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=true -Doptimize=ReleaseSmall
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=true -Dweb_threads=true -Doptimize=ReleaseSmall
             cp "$RUNNER_TEMP/app-wasm32.wasm" examples/playground/zig-out/web/app-wasm32.wasm
           else
-            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=false -Doptimize=ReleaseSmall
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=false -Dweb_threads=true -Doptimize=ReleaseSmall
           fi
           test -s examples/playground/zig-out/web/index.html
           test -s examples/playground/zig-out/web/app.wasm
           test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
+          test -s examples/playground/zig-out/web/knots-worker-pool.js
+          test -s examples/playground/zig-out/web/knots-worker.js
+          test -s examples/playground/zig-out/web/coi-serviceworker.js
           cp examples/playground/_headers examples/playground/zig-out/web/
 
       - name: Publish the orphaned web branch
@@ -95,6 +100,9 @@ jobs:
           test -s examples/playground/zig-out/web/app.wasm
           test -s examples/playground/zig-out/web/knots.js
           test -s examples/playground/zig-out/web/knots-webgl2.js
+          test -s examples/playground/zig-out/web/knots-worker-pool.js
+          test -s examples/playground/zig-out/web/knots-worker.js
+          test -s examples/playground/zig-out/web/coi-serviceworker.js
           rm -rf "$PUBLISH_DIR"
           gh auth setup-git
           git init --quiet --initial-branch=web "$PUBLISH_DIR"

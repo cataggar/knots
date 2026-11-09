@@ -90,6 +90,7 @@ pub fn build(b: *std.Build) void {
         if (web_threads) {
             b.addNamedLazyPath("web-worker-pool-js", b.path("src/web/worker-pool.js"));
             b.addNamedLazyPath("web-worker-js", b.path("src/web/worker.js"));
+            b.addNamedLazyPath("web-coi-sw-js", b.path("src/web/coi-serviceworker.js"));
         }
     }
 
@@ -589,8 +590,10 @@ pub fn addWebHostInstall(b: *std.Build, knots: *std.Build.Dependency, options: W
     if (web_threads) {
         const install_worker_pool_js = b.addInstallFileWithDir(knots.namedLazyPath("web-worker-pool-js"), .{ .custom = options.dir }, "knots-worker-pool.js");
         const install_worker_js = b.addInstallFileWithDir(knots.namedLazyPath("web-worker-js"), .{ .custom = options.dir }, "knots-worker.js");
+        const install_coi_sw_js = b.addInstallFileWithDir(knots.namedLazyPath("web-coi-sw-js"), .{ .custom = options.dir }, "coi-serviceworker.js");
         install.dependOn(&install_worker_pool_js.step);
         install.dependOn(&install_worker_js.step);
+        install.dependOn(&install_coi_sw_js.step);
     }
     return install;
 }
