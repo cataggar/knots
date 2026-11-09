@@ -7,6 +7,179 @@ const WASM_MEMORY_MAX_PAGES = 32768;
 const WASM_MEMORY64_MAX_PAGES = 131072;
 const textDecoder = new TextDecoder("utf-8");
 
+export const WASMFX_PROBE_BYTES = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x02, 0x60, 0x00, 0x00, 0x5d, 0x00,
+]);
+
+export const WASMFX_HELPER_BYTES = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0b, 0x03, 0x60, 0x00, 0x00, 0x5d, 0x00,
+  0x60, 0x01, 0x7f, 0x01, 0x7f, 0x02, 0x10, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x08, 0x6f, 0x6e, 0x5f,
+  0x79, 0x69, 0x65, 0x6c, 0x64, 0x00, 0x00, 0x03, 0x05, 0x04, 0x00, 0x00, 0x02, 0x02, 0x0d, 0x03,
+  0x01, 0x00, 0x00, 0x06, 0x0b, 0x02, 0x7f, 0x01, 0x41, 0x00, 0x0b, 0x7f, 0x01, 0x41, 0x00, 0x0b,
+  0x07, 0x2e, 0x03, 0x0b, 0x73, 0x75, 0x73, 0x70, 0x65, 0x6e, 0x64, 0x5f, 0x6e, 0x6f, 0x77, 0x00,
+  0x02, 0x0a, 0x72, 0x75, 0x6e, 0x5f, 0x79, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x00, 0x03, 0x0f, 0x72,
+  0x75, 0x6e, 0x5f, 0x70, 0x75, 0x72, 0x65, 0x5f, 0x79, 0x69, 0x65, 0x6c, 0x64, 0x73, 0x00, 0x04,
+  0x09, 0x05, 0x01, 0x03, 0x00, 0x01, 0x01, 0x0a, 0xa1, 0x01, 0x04, 0x1a, 0x00, 0x02, 0x40, 0x03,
+  0x40, 0x23, 0x01, 0x41, 0x00, 0x4c, 0x0d, 0x01, 0x23, 0x01, 0x41, 0x01, 0x6b, 0x24, 0x01, 0xe2,
+  0x00, 0x0c, 0x00, 0x0b, 0x0b, 0x0b, 0x0c, 0x00, 0x23, 0x00, 0x04, 0x40, 0xe2, 0x00, 0x05, 0x10,
+  0x00, 0x0b, 0x0b, 0x3c, 0x02, 0x01, 0x63, 0x01, 0x01, 0x7f, 0x20, 0x00, 0x24, 0x01, 0x41, 0x01,
+  0x24, 0x00, 0xd2, 0x01, 0xe0, 0x01, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x02, 0x64, 0x01, 0x20,
+  0x01, 0xe3, 0x01, 0x01, 0x00, 0x00, 0x00, 0x0c, 0x02, 0x0b, 0x21, 0x01, 0x20, 0x02, 0x41, 0x01,
+  0x6a, 0x21, 0x02, 0x10, 0x00, 0x0c, 0x00, 0x0b, 0x0b, 0x41, 0x00, 0x24, 0x00, 0x20, 0x02, 0x0b,
+  0x3a, 0x02, 0x01, 0x63, 0x01, 0x01, 0x7f, 0x20, 0x00, 0x24, 0x01, 0x41, 0x01, 0x24, 0x00, 0xd2,
+  0x01, 0xe0, 0x01, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x02, 0x64, 0x01, 0x20, 0x01, 0xe3, 0x01,
+  0x01, 0x00, 0x00, 0x00, 0x0c, 0x02, 0x0b, 0x21, 0x01, 0x20, 0x02, 0x41, 0x01, 0x6a, 0x21, 0x02,
+  0x0c, 0x00, 0x0b, 0x0b, 0x41, 0x00, 0x24, 0x00, 0x20, 0x02, 0x0b,
+]);
+
+export const CAP_JSPI = 1 << 0;
+export const CAP_WAIT_ASYNC = 1 << 1;
+export const CAP_WASMFX = 1 << 2;
+export const CAP_PROMISING_ACTIVE = 1 << 3;
+
+export function detectWasmCapabilities() {
+  const jspi =
+    typeof WebAssembly !== "undefined" &&
+    typeof WebAssembly.Suspending === "function" &&
+    typeof WebAssembly.promising === "function";
+  const waitAsync = typeof Atomics !== "undefined" && typeof Atomics.waitAsync === "function";
+  let wasmfx = false;
+  if (typeof WebAssembly !== "undefined" && typeof WebAssembly.validate === "function") {
+    try {
+      wasmfx = WebAssembly.validate(WASMFX_PROBE_BYTES);
+    } catch {
+      wasmfx = false;
+    }
+  }
+  const bitmask = (jspi ? CAP_JSPI : 0) | (waitAsync ? CAP_WAIT_ASYNC : 0) | (wasmfx ? CAP_WASMFX : 0);
+  return { jspi, waitAsync, wasmfx, bitmask };
+}
+
+export function instantiateWasmfxHelper(onYield = () => {}) {
+  if (!detectWasmCapabilities().wasmfx) return null;
+  const yieldCallback = typeof onYield === "function" ? onYield : () => {};
+  const module = new WebAssembly.Module(WASMFX_HELPER_BYTES);
+  const instance = new WebAssembly.Instance(module, {
+    env: { on_yield: yieldCallback },
+  });
+  const { suspend_now, run_yields, run_pure_yields } = instance.exports;
+  return {
+    module,
+    instance,
+    exports: instance.exports,
+    suspend_now,
+    run_yields,
+    run_pure_yields,
+    suspendNow: suspend_now,
+    runYields: run_yields,
+    runPureYields: run_pure_yields,
+  };
+}
+
+function adjustActivePromisingDepth(state, delta) {
+  if (!state) return;
+  const next = Math.max(0, (state.activePromisingDepth ?? 0) + delta);
+  state.activePromisingDepth = next;
+  if (state.options && state.options !== state) {
+    state.options.activePromisingDepth = next;
+  }
+}
+
+function adjustInPromisingCall(state, delta) {
+  if (!state) return;
+  const next = Math.max(0, (state.inPromisingCall ?? 0) + delta);
+  state.inPromisingCall = next;
+  if (state.options && state.options !== state) {
+    state.options.inPromisingCall = next;
+  }
+}
+
+export function wrapSuspendingImport(fn, state) {
+  if (typeof WebAssembly?.Suspending !== "function") return fn;
+  return new WebAssembly.Suspending((...args) => {
+    const stack = state?.promisingStack;
+    const frame = stack && stack.length > 0 ? stack[stack.length - 1] : null;
+    if (frame && !frame.suspended) {
+      frame.suspended = true;
+      stack.pop();
+      adjustActivePromisingDepth(state, -1);
+    }
+    let result;
+    try {
+      result = fn(...args);
+    } catch (err) {
+      if (frame) {
+        frame.suspended = false;
+        stack.push(frame);
+        adjustActivePromisingDepth(state, 1);
+      }
+      throw err;
+    }
+    const promise =
+      result && typeof result.then === "function" ? result : Promise.resolve(result);
+    return promise.then(
+      (val) => {
+        if (frame) {
+          frame.suspended = false;
+          stack.push(frame);
+          adjustActivePromisingDepth(state, 1);
+        }
+        return val;
+      },
+      (err) => {
+        if (frame) {
+          frame.suspended = false;
+          stack.push(frame);
+          adjustActivePromisingDepth(state, 1);
+        }
+        throw err;
+      },
+    );
+  });
+}
+
+export function wrapPromisingExport(fnOrState, stateOrFn) {
+  const [fn, state] =
+    typeof fnOrState === "function" ? [fnOrState, stateOrFn] : [stateOrFn, fnOrState];
+  if (typeof fn !== "function") return fn;
+  const jspiSupported = state?.wasmCapabilities
+    ? Boolean(state.wasmCapabilities.jspi)
+    : detectWasmCapabilities().jspi;
+  if (!state || !jspiSupported || typeof WebAssembly?.promising !== "function") return fn;
+  const promisingFn = WebAssembly.promising(fn);
+  return (...args) => {
+    state.promisingStack ??= [];
+    const frame = { suspended: false };
+    state.promisingStack.push(frame);
+    adjustActivePromisingDepth(state, 1);
+    adjustInPromisingCall(state, 1);
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (!frame.suspended) {
+        const idx = state.promisingStack.lastIndexOf(frame);
+        if (idx !== -1) state.promisingStack.splice(idx, 1);
+        adjustActivePromisingDepth(state, -1);
+      }
+      adjustInPromisingCall(state, -1);
+    };
+    try {
+      const result = promisingFn(...args);
+      if (frame.suspended && result && typeof result.then === "function") {
+        const tracked = result.finally(finish);
+        state.lastDispatchPromise = tracked;
+        return tracked;
+      }
+      finish();
+      return result;
+    } catch (err) {
+      finish();
+      throw err;
+    }
+  };
+}
+
 function resolveGpuBackendOption(option) {
   if (option === "webgpu" || option === "webgl2" || option === "auto") return option;
   try {
@@ -180,12 +353,23 @@ const keyCodes = new Map(
 const keyDefaults = new Set([32, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269]);
 
 class KnotsBrowserHost {
-  constructor(options) {
+  constructor(options = {}) {
+    this.options = options;
     this.canvas = options.canvas;
+    this.headless = Boolean(options.headless);
     this.fullscreenElementOption = options.fullscreenElement ?? null;
     this.logTarget = options.log ?? console;
     this.onError = typeof options.onError === "function" ? options.onError : null;
     this.requestedGpuBackend = resolveGpuBackendOption(options.gpuBackend);
+    this.wasmCapabilities = options.wasmCapabilities ?? detectWasmCapabilities();
+    this.wasmfxHelper = this.wasmCapabilities.wasmfx ? instantiateWasmfxHelper() : null;
+    this.inPromisingCall = 0;
+    this.activePromisingDepth = 0;
+    this.promisingStack = [];
+    this.lastDispatchPromise = null;
+    this.frameInFlight = false;
+    this.framePendingAfterInFlight = false;
+    this.pendingFrameAfterSuspend = false;
     this.gpuBackend = null;
     this.webgl2Backend = null;
     this.gpuAdapter = null;
@@ -195,8 +379,10 @@ class KnotsBrowserHost {
     this.pendingFullscreenCanvas = null;
     this.mouseCaptures = new Map();
     this.serviceFullscreen = this.serviceFullscreen.bind(this);
-    for (const event of ["pointerdown", "mousedown", "keydown", "touchstart"]) {
-      document.addEventListener(event, this.serviceFullscreen, true);
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+      for (const event of ["pointerdown", "mousedown", "keydown", "touchstart"]) {
+        document.addEventListener(event, this.serviceFullscreen, true);
+      }
     }
     this.workerPool = null;
     this.frameCallback = null;
@@ -227,13 +413,60 @@ class KnotsBrowserHost {
 
   requestFrame() {
     if (!this.frameCallback || this.frameRequest !== null) return;
-    this.frameRequest = requestAnimationFrame((timestamp) => {
+    if (this.frameInFlight) {
+      this.framePendingAfterInFlight = true;
+      this.pendingFrameAfterSuspend = true;
+      return;
+    }
+    const step = (timestamp) => {
       this.frameRequest = null;
-      this.frameCallback?.(timestamp);
-    });
+      if (!this.frameCallback) return;
+      this.lastDispatchPromise = null;
+      this.frameInFlight = true;
+      const completeFrame = () => {
+        this.frameInFlight = false;
+        if (this.framePendingAfterInFlight || this.pendingFrameAfterSuspend) {
+          this.framePendingAfterInFlight = false;
+          this.pendingFrameAfterSuspend = false;
+          this.requestFrame();
+        }
+      };
+      let callResult;
+      try {
+        callResult = this.frameCallback(timestamp);
+      } catch (err) {
+        this.frameInFlight = false;
+        this.framePendingAfterInFlight = false;
+        this.pendingFrameAfterSuspend = false;
+        this.fatalError(errorMessage(err));
+        return;
+      }
+      const pendingPromise =
+        callResult && typeof callResult.then === "function"
+          ? callResult
+          : this.lastDispatchPromise;
+      if (pendingPromise && typeof pendingPromise.then === "function") {
+        pendingPromise.then(
+          () => {
+            completeFrame();
+          },
+          (err) => {
+            this.frameInFlight = false;
+            this.framePendingAfterInFlight = false;
+            this.pendingFrameAfterSuspend = false;
+            this.fatalError(errorMessage(err));
+          },
+        );
+      } else {
+        completeFrame();
+      }
+    };
+    this.frameRequest = requestAnimationFrame(step);
   }
 
   cancelFrame() {
+    this.framePendingAfterInFlight = false;
+    this.pendingFrameAfterSuspend = false;
     if (this.frameRequest === null) return;
     cancelAnimationFrame(this.frameRequest);
     this.frameRequest = null;
@@ -278,6 +511,9 @@ class KnotsBrowserHost {
   }
 
   async initGpu() {
+    if (this.headless || (!this.canvas && typeof document === "undefined" && !globalThis.navigator?.gpu)) {
+      return;
+    }
     if (this.requestedGpuBackend === "webgl2") {
       try {
         this.initWebGL2();
@@ -555,46 +791,158 @@ class KnotsBrowserHost {
   }
 }
 
-export function createKnotsImports(options) {
+export function createKnotsImports(options = {}, extraOptions = null) {
+  if (extraOptions && typeof extraOptions === "object") {
+    Object.assign(options, extraOptions);
+  }
+  const wasmCapabilities = options.wasmCapabilities ?? detectWasmCapabilities();
+  options.wasmCapabilities = wasmCapabilities;
+  options.inPromisingCall ??= 0;
+  options.activePromisingDepth ??= 0;
+
   const bridge = createBridgeImports();
+  const dispatchSymbol = options.symbols?.dispatch ?? "js_bridge_dispatch";
   bridge.setExportSymbols({
-    dispatch: options.symbols?.dispatch,
+    dispatch: dispatchSymbol,
     pointerSize: options.symbols?.pointerSize,
   });
   const host = new KnotsBrowserHost(options);
   bridge.setHost(host);
-  if (options.wasmExports) bridge.setWasmExports(options.wasmExports);
-  let wasiMemory = null;
+  let wasiMemory = options.memory ?? null;
   let wasmExports = options.wasmExports ?? null;
+
+  const resolveMemory = () =>
+    wasiMemory ??
+    options.memory ??
+    wasmExports?.memory ??
+    options.wasmExports?.memory ??
+    bridge.memory ??
+    null;
+
+  const startSymbol = options.symbols?.start ?? "main";
+  const wrapExports = (exports) => {
+    if (!exports || !wasmCapabilities.jspi || options.isWorker) return exports;
+    const wrapped = Object.create(exports);
+    for (const name of [dispatchSymbol, startSymbol, "knots_frame", "knots_init"]) {
+      if (typeof exports[name] === "function") {
+        Object.defineProperty(wrapped, name, {
+          value: wrapPromisingExport(exports[name], host),
+          configurable: true,
+          enumerable: true,
+          writable: true,
+        });
+      }
+    }
+    return wrapped;
+  };
+
+  if (options.wasmExports) {
+    wasmExports = wrapExports(options.wasmExports);
+    host.wasmExports = wasmExports;
+    bridge.setWasmExports(wasmExports);
+  }
+
+  const waitAsync32Impl = async (addrPtr, expected, timeoutNsLo, timeoutNsHi) => {
+    const memory = resolveMemory();
+    if (!wasmCapabilities.waitAsync || !(memory?.buffer instanceof SharedArrayBuffer)) {
+      return 2;
+    }
+    const index = (Number(addrPtr) >>> 0) >>> 2;
+    const view = new Int32Array(memory.buffer);
+    const expectedVal = Number(expected) | 0;
+    if (Atomics.load(view, index) !== expectedVal) return 1;
+    const lo = BigInt(Number(timeoutNsLo) >>> 0);
+    const hi = BigInt(Number(timeoutNsHi) >>> 0);
+    const timeoutNs = (hi << 32n) | lo;
+    const timeoutMs =
+      timeoutNs === 0xffffffffffffffffn ? Infinity : Number(timeoutNs) / 1_000_000;
+    if (timeoutMs <= 0) {
+      return Atomics.load(view, index) === expectedVal ? 2 : 1;
+    }
+    const res = Atomics.waitAsync(view, index, expectedVal, timeoutMs);
+    if (!res.async) {
+      return res.value === "ok" ? 0 : res.value === "not-equal" ? 1 : 2;
+    }
+    const keepAliveMs = Number.isFinite(timeoutMs)
+      ? Math.min(2147483647, Math.max(1, Math.ceil(timeoutMs) + 5))
+      : 2147483647;
+    const keepAliveTimer = setTimeout(() => {}, keepAliveMs);
+    try {
+      const outcome = await res.value;
+      return outcome === "ok" ? 0 : outcome === "not-equal" ? 1 : 2;
+    } finally {
+      clearTimeout(keepAliveTimer);
+    }
+  };
+
+  const sleepMsImpl = async (ms) => {
+    const delay = Number.isFinite(ms) && ms > 0 ? ms : 0;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  };
+
+  const waitAsync32SyncFallback = (addrPtr, expected, _timeoutNsLo, _timeoutNsHi) => {
+    const memory = resolveMemory();
+    if (!(memory?.buffer instanceof SharedArrayBuffer)) return 2;
+    const index = (Number(addrPtr) >>> 0) >>> 2;
+    const view = new Int32Array(memory.buffer);
+    return Atomics.load(view, index) === (Number(expected) | 0) ? 2 : 1;
+  };
+
+  const sleepMsSyncFallback = () => {};
+
+  const useJspiSuspending = Boolean(wasmCapabilities.jspi && !options.isWorker);
+
   // Import modules of the application's own (for C code that calls into the
   // page). They run on the main thread only; workers get stubs.
   const extraImports =
     typeof options.imports === "function"
-      ? options.imports(
-          () => wasiMemory ?? bridge.memory,
-          () => wasmExports,
-        )
+      ? options.imports(resolveMemory, () => wasmExports)
       : (options.imports ?? {});
+
+  const envImports = {
+    ...(options.memory ? { memory: options.memory } : {}),
+    ...(extraImports.env ?? {}),
+    knots_host_capabilities: () =>
+      (
+        (wasmCapabilities.bitmask & 0x7) |
+        ((host.activePromisingDepth ?? 0) > 0 ? CAP_PROMISING_ACTIVE : 0)
+      ) >>> 0,
+    knots_host_wait_async32: useJspiSuspending
+      ? wrapSuspendingImport(waitAsync32Impl, host)
+      : waitAsync32SyncFallback,
+    knots_host_sleep_ms: useJspiSuspending
+      ? wrapSuspendingImport(sleepMsImpl, host)
+      : sleepMsSyncFallback,
+  };
+
   const imports = {
     ...extraImports,
+    env: envImports,
     ...bridge.imports,
-    wasi_snapshot_preview1: createWasiImports(
-      () => wasiMemory ?? bridge.memory,
-      options.log ?? console,
-    ),
+    wasi_snapshot_preview1: createWasiImports(resolveMemory, options.log ?? console),
   };
 
   return {
     imports,
+    env: imports.env,
+    js_bridge: imports.js_bridge,
+    wasi_snapshot_preview1: imports.wasi_snapshot_preview1,
+    wasmCapabilities,
     ready: host.ready,
     bridge,
     host,
     setWasmExports(exports) {
-      wasmExports = exports;
-      bridge.setWasmExports(exports);
+      wasmExports = wrapExports(exports);
+      host.wasmExports = wasmExports;
+      bridge.setWasmExports(wasmExports);
+      return wasmExports;
+    },
+    getWasmExports() {
+      return wasmExports;
     },
     setMemory(memory) {
       wasiMemory = memory;
+      options.memory = memory;
     },
   };
 }
@@ -797,8 +1145,9 @@ export async function startKnots({
   }
   // Exported by wasm32-wasi builds only.
   result.instance.exports.__wasm_call_ctors?.();
-  const start = result.instance.exports[resolvedSymbols.start];
-  const rc = start();
+  const rawStart = result.instance.exports[resolvedSymbols.start];
+  const start = wrapPromisingExport(rawStart, imports.host);
+  const rc = await start();
   if (rc !== 0) {
     const detail = readExportedString(result.instance.exports, resolvedSymbols);
     throw new Error(`Knots start failed: ${rc}${detail ? `: ${detail}` : ""}`);
@@ -808,6 +1157,7 @@ export async function startKnots({
     module: result.module,
     host: imports.host,
     bridge: imports.bridge,
+    wasmCapabilities: imports.wasmCapabilities,
   };
 }
 

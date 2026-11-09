@@ -4,7 +4,12 @@ import { createWasiImports } from "./knots-wasi.js";
 let exports;
 let idleStack;
 
+const CAP_WAIT_ASYNC = 1 << 1;
+const CAP_PROMISING_ACTIVE = 1 << 3;
+
 const host = {
+  activePromisingDepth: 0,
+  inPromisingCall: 0,
   nowMs(clock) {
     return clock === 0 ? Date.now() : performance.now();
   },
@@ -33,16 +38,50 @@ self.onmessage = async ({ data }) => {
         { value: pointerType, mutable: true },
         data.pointerSize === 8 ? 0n : 0,
       );
+      const waitScratch = new Int32Array(new SharedArrayBuffer(4));
+      const workerCapabilities =
+        typeof Atomics !== "undefined" && typeof Atomics.waitAsync === "function"
+          ? CAP_WAIT_ASYNC
+          : 0;
       const imports = {
         ...bridge.imports,
         wasi_snapshot_preview1: createWasiImports(() => data.memory),
-        env: { memory: data.memory, knots_worker_task: workerTask },
+        env: {
+          memory: data.memory,
+          knots_worker_task: workerTask,
+          knots_host_capabilities: () =>
+            (workerCapabilities | (host.activePromisingDepth > 0 ? CAP_PROMISING_ACTIVE : 0)) >>> 0,
+          knots_host_wait_async32: (addrPtr, expected, timeoutNsLo, timeoutNsHi) => {
+            if (!(data.memory?.buffer instanceof SharedArrayBuffer)) return 2;
+            const index = (Number(addrPtr) >>> 0) >>> 2;
+            const view = new Int32Array(data.memory.buffer);
+            const lo = BigInt(Number(timeoutNsLo) >>> 0);
+            const hi = BigInt(Number(timeoutNsHi) >>> 0);
+            const timeoutNs = (hi << 32n) | lo;
+            const timeoutMs =
+              timeoutNs === 0xffffffffffffffffn ? Infinity : Number(timeoutNs) / 1_000_000;
+            const outcome = Atomics.wait(view, index, Number(expected) | 0, timeoutMs);
+            return outcome === "ok" ? 0 : outcome === "not-equal" ? 1 : 2;
+          },
+          knots_host_sleep_ms: (ms) => {
+            const delay = Number.isFinite(ms) && ms > 0 ? ms : 0;
+            if (delay > 0) Atomics.wait(waitScratch, 0, 0, delay);
+          },
+        },
       };
 
       // Import modules the application provides on the main thread only
       // (for example a GL context) are stubbed here.
       for (const { module, name, kind } of WebAssembly.Module.imports(data.module)) {
-        if (kind !== "function" || module in imports) continue;
+        if (kind !== "function") continue;
+        if (module in imports) {
+          if (!(name in imports[module])) {
+            imports[module][name] = () => {
+              throw new Error(`${module}.${name} is only available on the main thread`);
+            };
+          }
+          continue;
+        }
         (imports[`stub:${module}`] ??= {})[name] = () => {
           throw new Error(`${module}.${name} is only available on the main thread`);
         };
