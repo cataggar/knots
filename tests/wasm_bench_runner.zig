@@ -435,7 +435,7 @@ const wrap_widths = [_]f32{ 185.0, 265.0, 385.0, 545.0 };
 
 fn runTextIteration(ts: *text.TextSystem, iter_idx: usize) !struct { ops: usize, hash: u64 } {
     const face = ts.faceById(0);
-    face.glyphs.clearRetainingCapacity();
+    face.clearGlyphCache();
     ts.glyph_store.words.shrinkRetainingCapacity(1);
     ts.glyph_store.table.shrinkRetainingCapacity(1);
     ts.glyph_store.slots.shrinkRetainingCapacity(1);

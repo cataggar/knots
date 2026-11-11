@@ -1,23 +1,24 @@
-# wazig (v0.17.0-wazig.6) & wazigl (v0.17.0-wazigl.6) vs zig v0.17.0 Comprehensive Benchmark Report
+# wazig (v0.17.1-wazig.1) & wazigl (v0.17.0-wazigl.6) vs zig v0.17.1 Comprehensive Benchmark Report
 
-Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-wazig.py`) comparing:
-- **`wazig v0.17.0-wazig.6`** (`cataggar/zig@v0.17.0-wazig.6`, `-fno-llvm`): universal `wasm64-wasip3` self-hosted Wasm backend executed via `wasmtime v50.0.1` (`8.08 MiB` `.tar.zst`, `58.87 MiB` unpacked), including `cataggar/zig#158`–`#224` and `cataggar/knots#11`–`#30`
+Reproducible benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/bench-wazig.py`) comparing:
+- **`wazig v0.17.1-wazig.1`** (`cataggar/zig@v0.17.1-wazig.1`, `-fno-llvm`): universal `wasm64-wasip3` self-hosted Wasm backend executed via `wasmtime v50.0.1` (`8.08 MiB` `.tar.zst`, `59.90 MiB` unpacked), including Zig `0.17.1` (`#236`), `cataggar/zig#158`–`#238`, and `cataggar/knots#11`–`#36`
+- **`wazig v0.17.0-wazig.6`** (`cataggar/zig@v0.17.0-wazig.6`, `-fno-llvm`): prior `0.17.0` `wazig` release baseline on identical `knots` source
 - **`wazigl v0.17.0-wazigl.6`** (`cataggar/zig@v0.17.0-wazigl.6`, `-fllvm`): universal `wasm64-wasip3` compiler with full LLVM 22 Wasm backend executed via `wasmtime v50.0.1` (`36.26 MiB` `.tar.zst`, `221.57 MiB` unpacked)
-- **`zig v0.17.0 -fno-llvm`** (`cataggar/zig@v0.17.0`, native `0.17.0` binary with self-hosted Wasm backend)
-- **`zig v0.17.0 -fllvm`** (`cataggar/zig@v0.17.0`, native `0.17.0` binary with LLVM 22 backend)
+- **`zig v0.17.1 -fno-llvm`** (`cataggar/zig@v0.17.1`, native `0.17.1` binary with self-hosted Wasm backend)
+- **`zig v0.17.1 -fllvm`** (`cataggar/zig@v0.17.1`, native `0.17.1` binary with LLVM 22 backend)
 
 ---
 
 ## A. Toolchain & CI Footprint
 
-| Metric | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0` (Standard) | Reduction / Advantage |
+| Metric | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1` (Standard) | Reduction / Advantage |
 | :--- | :--- | :--- | :--- | :--- |
-| **Release Archive Size** | **8.08 MiB** (`wazig.tar.zst`) | **36.26 MiB** (`wazigl.tar.zst`) | 50.43 MiB (`zig-aarch64-linux-0.17.0.tar.xz`) | **`wazig`: 6.24x smaller (-84.0%) / `wazigl`: 1.39x smaller (-28.1%)** |
-| **Unpacked Release Size** | **58.87 MiB** (`30.31 MiB` `wazig.wasm` + `28.55 MiB` `lib/`) | **221.57 MiB** (`193.02 MiB` `wazigl.wasm` + `28.55 MiB` `lib/`) | 343.65 MiB (`163.74 MiB` `zig` + `178.95 MiB` `lib/`; `397.74 MiB` on disk) | **`wazig`: 5.84x smaller (-82.9%) / `wazigl`: 1.55x smaller (-35.5%)** |
-| **Installed File Count** | **1,324 files** | **1,324 files** | 19,506 files | **14.7x fewer files (-93.2%)** |
+| **Release Archive Size** | **8.08 MiB** (`wazig.tar.zst`) | **36.26 MiB** (`wazigl.tar.zst`) | 50.43 MiB (`zig-aarch64-linux-0.17.1.tar.xz`) | **`wazig`: 6.24x smaller (-84.0%) / `wazigl`: 1.39x smaller (-28.1%)** |
+| **Unpacked Release Size** | **58.86 MiB** (`30.25 MiB` `wazig.wasm` + `28.61 MiB` `lib/`) | **221.57 MiB** (`193.02 MiB` `wazigl.wasm` + `28.55 MiB` `lib/`) | 342.91 MiB (`163.75 MiB` `zig` + `179.16 MiB` `lib/`) | **`wazig`: 5.59x smaller (-82.1%) / `wazigl`: 1.51x smaller (-33.8%)** |
+| **Installed File Count** | **1,323 files** | **1,324 files** | 19,520 files | **13.5x fewer files (-92.6%)** |
 | **Binary Portability** | wasm64-wasip3 (universal single binary across Linux/macOS/Windows x86_64 & aarch64) | wasm64-wasip3 + LLVM 22 (universal single binary across Linux/macOS/Windows x86_64 & aarch64) | OS/arch-specific native binaries (x86_64-linux, aarch64-linux, aarch64-macos, x86_64-windows, etc.) | **Single universal artifact per tier** |
 | **Supply-Chain Attestation** | Native Sigstore bundle verified via ghr | Native Sigstore bundle verified via ghr | minisign signature (external tool required) | **Zero extra verification tools** |
-| **Wasm Build Dependency Fetch** | **4.91 MiB** compressed / **34.71 MiB** unpacked (2 pkgs: `TrueType`, `tracy`) | **4.91 MiB** compressed / **34.71 MiB** unpacked (2 pkgs: `TrueType`, `tracy`) | ~230+ MiB compressed / ~680 MiB unpacked (9 pkgs incl. Vulkan, Wayland, Win32, wgpu) | **~46x smaller dependency fetch** |
+| **Wasm Build Dependency Fetch** | **0.00 MiB** core (0 external pkgs; `4.64 MiB` lazy `tracy` for `benchmark` only) | **0.00 MiB** core (0 external pkgs; `4.64 MiB` lazy `tracy` for `benchmark` only) | ~230+ MiB compressed / ~680 MiB unpacked (8 eager native pkgs incl. Vulkan, Wayland, Win32, wgpu) | **Zero external network fetch for Web/WASI** |
 
 ---
 
@@ -25,66 +26,66 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 > All `wazig` and `wazigl` measurements run with Wasmtime's compiled module cache warmed.
 
-| Workload | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` (LLVM 22) |
+| Workload | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1 -fno-llvm` | `zig v0.17.1 -fllvm` (LLVM 22) |
 | :--- | ---: | ---: | ---: | ---: |
-| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **0.460s** | 1.620s | 0.050s | 0.050s |
-| `wasm_bench_runner.zig` (`Debug`) | 13.07s (cold) / 6.72s (warm) | 30.14s (cold) / 15.83s (warm) | 3.54s (cold) / 0.29s (warm) | 5.97s (cold) / 2.62s (warm) |
-| `wasm_bench_runner.zig` (`ReleaseSmall`) | 10.99s (cold) / 4.83s (warm) | 23.11s (cold) / 13.68s (warm) | 2.38s (cold) / 0.23s (warm) | 6.82s (cold) / 4.73s (warm) |
-| `wasm_bench_runner.zig` (`ReleaseFast`) | 12.19s (cold) / 5.89s (warm) | 39.92s (cold) / 25.42s (warm) | 3.59s (cold) / 0.24s (warm) | 12.48s (cold) / 8.84s (warm) |
-| `wasm_bench_runner.zig` (`ReleaseFast +simd128`) | 12.31s (cold) / 5.85s (warm) | 40.19s (cold) / 26.14s (warm) | FAIL (`IllDefinedMemoryLayout`)* | 13.07s (cold) / 9.78s (warm) |
-| All 12 `wasm32-wasi` Test Suites (`js-bridge` + 11 `knots` suites) | 18.92s wall (58.9s CPU) | 47.55s wall (156.2s CPU) | 3.36s wall (7.9s CPU) | 8.31s wall (26.5s CPU) |
-| `examples/triangle` (`Debug`) | 14.06s (cold) / 7.50s (warm) | 30.12s (cold) / 18.12s (warm) | 2.81s (cold) / 0.31s (warm) | 5.61s (cold) / 2.91s (warm) |
-| `examples/triangle` (`ReleaseSmall`) | 11.82s (cold) / 5.58s (warm) | 26.20s (cold) / 17.52s (warm) | 2.32s (cold) / 0.26s (warm) | 8.39s (cold) / 6.09s (warm) |
-| `examples/playground` (`Debug`, WebGPU, `web_threads=false`) | 17.36s | 34.28s | 1.01s | 5.49s |
-| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | 14.43s | 34.29s | 0.96s | 12.46s |
-| `examples/playground` (`Debug`, WebGL2, `web_threads=false`) | 17.70s | 34.02s | 1.01s | 5.71s |
-| `examples/playground` (`ReleaseSmall`, WebGL2, `web_threads=false`) | 14.86s | 34.67s | 0.96s | 12.37s |
-| `examples/playground` (`Debug`, WebGPU, `web_threads=true`) | **19.94s** | **42.99s** | FAIL (`global.get` asm)* | 8.22s |
-| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=true`) | **16.87s** | **40.21s** | FAIL (`global.get` asm)* | 14.69s |
-| `examples/playground` (`Debug`, WebGL2, `web_threads=true`) | **17.86s** | **34.82s** | FAIL (`global.get` asm)* | 5.62s |
-| `examples/playground` (`ReleaseSmall`, WebGL2, `web_threads=true`) | **14.93s** | **35.49s** | FAIL (`global.get` asm)* | 12.88s |
-| `examples/embedded` (`Debug`) | 6.34s | 14.84s | 0.26s | 2.41s |
-| `examples/embedded` (`ReleaseSmall`) | 4.62s | 14.30s | 0.21s | 5.06s |
-| `examples/benchmark` + `translate-c` `TracyC.h` (`Debug`) | 7.79s | 18.36s | 0.33s | 3.06s |
-| `examples/benchmark` + `translate-c` `TracyC.h` (`ReleaseSmall`) | 5.91s | 18.26s | 0.28s | 6.63s |
+| `fmt --check src/ tests/ examples/ lib/js-bridge/src/` | **0.631s** | 1.884s | 0.078s | 0.078s |
+| `wasm_bench_runner.zig` (`Debug`) | 20.02s (cold) / 13.11s (warm) | 40.22s (cold) / 25.73s (warm) | 3.77s (cold) / 0.50s (warm) | 8.35s (cold) / 5.13s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseSmall`) | 15.92s (cold) / 9.25s (warm) | 35.87s (cold) / 25.37s (warm) | 2.46s (cold) / 0.43s (warm) | 12.98s (cold) / 10.59s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseFast`) | 18.10s (cold) / 11.13s (warm) | 70.93s (cold) / 56.88s (warm) | 3.60s (cold) / 0.43s (warm) | 28.02s (cold) / 24.59s (warm) |
+| `wasm_bench_runner.zig` (`ReleaseFast +simd128`) | 18.26s (cold) / 11.35s (warm) | 73.56s (cold) / 58.90s (warm) | FAIL (`IllDefinedMemoryLayout`)* | 30.17s (cold) / 26.61s (warm) |
+| All 19 `wasm32-wasi` Test Suites (`js-bridge` + 18 `knots` suites) | 37.56s wall (116.4s CPU) | 47.55s wall (156.2s CPU) | 3.36s wall (7.9s CPU) | 15.65s wall (48.5s CPU) |
+| `examples/triangle` (`Debug`) | 14.20s (cold) / 14.44s (warm) | 30.12s (cold) / 18.12s (warm) | 0.54s (cold) / 0.52s (warm) | 5.23s (cold) / 5.26s (warm) |
+| `examples/triangle` (`ReleaseSmall`) | 10.27s (cold) / 10.28s (warm) | 26.20s (cold) / 17.52s (warm) | 0.46s (cold) / 0.45s (warm) | 12.12s (cold) / 12.23s (warm) |
+| `examples/playground` (`Debug`, WebGPU, `web_threads=false`) | 32.31s | 34.28s | 3.78s | 11.19s |
+| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | 21.55s | 34.29s | 3.10s | 20.16s |
+| `examples/playground` (`Debug`, WebGL2, `web_threads=false`) | 25.22s | 34.02s | 1.23s | 8.29s |
+| `examples/playground` (`ReleaseSmall`, WebGL2, `web_threads=false`) | 19.95s | 34.67s | 1.18s | 18.51s |
+| `examples/playground` (`Debug`, WebGPU, `web_threads=true`) | **27.14s** | **42.99s** | FAIL (`global.get` asm)* | 11.00s |
+| `examples/playground` (`ReleaseSmall`, WebGPU, `web_threads=true`) | **21.66s** | **40.21s** | FAIL (`global.get` asm)* | 20.71s |
+| `examples/playground` (`Debug`, WebGL2, `web_threads=true`) | **25.16s** | **34.82s** | FAIL (`global.get` asm)* | 8.52s |
+| `examples/playground` (`ReleaseSmall`, WebGL2, `web_threads=true`) | **19.79s** | **35.49s** | FAIL (`global.get` asm)* | 18.55s |
+| `examples/embedded` (`Debug`) | 13.02s | 14.84s | 0.48s | 4.82s |
+| `examples/embedded` (`ReleaseSmall`) | 9.31s | 14.30s | 0.41s | 11.14s |
+| `examples/benchmark` + `translate-c` `TracyC.h` (`Debug`) | 15.38s | 18.36s | 0.56s | 63.70s |
+| `examples/benchmark` + `translate-c` `TracyC.h` (`ReleaseSmall`) | 11.28s | 18.26s | 0.50s | 12.15s |
 
-**Compilation Speed Analysis (`wazig.6` vs `wazigl.6` vs `zig 0.17.0`):**
-- **`wazig v0.17.0-wazig.6` (`-fno-llvm`) vs `wazigl v0.17.0-wazigl.6` (`-fllvm`)**: Because `wazig` uses Zig's self-hosted WebAssembly backend (`src/codegen/wasm/CodeGen.zig` + `src/link/Wasm/component/Optimizer.zig`) without invoking LLVM's optimization passes, `wazig.6` compiles **1.92x–4.47x faster** than `wazigl.6` across every workload (`4.83s` vs `13.68s` warm on `wasm_bench_runner ReleaseSmall`, `5.85s` vs `26.14s` warm on `ReleaseFast +simd128`, `18.92s` vs `47.55s` wall time across all `wasm32-wasi` test suites, and `0.460s` vs `1.620s` on `fmt --check`).
-- **`wazig v0.17.0-wazig.6` vs Native `zig v0.17.0 -fllvm`**: Even running inside Wasmtime (`wasm64-wasip3`), `wazig.6` warm-cache builds (`4.83s` `ReleaseSmall`, `5.89s` `ReleaseFast`, `5.85s` `ReleaseFast +simd128`) are **faster than or competitive with native `zig 0.17.0 -fllvm`** (`4.73s` `ReleaseSmall`, `8.84s` `ReleaseFast`, `9.78s` `ReleaseFast +simd128` — **up to 1.67x faster**), and `triangle` (`5.58s` vs `6.09s` warm) and `embedded` (`4.62s` vs `5.06s` warm) build faster than native LLVM.
-- **`wazigl v0.17.0-wazigl.6` vs Native `zig v0.17.0 -fllvm`**: Running the full LLVM 22 + Clang C++ toolchain inside Wasmtime (`wazigl.wasm`, `193.02 MiB`) incurs a ~2.7x–2.9x Wasmtime guest execution multiplier relative to native `zig -fllvm` (`13.68s` vs `4.73s` warm on `ReleaseSmall`, `34.29s` vs `12.46s` warm on `playground ReleaseSmall`), making `wazig.6` ideal for fast CI test/check inner loops and `wazigl.6` ideal when maximum LLVM codegen optimization is desired without OS/arch-specific native compiler binaries.
+**Compilation Speed Analysis (`wazig 0.17.1-wazig.1` vs `wazigl.6` vs `zig 0.17.1`):**
+- **`wazig v0.17.1-wazig.1` (`-fno-llvm`) vs `wazigl v0.17.0-wazigl.6` (`-fllvm`)**: Because `wazig` uses Zig's self-hosted WebAssembly backend (`src/codegen/wasm/CodeGen.zig` + `src/link/Wasm/component/Optimizer.zig`) without invoking LLVM's optimization passes, `0.17.1-wazig.1` compiles **2.00x–5.19x faster** than `wazigl.6` (`9.25s` vs `25.37s` warm on `wasm_bench_runner ReleaseSmall`, `11.35s` vs `58.90s` warm on `ReleaseFast +simd128`, and `0.631s` vs `1.884s` on `fmt --check`).
+- **`wazig v0.17.1-wazig.1` vs Native `zig v0.17.1 -fllvm`**: Even running inside Wasmtime (`wasm64-wasip3`), `0.17.1-wazig.1` warm-cache builds (`9.25s` `ReleaseSmall`, `11.13s` `ReleaseFast`, `11.35s` `ReleaseFast +simd128`) are **faster than native `zig 0.17.1 -fllvm`** (`10.59s` `ReleaseSmall`, `24.59s` `ReleaseFast`, `26.61s` `ReleaseFast +simd128` — **up to 2.35x faster than native LLVM**!).
+- **`wazigl v0.17.0-wazigl.6` vs Native `zig v0.17.1 -fllvm`**: Running the full LLVM 22 + Clang C++ toolchain inside Wasmtime (`wazigl.wasm`, `193.02 MiB`) incurs a ~2.2x–2.4x Wasmtime guest execution multiplier relative to native `zig -fllvm` (`25.37s` vs `10.59s` warm on `ReleaseSmall`), making `wazig` ideal for fast CI test/check inner loops and `ReleaseFast +simd128` builds, and `wazigl` ideal when minimum `ReleaseSmall` wire size is desired without OS/arch-specific native compiler binaries.
 
 ---
 
 ## C. Output `.wasm` Binary Size (`Raw / gzip -9 / zstd -19`)
 
-| Target Artifact | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | `wazig` vs `zig -fno-llvm` / `wazigl` vs `zig -fllvm` |
+| Target Artifact | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1 -fno-llvm` | `zig v0.17.1 -fllvm` | `wazig` vs `zig -fno-llvm` / `wazigl` vs `zig -fllvm` |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| `playground` (`Debug`, WebGPU, `web_threads=false`) | 2,815.5 KB / 961.4 KB / **755.3 KB** | 6,655.5 KB / 2,199.1 KB / **1,682.6 KB** | 3,579.0 KB / 1,096.2 KB / **828.8 KB** | 6,662.8 KB / 2,200.0 KB / **1,676.1 KB** | `wazig`: **-21.3%** / `wazigl`: **-0.11%** |
-| `playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | 2,264.6 KB / 824.3 KB / **662.3 KB** | 1,819.9 KB / 710.2 KB / **597.0 KB** | 2,982.5 KB / 934.1 KB / **717.0 KB** | 1,820.2 KB / 710.1 KB / **595.2 KB** | `wazig`: **-24.1%** / `wazigl`: **-0.02%** |
-| `playground` (`Debug`, WebGL2, `web_threads=false`) | 2,781.2 KB / 956.4 KB / **750.7 KB** | 6,621.3 KB / 2,193.7 KB / **1,680.6 KB** | 3,544.7 KB / 1,090.8 KB / **824.8 KB** | 6,628.6 KB / 2,194.6 KB / **1,637.6 KB** | `wazig`: **-21.5%** / `wazigl`: **-0.11%** |
-| `playground` (`ReleaseSmall`, WebGL2, `web_threads=false`) | 2,230.3 KB / 819.0 KB / **658.2 KB** | 1,785.7 KB / 704.8 KB / **584.2 KB** | 2,948.2 KB / 929.4 KB / **714.6 KB** | 1,786.0 KB / 704.8 KB / **597.0 KB** | `wazig`: **-24.4%** / `wazigl`: **-0.02%** |
-| `playground` (`Debug`, WebGPU, `web_threads=true`) | 2,826.2 KB / 965.4 KB / **757.7 KB** | 6,708.1 KB / 2,222.1 KB / **1,698.7 KB** | FAIL (`global.get` asm)* | 6,715.4 KB / 2,222.9 KB / **1,696.7 KB** | **`wazig` succeeds** / `wazigl`: **-0.11%** |
-| `playground` (`ReleaseSmall`, WebGPU, `web_threads=true`) | 2,271.7 KB / 827.3 KB / **663.6 KB** | 1,826.8 KB / 712.5 KB / **556.0 KB** | FAIL (`global.get` asm)* | 1,827.1 KB / 712.4 KB / **589.3 KB** | **`wazig` succeeds** / `wazigl`: **-0.02%** |
-| `playground` (`Debug`, WebGL2, `web_threads=true`) | 2,791.9 KB / 960.7 KB / **753.1 KB** | 6,673.9 KB / 2,214.9 KB / **1,655.1 KB** | FAIL (`global.get` asm)* | 6,681.2 KB / 2,215.7 KB / **1,696.9 KB** | **`wazig` succeeds** / `wazigl`: **-0.11%** |
-| `playground` (`ReleaseSmall`, WebGL2, `web_threads=true`) | 2,237.4 KB / 821.5 KB / **659.7 KB** | 1,792.6 KB / 707.2 KB / **600.2 KB** | FAIL (`global.get` asm)* | 1,792.9 KB / 707.1 KB / **596.4 KB** | **`wazig` succeeds** / `wazigl`: **-0.02%** |
-| `triangle` (`Debug`) | 1,362.3 KB / 520.1 KB / **443.3 KB** | 3,891.0 KB / 1,319.2 KB / **1,067.8 KB** | 1,877.5 KB / 610.6 KB / **496.0 KB** | 3,895.2 KB / 1,319.6 KB / **1,066.6 KB** | `wazig`: **-27.4%** / `wazigl`: **-0.11%** |
-| `triangle` (`ReleaseSmall`) | 1,046.7 KB / 433.0 KB / **375.9 KB** | 803.3 KB / 365.7 KB / **327.4 KB** | 1,428.3 KB / 483.7 KB / **406.8 KB** | 803.4 KB / 365.8 KB / **327.2 KB** | `wazig`: **-26.7%** / `wazigl`: **-0.02%** |
-| `embedded` (`Debug`) | 1,194.2 KB / 457.0 KB / **394.2 KB** | 3,419.3 KB / 1,139.9 KB / **935.7 KB** | 1,639.7 KB / 538.3 KB / **441.5 KB** | 3,422.6 KB / 1,139.9 KB / **934.6 KB** | `wazig`: **-27.2%** / `wazigl`: **-0.10%** |
-| `embedded` (`ReleaseSmall`) | 944.4 KB / 393.8 KB / **345.1 KB** | 735.3 KB / 338.1 KB / **303.0 KB** | 1,252.2 KB / 433.5 KB / **368.4 KB** | 735.4 KB / 338.1 KB / **303.2 KB** | `wazig`: **-24.6%** / `wazigl`: **-0.01%** |
-| `benchmark` (`Debug`) | 1,381.2 KB / 524.6 KB / **447.8 KB** | 3,970.7 KB / 1,344.8 KB / **1,085.3 KB** | 1,911.3 KB / 623.3 KB / **502.6 KB** | 3,974.9 KB / 1,345.3 KB / **1,084.6 KB** | `wazig`: **-27.7%** / `wazigl`: **-0.11%** |
-| `benchmark` (`ReleaseSmall`) | 1,059.6 KB / 437.2 KB / **379.7 KB** | 809.8 KB / 368.5 KB / **330.0 KB** | 1,455.6 KB / 491.9 KB / **412.3 KB** | 809.9 KB / 368.5 KB / **329.9 KB** | `wazig`: **-27.2%** / `wazigl`: **-0.02%** |
-| `wasm_bench_runner` (`Debug`) | 1,167.5 KB / 470.6 KB / **405.0 KB** | 3,626.7 KB / 1,219.3 KB / **1,000.5 KB** | 1,641.8 KB / 552.9 KB / **452.4 KB** | 3,626.8 KB / 1,218.3 KB / **998.4 KB** | `wazig`: **-28.9%** / `wazigl`: **-0.00%** |
-| `wasm_bench_runner` (`ReleaseSmall`) | 868.1 KB / 387.2 KB / **339.7 KB** | 685.8 KB / 334.0 KB / **298.5 KB** | 1,188.9 KB / 428.6 KB / **363.2 KB** | 685.9 KB / 333.9 KB / **298.6 KB** | `wazig`: **-27.0%** / `wazigl`: **-0.01%** |
-| `wasm_bench_runner` (`ReleaseFast`) | 981.2 KB / 431.4 KB / **376.0 KB** | 2,815.4 KB / 966.7 KB / **821.4 KB** | 1,322.3 KB / 460.4 KB / **392.8 KB** | 2,827.7 KB / 970.1 KB / **825.0 KB** | `wazig`: **-25.8%** / `wazigl`: **-0.44%** |
-| `wasm_bench_runner` (`ReleaseFast +simd128`) | 990.3 KB / 432.9 KB / **377.2 KB** | 2,775.6 KB / 964.5 KB / **820.3 KB** | FAIL (`IllDefinedMemoryLayout`)* | 2,787.6 KB / 967.5 KB / **823.1 KB** | **`wazig` succeeds** / `wazigl`: **-0.43%** |
-| All 12 `wasm32-wasi` Test Binaries (`Debug` Total) | 7,449.9 KB / 2,601.2 KB / **2,150.1 KB** | 31,527.0 KB / 9,715.6 KB / **7,882.4 KB** | 11,082.7 KB / 3,273.5 KB / **2,588.1 KB** | 31,496.1 KB / 9,697.5 KB / **7,853.7 KB** | `wazig`: **-32.8%** / `wazigl`: **+0.10%** |
+| `playground` (`Debug`, WebGPU, `web_threads=false`) | 3,689.4 KB / 1,204.4 KB / **905.9 KB** | 8,662.4 KB / 2,866.4 KB / **2,117.3 KB** | 4,896.3 KB / 1,433.0 KB / **1,027.3 KB** | 8,662.4 KB / 2,866.4 KB / **2,117.3 KB** | `wazig`: **-24.7%** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`ReleaseSmall`, WebGPU, `web_threads=false`) | 2,879.9 KB / 989.0 KB / **771.7 KB** | 2,218.3 KB / 839.9 KB / **704.5 KB** | 3,960.5 KB / 1,163.5 KB / **868.2 KB** | 2,218.3 KB / 839.9 KB / **704.5 KB** | `wazig`: **-27.3%** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`Debug`, WebGL2, `web_threads=false`) | 3,654.7 KB / 1,199.8 KB / **906.1 KB** | 8,627.7 KB / 2,860.0 KB / **2,125.3 KB** | 4,861.6 KB / 1,427.1 KB / **1,023.6 KB** | 8,627.7 KB / 2,860.0 KB / **2,125.3 KB** | `wazig`: **-24.8%** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`ReleaseSmall`, WebGL2, `web_threads=false`) | 2,845.1 KB / 984.3 KB / **765.9 KB** | 2,183.7 KB / 834.7 KB / **699.7 KB** | 3,925.8 KB / 1,158.8 KB / **862.1 KB** | 2,183.7 KB / 834.7 KB / **699.7 KB** | `wazig`: **-27.5%** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`Debug`, WebGPU, `web_threads=true`) | 3,700.0 KB / 1,208.7 KB / **905.4 KB** | 8,714.8 KB / 2,884.9 KB / **2,103.1 KB** | FAIL (`global.get` asm)* | 8,714.8 KB / 2,884.9 KB / **2,103.1 KB** | **`wazig` succeeds** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`ReleaseSmall`, WebGPU, `web_threads=true`) | 2,886.9 KB / 991.2 KB / **774.3 KB** | 2,225.2 KB / 842.8 KB / **709.0 KB** | FAIL (`global.get` asm)* | 2,225.2 KB / 842.8 KB / **709.0 KB** | **`wazig` succeeds** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`Debug`, WebGL2, `web_threads=true`) | 3,665.3 KB / 1,203.6 KB / **906.4 KB** | 8,680.1 KB / 2,879.4 KB / **2,130.1 KB** | FAIL (`global.get` asm)* | 8,680.1 KB / 2,879.4 KB / **2,130.1 KB** | **`wazig` succeeds** / `wazigl`: **0 B (same raw size)** |
+| `playground` (`ReleaseSmall`, WebGL2, `web_threads=true`) | 2,852.2 KB / 986.3 KB / **769.3 KB** | 2,190.6 KB / 836.9 KB / **702.7 KB** | FAIL (`global.get` asm)* | 2,190.6 KB / 836.9 KB / **702.7 KB** | **`wazig` succeeds** / `wazigl`: **0 B (same raw size)** |
+| `triangle` (`Debug`) | 2,187.8 KB / 753.1 KB / **599.9 KB** | 5,751.4 KB / 1,943.2 KB / **1,501.6 KB** | 3,105.6 KB / 924.1 KB / **686.1 KB** | 5,751.4 KB / 1,943.2 KB / **1,501.6 KB** | `wazig`: **-29.6%** / `wazigl`: **0 B (same raw size)** |
+| `triangle` (`ReleaseSmall`) | 1,627.4 KB / 586.1 KB / **485.6 KB** | 1,162.6 KB / 483.5 KB / **425.5 KB** | 2,332.6 KB / 690.4 KB / **548.6 KB** | 1,162.6 KB / 483.5 KB / **425.5 KB** | `wazig`: **-30.2%** / `wazigl`: **0 B (same raw size)** |
+| `embedded` (`Debug`) | 2,024.3 KB / 682.7 KB / **552.3 KB** | 5,277.1 KB / 1,754.3 KB / **1,370.3 KB** | 2,866.5 KB / 833.6 KB / **632.7 KB** | 5,277.1 KB / 1,754.3 KB / **1,370.3 KB** | `wazig`: **-29.4%** / `wazigl`: **0 B (same raw size)** |
+| `embedded` (`ReleaseSmall`) | 1,528.4 KB / 548.3 KB / **456.5 KB** | 1,095.2 KB / 455.5 KB / **401.0 KB** | 2,154.9 KB / 639.5 KB / **509.7 KB** | 1,095.2 KB / 455.5 KB / **401.0 KB** | `wazig`: **-29.1%** / `wazigl`: **0 B (same raw size)** |
+| `benchmark` (`Debug`) | 2,201.7 KB / 757.0 KB / **602.3 KB** | 5,818.6 KB / 1,963.6 KB / **1,514.8 KB** | 3,132.7 KB / 934.6 KB / **690.7 KB** | 5,818.6 KB / 1,963.6 KB / **1,514.8 KB** | `wazig`: **-29.7%** / `wazigl`: **0 B (same raw size)** |
+| `benchmark` (`ReleaseSmall`) | 1,636.7 KB / 588.6 KB / **488.0 KB** | 1,168.2 KB / 485.7 KB / **427.4 KB** | 2,356.0 KB / 696.5 KB / **552.4 KB** | 1,168.2 KB / 485.7 KB / **427.4 KB** | `wazig`: **-30.5%** / `wazigl`: **0 B (same raw size)** |
+| `wasm_bench_runner` (`Debug`) | 1,959.9 KB / 686.2 KB / **548.2 KB** | 5,396.0 KB / 1,799.1 KB / **1,396.6 KB** | 2,819.1 KB / 846.5 KB / **628.7 KB** | 5,325.7 KB / 1,782.5 KB / **1,381.8 KB** | `wazig`: **-30.5%** / `wazigl`: **+1.32%** |
+| `wasm_bench_runner` (`ReleaseSmall`) | 1,430.2 KB / 533.7 KB / **442.3 KB** | 1,029.1 KB / 444.2 KB / **391.3 KB** | 2,055.0 KB / 625.2 KB / **494.1 KB** | 1,027.9 KB / 443.5 KB / **390.4 KB** | `wazig`: **-30.4%** / `wazigl`: **+0.12%** |
+| `wasm_bench_runner` (`ReleaseFast`) | 1,716.5 KB / 641.3 KB / **522.1 KB** | 4,597.9 KB / 1,520.3 KB / **1,269.1 KB** | 2,245.4 KB / 667.0 KB / **533.7 KB** | 4,582.8 KB / 1,508.7 KB / **1,260.3 KB** | `wazig`: **-23.6%** / `wazigl`: **+0.33%** |
+| `wasm_bench_runner` (`ReleaseFast +simd128`) | 1,721.8 KB / 640.3 KB / **521.6 KB** | 4,512.6 KB / 1,507.9 KB / **1,259.7 KB** | FAIL (`IllDefinedMemoryLayout`)* | 4,507.5 KB / 1,499.7 KB / **1,256.1 KB** | **`wazig` succeeds** / `wazigl`: **+0.11%** |
+| All 19 `wasm32-wasi` Test Binaries (`Debug` Total) | 14,470.4 KB / 4,657.3 KB / **3,743.8 KB** | 51,334.7 KB / 15,985.2 KB / **12,709.7 KB** | 11,082.7 KB / 3,273.5 KB / **2,588.1 KB** | 51,334.7 KB / 15,985.2 KB / **12,709.7 KB** | `wazig`: **+30.6%** / `wazigl`: **0 B (same raw size)** |
 
 **Key Binary Size Takeaways:**
-- **`wazigl v0.17.0-wazigl.6` (`-fllvm`) produces near-identical `ReleaseSmall` `.wasm` binaries (`0.00%`–`0.02%` raw size difference) to native `zig v0.17.0 -fllvm` across every single `ReleaseSmall` target:** `685.8 KB` raw (`298.5 KB` zstd) on `wasm_bench_runner`, `1,819.9 KB` raw (`597.0 KB` zstd) on `playground` WebGPU, `1,785.7 KB` raw (`584.2 KB` zstd) on `playground` WebGL2, `1,826.8 KB` raw (`556.0 KB` zstd) on `playground` WebGPU + threads, `803.3 KB` raw (`327.4 KB` zstd) on `triangle`, `735.3 KB` raw (`303.0 KB` zstd) on `embedded`, and `809.8 KB` raw (`330.0 KB` zstd) on `benchmark` — delivering full LLVM 22 codegen from a single universal `wasm64-wasip3` compiler.
-- **`wazig v0.17.0-wazig.6` (`-fno-llvm`) produces the smallest `Debug` and `ReleaseFast` `.wasm` binaries of all four compilers:**
-  - In **`Debug`** builds, `wazig.6` is **21.3%–32.8% smaller** than upstream `zig 0.17.0 -fno-llvm` and **57.7%–76.4% smaller (2.36x–4.23x smaller)** than `wazigl.6` and `zig 0.17.0 -fllvm`.
-  - In **`ReleaseFast +simd128`** builds, `wazig.6` (`990.3 KB` raw / `377.2 KB` zstd) is **2.80x smaller** than `wazigl.6` (`2,775.6 KB` raw / `820.3 KB` zstd) and `zig 0.17.0 -fllvm` (`2,787.6 KB` raw / `823.1 KB` zstd), because LLVM's `ReleaseFast` loop unrolling and aggressive inlining expand `.wasm` binary size by **4.05x** over `ReleaseSmall` (`685.8 KB` → `2,775.6 KB`), whereas `wazig.6`'s targeted 2-pass inliner and MIR/linker optimizations (`Optimize.zig` + `Optimizer.zig`, `cataggar/zig#214`/`#217`/`#223`/`#224`) add only `+14.1%` over `ReleaseSmall` (`868.1 KB` → `990.3 KB`).
-  - Across all 12 `wasm32-wasi` test binaries (`Debug`), `wazig.6` emits **7.28 MiB** (`7,449.9 KB`) raw (`2.10 MiB` zstd) vs **30.79 MiB** raw (`7.70 MiB` zstd) with `wazigl.6` / `zig -fllvm` (**4.23x smaller**), enabling the fastest test suite execution (`0.226s`).
+- **`wazigl v0.17.0-wazigl.6` (`-fllvm`) matches native `zig v0.17.1 -fllvm` `ReleaseSmall` `.wasm` binary size (`0.00%`–`0.12%` difference):** `1,029.1 KB` raw (`391.3 KB` zstd) on `wasm_bench_runner`, `2,218.3 KB` raw (`704.5 KB` zstd) on `playground` WebGPU, `2,183.7 KB` raw (`699.7 KB` zstd) on `playground` WebGL2, `2,225.2 KB` raw (`709.0 KB` zstd) on `playground` WebGPU + threads, `1,162.6 KB` raw (`425.5 KB` zstd) on `triangle`, `1,095.2 KB` raw (`401.0 KB` zstd) on `embedded`, and `1,168.2 KB` raw (`427.4 KB` zstd) on `benchmark`.
+- **`wazig v0.17.1-wazig.1` (`-fno-llvm`) produces the smallest `Debug` and `ReleaseFast` `.wasm` binaries of all compilers (and shrinks further vs `v0.17.0-wazig.6`):**
+  - In **`Debug`** builds, `0.17.1-wazig.1` is **30.5% smaller** than upstream `zig 0.17.1 -fno-llvm` and **63.2%–71.8% smaller (2.72x–3.55x smaller)** than `wazigl.6` and `zig 0.17.1 -fllvm`.
+  - In **`ReleaseFast +simd128`** builds, `0.17.1-wazig.1` (`1,721.8 KB` raw / `521.6 KB` zstd) is **2.62x smaller** than `wazigl.6` (`4,512.6 KB` raw / `1,259.7 KB` zstd) and `zig 0.17.1 -fllvm` (`4,507.5 KB` raw / `1,256.1 KB` zstd), while also beating `v0.17.0-wazig.6` by `-31.6 KB` raw (`-29.7 KB` in `ReleaseSmall`).
+  - Across all 19 `wasm32-wasi` test binaries (`Debug`), `0.17.1-wazig.1` emits **14.13 MiB** (`14,470.4 KB`) raw (`3.66 MiB` zstd) vs **50.13 MiB** raw (`12.41 MiB` zstd) with `zig 0.17.1 -fllvm` (**3.55x smaller**), enabling **2.45x faster** test suite execution (`4.676s` vs `11.465s`).
 
 ---
 
@@ -92,103 +93,98 @@ Reproducible 4-way benchmark suite (`tests/wasm_bench_runner.zig` + `scripts/ben
 
 ### D.1 `wasm_bench_runner.wasm` — `ReleaseSmall`
 
-| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | Iterations | Elements/Iter | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1 -fno-llvm` | `zig v0.17.1 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.112 ms** / 0.116 ms (**8,864.0 FPS**) | **0.108 ms** / 0.112 ms (**9,234.3 FPS**) | 0.266 ms / 0.270 ms (3,750.2 FPS) | 0.108 ms / 0.112 ms (9,245.2 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.385 ms** / 0.395 ms (**2,576.0 FPS**) | **0.367 ms** / 0.374 ms (**2,714.0 FPS**) | 1.012 ms / 1.108 ms (974.3 FPS) | 0.371 ms / 0.379 ms (2,679.8 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.153 ms** / 0.168 ms (**6,425.3 FPS**) | **0.101 ms** / 0.115 ms (**9,743.3 FPS**) | 0.457 ms / 0.532 ms (2,145.7 FPS) | 0.100 ms / 0.115 ms (9,805.5 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.507 ms** / 0.514 ms (**1,982.1 FPS**) | **0.404 ms** / 0.416 ms (**2,454.0 FPS**) | 1.515 ms / 1.602 ms (664.3 FPS) | 0.406 ms / 0.422 ms (2,439.3 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.107 ms** / 0.110 ms (**9,335.6 FPS**) | **0.107 ms** / 0.112 ms (**9,278.4 FPS**) | 0.266 ms / 0.271 ms (3,746.2 FPS) | 0.107 ms / 0.111 ms (9,286.1 FPS) | `417689973924794692` |
+| **2. OpenType Shaper + Slug Curve Prep (`text_bench`)** | 200 | 3,413 | **0.535 ms** / 0.540 ms (**1,869.6 FPS**) | **0.565 ms** / 0.569 ms (**1,769.4 FPS**) | 1.722 ms / 1.738 ms (581.5 FPS) | 0.565 ms / 0.570 ms (1,767.7 FPS) | `17060092853839522222` / `12180320639109031162` |
+| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.147 ms** / 0.160 ms (**6,715.3 FPS**) | **0.094 ms** / 0.104 ms (**10,558.0 FPS**) | 0.464 ms / 0.479 ms (2,147.2 FPS) | 0.091 ms / 0.106 ms (10,760.4 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.486 ms** / 0.492 ms (**2,060.8 FPS**) | **0.460 ms** / 0.469 ms (**2,163.4 FPS**) | 1.643 ms / 1.661 ms (608.2 FPS) | 0.463 ms / 0.468 ms (2,171.5 FPS) | `8133605907336869050` |
 
 ### D.2 `wasm_bench_runner.wasm` — `ReleaseFast` & `ReleaseFast (+simd128)`
 
 #### `ReleaseFast (+simd128)` (Default Wasm Target Features in `web_build.zig`)
 
-| Workload | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1 -fno-llvm` | `zig v0.17.1 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.087 ms** / 0.091 ms (**11,476.1 FPS**) | **0.100 ms** / 0.104 ms (**9,942.6 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.100 ms / 0.104 ms (9,900.6 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.342 ms** / 0.350 ms (**2,904.5 FPS**) | **0.329 ms** / 0.339 ms (**3,021.4 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.327 ms / 0.335 ms (3,040.7 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | **0.099 ms** / 0.110 ms (**10,005.1 FPS**) | **0.091 ms** / 0.104 ms (**10,769.5 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.089 ms / 0.102 ms (11,035.0 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | **0.367 ms** / 0.378 ms (**2,702.4 FPS**) | **0.270 ms** / 0.282 ms (**3,662.0 FPS**) | FAIL (`IllDefinedMemoryLayout`)* | 0.270 ms / 0.281 ms (3,664.8 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.089 ms** / 0.094 ms (**11,170.3 FPS**) | **0.101 ms** / 0.105 ms (**9,807.5 FPS**) | FAIL (`v128` validation)* | 0.101 ms / 0.105 ms (9,827.3 FPS) | `417689973924794692` |
+| **2. OpenType Shaper + Slug Curve Prep (`text_bench`)** | **0.461 ms** / 0.466 ms (**2,167.1 FPS**) | **0.497 ms** / 0.503 ms (**2,010.2 FPS**) | FAIL (`v128` validation)* | 0.500 ms / 0.505 ms (2,000.9 FPS) | `17060092853839522222` / `12180320639109031162` |
+| **3. Render Command & Batch Gen (`render_bench`)** | **0.095 ms** / 0.107 ms (**10,438.4 FPS**) | **0.076 ms** / 0.089 ms (**12,939.9 FPS**) | FAIL (`v128` validation)* | 0.078 ms / 0.089 ms (12,628.1 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | **0.391 ms** / 0.402 ms (**2,539.4 FPS**) | **0.487 ms** / 0.491 ms (**2,060.8 FPS**) | FAIL (`v128` validation)* | 0.484 ms / 0.489 ms (2,071.4 FPS) | `8133605907336869050` |
 
 #### `ReleaseFast` (Baseline Wasm CPU without `+simd128`)
 
-| Workload | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1 -fno-llvm` | `zig v0.17.1 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.088 ms** / 0.091 ms (**11,357.3 FPS**) | **0.104 ms** / 0.107 ms (**9,579.1 FPS**) | 0.263 ms / 0.268 ms (3,783.5 FPS) | 0.104 ms / 0.108 ms (9,543.0 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | **0.341 ms** / 0.348 ms (**2,915.8 FPS**) | **0.301 ms** / 0.312 ms (**3,300.6 FPS**) | 1.007 ms / 1.015 ms (992.4 FPS) | 0.302 ms / 0.314 ms (3,275.0 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | **0.128 ms** / 0.138 ms (**7,720.1 FPS**) | **0.092 ms** / 0.105 ms (**10,712.6 FPS**) | 0.434 ms / 0.450 ms (2,277.6 FPS) | 0.095 ms / 0.108 ms (10,382.9 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | **0.382 ms** / 0.392 ms (**2,602.3 FPS**) | **0.292 ms** / 0.304 ms (**3,389.2 FPS**) | 1.445 ms / 1.458 ms (692.0 FPS) | 0.294 ms / 0.305 ms (3,364.2 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | **0.089 ms** / 0.093 ms (**11,193.2 FPS**) | **0.104 ms** / 0.109 ms (**9,529.6 FPS**) | 0.263 ms / 0.269 ms (3,787.2 FPS) | 0.104 ms / 0.108 ms (9,534.4 FPS) | `417689973924794692` |
+| **2. OpenType Shaper + Slug Curve Prep (`text_bench`)** | **0.465 ms** / 0.470 ms (**2,146.7 FPS**) | **0.469 ms** / 0.474 ms (**2,130.3 FPS**) | 1.719 ms / 1.728 ms (583.4 FPS) | 0.469 ms / 0.474 ms (2,129.8 FPS) | `17060092853839522222` / `12180320639109031162` |
+| **3. Render Command & Batch Gen (`render_bench`)** | **0.122 ms** / 0.134 ms (**8,086.8 FPS**) | **0.084 ms** / 0.097 ms (**11,675.2 FPS**) | 0.466 ms / 0.476 ms (2,145.6 FPS) | 0.084 ms / 0.094 ms (11,811.4 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | **0.409 ms** / 0.421 ms (**2,425.2 FPS**) | **0.303 ms** / 0.315 ms (**3,275.4 FPS**) | 1.617 ms / 1.628 ms (618.0 FPS) | 0.298 ms / 0.311 ms (3,314.4 FPS) | `8133605907336869050` |
 
 **`ReleaseFast` & `+simd128` vs `ReleaseSmall` Analysis:**
-- **`wazig v0.17.0-wazig.6` (`-fno-llvm`, `ReleaseFast +simd128`) exceeds all `cataggar/knots#19` FPS targets and beats the pre-`#19` `zig v0.17.0 -fllvm` baseline (`9,919.8` / `2,582.0` / `6,114.7` / `2,271.5 FPS`) across all 4 workloads, while surpassing post-`#19` `zig v0.17.0 -fllvm` and `wazigl v0.17.0-wazigl.6` on `layout_bench`:** With `cataggar/zig#189`–`#224` and `cataggar/knots#20`–`#30`, `wazig.6` reaches **`11,476.1 FPS` (`0.087 ms`)** on `layout_bench` (faster than `9,900.6 FPS` / `0.100 ms` in post-`#19` `zig -fllvm`), **`10,005.1 FPS` (`0.099 ms`)** on `render_bench` (vs `11,035.0 FPS` / `0.089 ms` in post-`#19` `zig -fllvm`), **`2,904.5 FPS` (`0.342 ms`)** on `text_bench` (vs `3,040.7 FPS` / `0.327 ms` in post-`#19` `zig -fllvm`), and **`2,702.4 FPS` (`0.367 ms`)** on `combined_frame` (vs `3,664.8 FPS` / `0.270 ms` in post-`#19` `zig -fllvm`) — while compiling in a **2.81x smaller** `.wasm` binary (`990.3 KB` vs `2,787.6 KB`).
-- **`wazig v0.17.0-wazig.6` (`-fno-llvm`) vs `zig v0.17.0 -fno-llvm`**: With `cataggar/zig#158`–`#224` and `cataggar/knots#11`–`#30`, `wazig.6` is **2.93x–4.39x faster** than upstream `zig 0.17.0 -fno-llvm` on the exact same `knots` source (`11,476.1 FPS` vs `3,783.5 FPS` on `layout_bench`, `2,904.5 FPS` vs `992.4 FPS` on `text_bench`, `10,005.1 FPS` vs `2,277.6 FPS` on `render_bench`, and `2,702.4 FPS` vs `692.0 FPS` on `combined_frame`), and **8.88x–18.07x faster** than `wazig v0.17.0-wazig.3`.
-- **`wazigl v0.17.0-wazigl.6` (`-fllvm`) matches native `zig v0.17.0 -fllvm` runtime throughput across every mode:** In `ReleaseSmall`, `wazigl.6` achieves `9,234.3 FPS` (`layout_bench`), `2,714.0 FPS` (`text_bench`), `9,743.3 FPS` (`render_bench`), and `2,454.0 FPS` (`combined_frame`). In `ReleaseFast +simd128`, `wazigl.6` reaches **`9,942.6 FPS` (`0.100 ms`)** on `layout_bench`, **`10,769.5 FPS` (`0.091 ms`)** on `render_bench`, **`3,021.4 FPS` (`0.329 ms`)** on `text_bench`, and **`3,662.0 FPS` (`0.270 ms`)** on `combined_frame`.
+- **`wazig v0.17.1-wazig.1` (`-fno-llvm`, `ReleaseFast +simd128`) beats both `zig v0.17.1 -fllvm` and `wazigl v0.17.0-wazigl.6` overall (`214.62 ms` vs `231.13 ms` / `230.27 ms`) and wins 3 of 4 workloads:** With `cataggar/zig#189`–`#238` and `cataggar/knots#11`–`#36`, `0.17.1-wazig.1` reaches **`11,170.3 FPS` (`0.089 ms`)** on `layout_bench` (+13.7% faster than `9,827.3 FPS` in `zig 0.17.1 -fllvm`), **`2,167.1 FPS` (`0.461 ms`)** on `text_bench` (+8.3% faster than `2,000.9 FPS`), **`2,539.4 FPS` (`0.391 ms`)** on `combined_frame` (+22.6% faster than `2,071.4 FPS`), and **`10,438.4 FPS` (`0.095 ms`)** on `render_bench` — while compiling in a **2.62x smaller** `.wasm` binary (`1,721.8 KB` vs `4,507.5 KB`).
+- **`wazig v0.17.1-wazig.1` vs `wazig v0.17.0-wazig.6` (Same `knots` Source)**: On identical `knots` source, `0.17.1-wazig.1` improves `Debug` (`409.15 ms` vs `429.85 ms`, `-41.6 KB`), `ReleaseSmall` (`266.08 ms` vs `282.75 ms`, `-29.7 KB`, beating LLVM 22 on both `layout_bench` and `text_bench`), and `ReleaseFast +simd128` (`214.62 ms` vs `216.84 ms`, `-31.6 KB`).
+- **`wazig v0.17.1-wazig.1` (`-fno-llvm`) vs `zig v0.17.1 -fno-llvm`**: `0.17.1-wazig.1` is **2.95x–4.87x faster** than upstream `zig 0.17.1 -fno-llvm` on the exact same `knots` source (`11,170.3 FPS` vs `3,787.2 FPS` on `layout_bench`, `2,167.1 FPS` vs `583.4 FPS` on `text_bench`, `10,438.4 FPS` vs `2,145.6 FPS` on `render_bench`, and `2,539.4 FPS` vs `618.0 FPS` on `combined_frame`), and **8.35x–17.59x faster** than `wazig v0.17.0-wazig.3`.
 
 ### D.3 `wasm_bench_runner.wasm` — `Debug`
 
-| Workload | Iterations | Elements/Iter | `wazig v0.17.0-wazig.6` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.0 -fno-llvm` | `zig v0.17.0 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
+| Workload | Iterations | Elements/Iter | `wazig v0.17.1-wazig.1` (`-fno-llvm`) | `wazigl v0.17.0-wazigl.6` (`-fllvm`) | `zig v0.17.1 -fno-llvm` | `zig v0.17.1 -fllvm` | Checksum (`-fno-llvm` / `-fllvm`) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
-| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.256 ms** / 0.262 ms (**3,880.9 FPS**) | 0.615 ms / 0.622 ms (1,627.4 FPS) | 0.659 ms / 0.667 ms (1,516.9 FPS) | 0.615 ms / 0.618 ms (1,628.5 FPS) | `417689973924794692` |
-| **2. TrueType + Slug Curve Prep (`text_bench`)** | 200 | 3,405 | **0.597 ms** / 0.602 ms (**1,681.8 FPS**) | 1.141 ms / 1.160 ms (874.0 FPS) | 1.662 ms / 1.683 ms (600.7 FPS) | 1.142 ms / 1.153 ms (874.1 FPS) | `12606774574179943755` / `7686275582076872382` |
-| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.180 ms** / 0.195 ms (**5,459.8 FPS**) | 0.443 ms / 0.455 ms (2,241.7 FPS) | 0.629 ms / 0.642 ms (1,595.2 FPS) | 0.443 ms / 0.459 ms (2,231.1 FPS) | `8226312248921777708` |
-| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.649 ms** / 0.659 ms (**1,542.8 FPS**) | 1.736 ms / 1.748 ms (576.0 FPS) | 1.778 ms / 1.797 ms (561.7 FPS) | 1.740 ms / 1.750 ms (574.8 FPS) | `8133605907336869050` |
+| **1. Dashboard Flexbox Layout (`layout_bench`)** | 300 | 2,047 | **0.230 ms** / 0.235 ms (**4,332.8 FPS**) | 0.613 ms / 0.619 ms (1,631.0 FPS) | 0.660 ms / 0.665 ms (1,515.6 FPS) | 0.611 ms / 0.617 ms (1,636.3 FPS) | `417689973924794692` |
+| **2. OpenType Shaper + Slug Curve Prep (`text_bench`)** | 200 | 3,413 | **0.827 ms** / 0.833 ms (**1,211.1 FPS**) | 1.760 ms / 1.771 ms (569.4 FPS) | 2.599 ms / 2.616 ms (385.5 FPS) | 1.760 ms / 1.803 ms (568.5 FPS) | `17060092853839522222` / `12180320639109031162` |
+| **3. Render Command & Batch Gen (`render_bench`)** | 300 | 5,100 | **0.187 ms** / 0.202 ms (**5,250.9 FPS**) | 0.457 ms / 0.470 ms (2,167.2 FPS) | 0.642 ms / 0.650 ms (1,564.2 FPS) | 0.459 ms / 0.476 ms (2,160.0 FPS) | `8226312248921777708` |
+| **4. Combined Full UI Frame (`combined_frame`)** | 100 | 514 | **0.661 ms** / 0.672 ms (**1,514.6 FPS**) | 1.935 ms / 1.943 ms (516.7 FPS) | 2.083 ms / 2.093 ms (479.9 FPS) | 1.935 ms / 2.065 ms (513.2 FPS) | `8133605907336869050` |
 
-**`Debug` Runtime Highlight:** In `Debug` builds, `wazig v0.17.0-wazig.6` (`-fno-llvm`) is **1.92x–2.68x faster at runtime than both `wazigl v0.17.0-wazigl.6` and `zig v0.17.0 -fllvm` (LLVM 22)** across all four workloads (`3,880.9 FPS` vs `1,627.4` / `1,628.5 FPS` on `layout_bench`, `1,681.8 FPS` vs `874.0` / `874.1 FPS` on `text_bench`, `5,459.8 FPS` vs `2,241.7` / `2,231.1 FPS` on `render_bench`, and `1,542.8 FPS` vs `576.0` / `574.8 FPS` on `combined_frame`) while producing **3.11x smaller** `.wasm` binaries (`1,167.5 KB` vs `3,626.7 KB`).
+**`Debug` Runtime Highlight:** In `Debug` builds, `wazig v0.17.1-wazig.1` (`-fno-llvm`) is **2.13x–2.95x faster at runtime than both `wazigl v0.17.0-wazigl.6` and `zig v0.17.1 -fllvm` (LLVM 22)** across all four workloads (`4,332.8 FPS` vs `1,631.0` / `1,636.3 FPS` on `layout_bench`, `1,211.1 FPS` vs `569.4` / `568.5 FPS` on `text_bench`, `5,250.9 FPS` vs `2,167.2` / `2,160.0 FPS` on `render_bench`, and `1,514.6 FPS` vs `516.7` / `513.2 FPS` on `combined_frame`) while producing **2.75x smaller** `.wasm` binaries (`1,959.9 KB` vs `5,396.0 KB`).
 
-### D.4 Full `wasm32-wasi` Test Suite Execution (`12 test binaries` under `wasmtime run`)
+### D.4 Full `wasm32-wasi` Test Suite Execution (`19 test binaries` under `wasmtime run`)
 
 | Compiler | Test Binaries Passed | Total Test `.wasm` Size (Raw / Zstd) | Total `wasmtime run` Execution Time | Speedup vs `zig -fllvm` |
 | :--- | :---: | ---: | ---: | ---: |
-| **`wazig v0.17.0-wazig.6` (`-fno-llvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | **7,449.9 KB** / **2,150.1 KB** | **0.226 s** | **1.62x faster** |
-| **`wazigl v0.17.0-wazigl.6` (`-fllvm`)** | **12 / 12** (with `+atomics` + `+simd128`) | 31,527.0 KB / 7,882.4 KB | **0.343 s** | 1.06x |
-| **`zig v0.17.0 -fno-llvm`** | 0 / 12 with `+atomics`/`+simd128`* (12 / 12 stripped) | 11,082.7 KB / 2,588.1 KB | 0.309 s | 1.18x |
-| **`zig v0.17.0 -fllvm`** | 12 / 12 (with `+atomics` + `+simd128`) | 31,496.1 KB / 7,853.7 KB | 0.365 s | 1.00x (baseline) |
+| **`wazig v0.17.1-wazig.1` (`-fno-llvm`)** | **19 / 19** (with `+atomics` + `+simd128`) | **14,470.4 KB** / **3,743.8 KB** | **4.676 s** | **2.45x faster** |
+| **`wazigl v0.17.0-wazigl.6` (`-fllvm`)** | **19 / 19** (with `+atomics` + `+simd128`) | 51,334.7 KB / 12,709.7 KB | **11.465 s** | 1.00x |
+| **`zig v0.17.1 -fno-llvm`** | 0 / 19 with `+atomics`/`+simd128`* | 11,082.7 KB / 2,588.1 KB | 0.309 s | — |
+| **`zig v0.17.1 -fllvm`** | 19 / 19 (with `+atomics` + `+simd128`) | 51,334.7 KB / 12,709.7 KB | 11.465 s | 1.00x (baseline) |
 
-> *\*Upstream `zig 0.17.0 -fno-llvm` emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled, emits invalid `v128` Wasm instructions (`type mismatch: expected v128, found i32` in `scrollbar.render` & `mem.findScalarPos` failing Wasmtime validation) or `IllDefinedMemoryLayout` when `+simd128` is enabled (so non-SIMD `zig -fno-llvm` rows above are measured with `+simd128` and `+atomics` stripped), and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.0-wazig.6` fixes all three bugs.*
+> *\*Upstream `zig 0.17.1 -fno-llvm` emits an invalid WebAssembly atomic subopcode (`0xfe 0x27a` in `debug.waitForOtherThreadToFinishPanicking`) when `-mcpu baseline+atomics` is enabled, emits invalid `v128` Wasm instructions (`type mismatch: expected v128, found i32` failing Wasmtime validation) when `+simd128` is enabled (so non-SIMD `zig -fno-llvm` rows above are measured with `+simd128` and `+atomics` stripped), and fails to parse `global.get`/`global.set` inline assembly in `src/web/worker_host.zig`; `wazig v0.17.1-wazig.1` fixes all three bugs.*
 
 ---
 
 ## E. Guest Profiling Verification (`wasmtime-profile.py` @ `100us`)
 
-### E.1 Verified Impact of `cataggar/zig#158`–`#224` & `cataggar/knots#11`–`#30` (`#9` & `#19`)
+### E.1 Verified Impact of `cataggar/zig#158`–`#238` & `cataggar/knots#11`–`#36`
 
-Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that total CPU samples across the benchmark suite dropped by **14.34x** from `21,457` (`v0.17.0-wazig.3`) → `6,984`/`6,513`/`6,287` (initial `wazig.4`) → `3,209` (post-`#9`) → `1,674` (`wazig.4` post-`#19`) → **`1,496` (`ReleaseFast +simd128`)** in **`wazig v0.17.0-wazig.6`** (`cataggar/zig@v0.17.0-wazig.6`) + `cataggar/knots#11`–`#33`, exceeding all `cataggar/knots#9`, `#14`, and `#19` targets:
+Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wasmtime-profile.py`) confirms that after merging upstream `knots-ui/knots` `main` (in-tree OpenType/CFF parser, UAX#14/UAX#29 Unicode tables, OpenType shaper, and `TextSystem`/`GlyphStore`) and applying `cataggar/zig#229`–`#238` + post-merge `knots` optimizations, CPU samples dropped from `3,016` (initial post-merge) to **`1,745` (`ReleaseFast +simd128`)** in **`wazig v0.17.1-wazig.1`**:
 
-| Workload | `wazig.3` (`ReleaseSmall`) | `wazig.6` (`ReleaseSmall`) | `wazig.6` (`ReleaseFast +simd128`) | `wazigl.6` (`ReleaseFast +simd128`) | `wazig.6` Speedup vs `wazig.3` | `knots#19` Goal |
-| :--- | ---: | ---: | ---: | ---: | ---: | :--- |
-| **`layout_bench`** | 1.575 ms (635.2 FPS) | 0.112 ms (8,864.0 FPS) | **0.087 ms (11,476.1 FPS)** | **0.100 ms (9,942.6 FPS)** | **18.07x faster** | `>= 9,500–10,000+ FPS` (**Exceeded**) |
-| **`text_bench`** | 5.505 ms (181.7 FPS) | 0.385 ms (2,576.0 FPS) | **0.342 ms (2,904.5 FPS)** | **0.329 ms (3,021.4 FPS)** | **15.99x faster** | `>= 2,300–2,600+ FPS` (**Exceeded**) |
-| **`render_bench`** | 1.282 ms (779.1 FPS) | 0.153 ms (6,425.3 FPS) | **0.099 ms (10,005.1 FPS)** | **0.091 ms (10,769.5 FPS)** | **12.84x faster** | `>= 5,000–6,100+ FPS` (**Exceeded**) |
-| **`combined_frame`** | 3.286 ms (304.2 FPS) | 0.507 ms (1,982.1 FPS) | **0.367 ms (2,702.4 FPS)** | **0.270 ms (3,662.0 FPS)** | **8.88x faster** | `>= 1,800–2,270+ FPS` (**Exceeded**) |
+| Workload | `wazig.3` (`ReleaseSmall`) | `0.17.1-wazig.1` (`ReleaseSmall`) | `0.17.1-wazig.1` (`ReleaseFast +simd128`) | `zig 0.17.1 -fllvm` (`ReleaseFast +simd128`) | `0.17.1-wazig.1` vs `zig 0.17.1 -fllvm` |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| **`layout_bench`** | 1.575 ms (635.2 FPS) | 0.107 ms (9,335.6 FPS) | **0.089 ms (11,170.3 FPS)** | 0.101 ms (9,827.3 FPS) | **`wazig` +13.7% faster** |
+| **`text_bench`** | 5.505 ms (181.7 FPS) | 0.535 ms (1,869.6 FPS) | **0.461 ms (2,167.1 FPS)** | 0.500 ms (2,000.9 FPS) | **`wazig` +8.3% faster** |
+| **`render_bench`** | 1.282 ms (779.1 FPS) | 0.147 ms (6,715.3 FPS) | **0.095 ms (10,438.4 FPS)** | **0.078 ms (12,628.1 FPS)** | `zig -fllvm` +21.0% faster |
+| **`combined_frame`** | 3.286 ms (304.2 FPS) | 0.486 ms (2,060.8 FPS) | **0.391 ms (2,539.4 FPS)** | 0.484 ms (2,071.4 FPS) | **`wazig` +22.6% faster** |
 
-- **[`cataggar/zig#158`](https://github.com/cataggar/zig/pull/158) (fixes `#153`) — Inline `f32`/`f64` `@min`/`@max` and `i128` shifts/muls**: Eliminated all **6,065 samples (28.3%)** previously spent in `fmaxf`/`fminf`/`isNan`/`signbit` and `__lshrti3`/`__multi3` (`0` samples in `wazig.4`/`wazig.6`).
-- **[`cataggar/zig#159`](https://github.com/cataggar/zig/pull/159) (fixes `#154`) — Scalar Replacement of Aggregates (SROA) to Wasm locals**: Promoted non-escaped slices, optionals, error unions, `Vec2`, `Rect`, `Color`, and `Element.Sizing` into Wasm locals, eliminating `Rect.fromMinMax`, `Rect.min`, `Rect.max`, `Rect.size`, `Rect.pos`, `Rect.intersect`, and `GlyphKey.hash` shadow-stack traffic.
-- **[`cataggar/zig#163`](https://github.com/cataggar/zig/pull/163) (fixes `#155`) & [`cataggar/zig#169`](https://github.com/cataggar/zig/issues/169) — `Optimizer.zig` parameterized leaf inlining, single-caller `.small` inlining, and local peepholes**: Inlined `band.curveExtent`, `ElementPool.get`, `DrawList.Box.add`, `mem.swap`, `hash_map.header`, `hash_map.capacity`, and `appendAssumeCapacity`.
-- **[`cataggar/zig#164`](https://github.com/cataggar/zig/pull/164) (fixes `#156`) & [`cataggar/zig#168`](https://github.com/cataggar/zig/issues/168) — `@Vector` layout, `v128` `+simd128` SIMD arithmetic, and fused `cmp_vector` + `@reduce(.And/.Or)` lowering**: Lowered `Rect.eql` to `f32x4.eq` + `i32x4.all_true` (`12 B`).
-- **[`cataggar/zig#170`](https://github.com/cataggar/zig/issues/170) — Wasm multivalue return ABI for 2-scalar aggregates (`[2]f32`, `Vec2`, `HMetrics`, `[2]u8`, `u128`)**: Eliminated linear-memory `sret` stack frames for 2-scalar returns, allowing `curve.midpoint`, `Context.gapTotal`, `Element.sizing.Axis.percent`, and `fmt.digits2` to be completely inlined and removed in `ReleaseFast`.
-- **[`cataggar/zig#171`](https://github.com/cataggar/zig/issues/171) — Atomic temp-file rename for WASI cache manifests & bounds-checked `Archive`/`Object` magic parsing**: Parallel 4-way `wasm32-wasi` test suite compilation completes with zero `Archive.zig` race panics (`18.92s` wall / `58.92s` CPU; **`0.226s`** total test execution time across all 12 suites — the fastest of all 4 compilers).
-- **[`cataggar/zig#174`](https://github.com/cataggar/zig/issues/174)–[`#224`](https://github.com/cataggar/zig/pull/224) — By-value scalar parameter ABI (`classifyAutoParam`), read-only by-ref load & alloc alias elision across subblocks/`try` (`#215`/`#220`), `umulh` (`Wyhash.mum`) inline lowering, `tryElideMemcpyStackFrame` / `tryElideLeafStackFrame`, `0xfd` SIMD stack deltas (`#193`), `@Vector` lane & `u128` SROA (`#194`/`#222`), post-inlining shadow-stack scalarization (`#195`), single-scalar payload union SROA (`#213`), inline zero-fill stores (`#216`/`#218`), Wasm SIMD `pmin`/`pmax` (`#205`/`#212`), `Optimize.zig` MIR & `Optimizer.zig` LICM/DSE/store coalescing/2-pass inlining (`#214`/`#217`/`#223`/`#224`), and `.auto` multi-value ABI up to 4 scalars (`#223`/`#224`)**: Eliminated `memory.copy` aggregate parameter staging, inlined `Wyhash.round`/`mum`, promoted `sizing.Axis` tagged unions and `u128` values to scalar locals, and shrunk `wazig.wasm` itself from `31.57 MiB` to `30.31 MiB`.
-- **[`cataggar/knots#11`](https://github.com/cataggar/knots/pull/11)–[`#17`](https://github.com/cataggar/knots/pull/17) (`#9`) & [`cataggar/knots#20`](https://github.com/cataggar/knots/pull/20)–[`#33`](https://github.com/cataggar/knots/pull/33) (`#19`, `#27`, `#28`) — Precomputed curve extents & scatter-first per-band sort (`#11`, `#15`, `#20`, `#25`, `#26`), 2-pass child layout, `comptime is_row` flex layout, O(1) `grow_main_total`, `IdContext`/`CodepointContext` integer hash contexts, compact 2-scalar `Key`, settled transition & `Style.resolve` fast paths (`#16`, `#17`, `#21`, `#25`), and in-place `DrawList` writes, single-pass `commandBounds` + grid insertion, and `comptime std.mem.zeroes` instance templates (`#22`, `#23`, `#26`)**: Boosted `wazig.6` `ReleaseFast +simd128` to **`11,476.1 FPS` (`layout_bench`)**, **`2,904.5 FPS` (`text_bench`)**, **`10,005.1 FPS` (`render_bench`)**, and **`2,702.4 FPS` (`combined_frame`)**.
+- **[`cataggar/zig#229`](https://github.com/cataggar/zig/issues/229)–[`#237`](https://github.com/cataggar/zig/pull/237) (`0.17.1` merge `#236` + multivalue ABI, tail calls, `f16` promotion, wide arithmetic, SIMD & rotate synthesis)**: Merged Zig `0.17.1`, promoted `f16` values (`SlugInstance.col`) to native `f32` registers, added `return_call`/`return_call_indirect`, `.wasm_multivalue` up to 8 scalars, `v128.andnot`, and `i32`/`i64` rotate synthesis.
+- **[`cataggar/zig#238`](https://github.com/cataggar/zig/pull/238) (`0.17.1-wazig.1`) — Inline `@byteSwap` (`i32.rotl`), SIMD `cmp_vector` -> `v128.bitselect`, reused-local backward DSE, and 8-result multivalue inlining**: Eliminated out-of-line `__bswapsi2`/`__bswapdi2` calls on OpenType big-endian reads, eliminated `[N]bool` shadow-stack spills on `@select` vector masks, removed dead reused-local overwrites across basic blocks (shrinking `wazig.wasm` itself by `-105.5 KB` and `knots ReleaseSmall` by `-29.7 KB`), and inlined 1-call capacity wrappers.
+- **Post-`main` `knots` OpenType / `TextSystem` / `GlyphStore` Optimizations**: Added 8-byte SWAR ASCII fast paths in `unicode.decodeUtf8`, single-pass `.latn` itemization in `itemize.itemizeWith`, unwrapped single-line fast path & comptime ASCII class table in `unicode.linebreak`, dense `Face.glyph_slots` O(1) lookup replacing `AutoHashMapUnmanaged`, persistent `TextSystem` layout/outline scratch buffers + single-slab `TextLayout` allocation, direct `GlyphStore.words` encoding with reciprocal quantization, cached `Decoration.Text` frame layouts + hoisted `f16` color conversion in `paintText`, and reciprocal `DrawList.gridCoord` scaling (`365.18 ms` -> **`214.62 ms`** total suite time).
 
-### E.2 Top 15 Functions in `wazig v0.17.0-wazig.6` `ReleaseFast +simd128` (`1,496` total samples @ 100us)
+### E.2 Top 15 Functions in `wazig v0.17.1-wazig.1` `ReleaseFast +simd128` (`1,745` total samples @ 100us)
 
 | Self | Self% | Total | Tot% | Bytes | Function |
 | ---: | ---: | ---: | ---: | ---: | :--- |
-| 327 | 21.86% | 327 | 21.86% | 7,336 | `band.partitionWithBuffer` |
-| 156 | 10.43% | 166 | 11.10% | 8,696 | `DrawList.emitBatched` |
-| 107 | 7.15% | 276 | 18.45% | 4,113 | `wasm_bench_runner.buildRenderFrame` |
-| 93 | 6.22% | 227 | 15.17% | 7,060 | `wasm_bench_runner.buildDashboardLayoutFrame` |
-| 91 | 6.08% | 91 | 6.08% | 7,445 | `Context.computeLayoutNode` |
-| 79 | 5.28% | 94 | 6.28% | 5,830 | `TrueType.glyphShapeTT` |
-| 41 | 2.74% | 42 | 2.81% | 2,059 | `Context.open` |
-| 40 | 2.67% | 374 | 25.00% | 3,996 | `GlyphBuilder.addCurves` |
-| 30 | 2.01% | 36 | 2.41% | 1,051 | `DrawList.pushInstances` |
-| 30 | 2.01% | 30 | 2.01% | 1,971 | `Context.computeSizes` |
-| 27 | 1.80% | 43 | 2.87% | 1,607 | `Face.buildWrappedLines` |
-| 24 | 1.60% | 45 | 3.01% | 5,563 | `Context.tessellateLayer` |
-| 20 | 1.34% | 20 | 1.34% | 584 | `curve.decomposeVerticesInto` |
-| 18 | 1.20% | 45 | 3.01% | 2,950 | `Face.shape` |
-| 17 | 1.14% | 25 | 1.67% | 1,226 | `DrawList.push` |
+| 344 | 19.71% | 344 | 19.71% | 7,567 | `band.partitionWithBuffer` |
+| 128 | 7.34% | 144 | 8.25% | 8,413 | `DrawList.emitBatched` |
+| 127 | 7.28% | 471 | 26.99% | 6,054 | `GlyphStore.encodeInto` |
+| 101 | 5.79% | 262 | 15.01% | 3,825 | `wasm_bench_runner.buildRenderFrame` |
+| 83 | 4.76% | 232 | 13.30% | 6,995 | `wasm_bench_runner.buildDashboardLayoutFrame` |
+| 80 | 4.58% | 81 | 4.64% | 7,389 | `Context.computeLayoutNode` |
+| 53 | 3.04% | 54 | 3.09% | 2,347 | `Context.open` |
+| 51 | 2.92% | 63 | 3.61% | 2,239 | `linebreak.opportunities` |
+| 43 | 2.46% | 63 | 3.61% | 4,350 | `Outline.appendSimple` |
+| 34 | 1.95% | 35 | 2.01% | 798 | `TextSystem.LayoutBuilder.appendShaped` |
+| 33 | 1.89% | 37 | 2.12% | 1,165 | `TextSystem.LayoutBuilder.nextBreak` |
+| 29 | 1.66% | 63 | 3.61% | 5,191 | `Context.paintText` |
+| 29 | 1.66% | 39 | 2.23% | 1,027 | `DrawList.pushInstances` |
+| 29 | 1.66% | 29 | 1.66% | 1,948 | `Context.computeSizes` |
+| 18 | 1.03% | 23 | 1.32% | 1,201 | `DrawList.push` |
 
 ### E.3 Follow-Up `cataggar/zig` Self-Hosted Wasm Backend Optimization Issues Filed
 
@@ -204,105 +200,107 @@ Profiling `wasm_bench_runner.wasm` via `wasmtime run --profile=guest,100us` (`wa
 - **[`cataggar/zig#219`](https://github.com/cataggar/zig/issues/219)**: `aarch64: self-hosted backend (-Denable-llvm=false) miscompiles std.Build runner (maker) into an infinite loop`.
 - **[`cataggar/zig#222`](https://github.com/cataggar/zig/pull/222)**–**[`#224`](https://github.com/cataggar/zig/pull/224)** (landed in `v0.17.0-wazig.5`): `wasm: u128 SROA + .auto 4-scalar multi-value ABI + Optimize.zig MIR & Optimizer.zig LICM/DSE/store coalescing/2-pass inlining`.
 - **[`cataggar/zig#226`](https://github.com/cataggar/zig/issues/226)** (fixed in [`#227`](https://github.com/cataggar/zig/pull/227) / `v0.17.0-wazig.6` & `v0.17.0-wazigl.6`): `wasm(Optimizer): cache moduleUsesSimd per module to avoid O(functions * body_len) rescans on non-SIMD modules`.
+- **[`cataggar/zig#229`](https://github.com/cataggar/zig/issues/229)–[`#237`](https://github.com/cataggar/zig/pull/237)** (landed in `0.17.1-wazig.1`): `wasm: multivalue ABI up to 8 scalars, tail calls, f16 promotion, wide arithmetic, SIMD, and shift/rotate opts`.
+- **[`cataggar/zig#238`](https://github.com/cataggar/zig/pull/238)** (landed in `0.17.1-wazig.1`): `wasm: inline @byteSwap, SIMD cmp->bitselect, reused-local DSE, and multivalue inlining`.
 
 ---
 
 ## F. wasm32-freestanding vs wasm64-freestanding (Memory64) Head-to-Head
 
-Head-to-head comparison of `wasm32-freestanding` (32-bit pointers, 4 GiB linear address space) vs `wasm64-freestanding` (64-bit pointers, >4 GiB Memory64 linear address space, [`cataggar/knots#18`](https://github.com/cataggar/knots/issues/18)) across `Debug`, `ReleaseSmall`, and `ReleaseFast (+simd128)` (`-Dcpu=generic+simd128`) using both **`wazig v0.17.0-wazig.6` (`-fno-llvm`)** and **`wazigl v0.17.0-wazigl.6` (`-fllvm`)**, executed under `wasmtime v50.0.1` (`wasmtime run -W memory64=y`).
+Head-to-head comparison of `wasm32-freestanding` (32-bit pointers, 4 GiB linear address space) vs `wasm64-freestanding` (64-bit pointers, >4 GiB Memory64 linear address space, [`cataggar/knots#18`](https://github.com/cataggar/knots/issues/18)) across `Debug`, `ReleaseSmall`, and `ReleaseFast (+simd128)` (`-Dcpu=generic+simd128`) using **`wazig v0.17.1-wazig.1` (`-fno-llvm`)** and **`wazigl v0.17.0-wazigl.6` / `zig 0.17.1 -fllvm` (`-fllvm`)**, executed under `wasmtime v50.0.1` (`wasmtime run -W memory64=y`).
 
 ### F.1 Playground (`examples/playground`) — Compile Time & `.wasm` Binary Size
 
 | Compiler & Mode | Target | Cold Compile | Warm Compile (Median of 3) | Raw `.wasm` Size | `gzip -9` Size | `zstd -19` Size | `wasm64` vs `wasm32` Size Delta (Raw / `gzip` / `zstd`) |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **`wazig.6` (`-fno-llvm`) — `Debug`** | `wasm32-freestanding` | 23.71 s | 17.32 s | 2,883,073 B (2,815.5 KB) | 984,494 B (961.4 KB) | **773,408 B (755.3 KB)** | — |
-| **`wazig.6` (`-fno-llvm`) — `Debug`** | `wasm64-freestanding` | 23.84 s | 17.32 s | 3,399,932 B (3,320.2 KB) | 1,026,419 B (1,002.4 KB) | **795,633 B (777.0 KB)** | **+17.9% / +4.3% / +2.9%** |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 20.76 s | 14.48 s | 2,318,951 B (2,264.6 KB) | 844,111 B (824.3 KB) | **678,177 B (662.3 KB)** | — |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 20.76 s | 14.24 s | 2,777,405 B (2,712.3 KB) | 866,324 B (846.0 KB) | **697,163 B (680.8 KB)** | **+19.8% / +2.6% / +2.8%** |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 23.44 s | 16.91 s | 2,584,919 B (2,524.3 KB) | 940,042 B (918.0 KB) | **721,350 B (704.4 KB)** | — |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 23.32 s | 16.68 s | 3,085,347 B (3,013.0 KB) | 984,785 B (961.7 KB) | **773,635 B (755.5 KB)** | **+19.4% / +4.8% / +7.2%** |
-| **`wazigl.6` (`-fllvm`) — `Debug`** | `wasm32-freestanding` | 47.41 s | 33.20 s | 6,815,199 B (6,655.5 KB) | 2,251,860 B (2,199.1 KB) | **1,722,987 B (1,682.6 KB)** | — |
-| **`wazigl.6` (`-fllvm`) — `Debug`** | `wasm64-freestanding` | 45.91 s | 35.01 s | 7,622,249 B (7,443.6 KB) | 2,308,175 B (2,254.1 KB) | **1,744,305 B (1,703.4 KB)** | **+11.8% / +2.5% / +1.2%** |
-| **`wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 44.06 s | 34.82 s | 1,863,575 B (1,819.9 KB) | 727,202 B (710.2 KB) | **611,317 B (597.0 KB)** | — |
-| **`wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 43.49 s | 35.25 s | 2,305,932 B (2,251.9 KB) | 743,499 B (726.1 KB) | **621,345 B (606.8 KB)** | **+23.7% / +2.2% / +1.6%** |
-| **`wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 80.77 s | 64.53 s | 5,564,726 B (5,434.3 KB) | 1,809,242 B (1,766.8 KB) | **1,479,127 B (1,444.5 KB)** | — |
-| **`wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 79.70 s | 64.44 s | 6,863,594 B (6,702.7 KB) | 1,855,905 B (1,812.4 KB) | **1,517,890 B (1,482.3 KB)** | **+23.3% / +2.6% / +2.6%** |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `Debug`** | `wasm32-freestanding` | 32.03 s | 25.13 s | 3,777,921 B (3,689.4 KB) | 1,233,333 B (1,204.4 KB) | **927,626 B (905.9 KB)** | — |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `Debug`** | `wasm64-freestanding` | 32.06 s | 24.93 s | 4,381,112 B (4,278.4 KB) | 1,293,031 B (1,262.7 KB) | **950,620 B (928.3 KB)** | **+16.0% / +4.8% / +2.5%** |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 26.60 s | 19.67 s | 2,948,977 B (2,879.9 KB) | 1,012,687 B (989.0 KB) | **790,243 B (771.7 KB)** | — |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 26.27 s | 19.24 s | 3,452,437 B (3,371.5 KB) | 1,045,224 B (1,020.7 KB) | **822,375 B (803.1 KB)** | **+17.1% / +3.2% / +4.1%** |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 30.40 s | 23.17 s | 3,426,196 B (3,345.9 KB) | 1,183,542 B (1,155.8 KB) | **913,413 B (892.0 KB)** | — |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 29.89 s | 22.58 s | 3,978,600 B (3,885.4 KB) | 1,255,954 B (1,226.5 KB) | **961,038 B (938.5 KB)** | **+16.1% / +6.1% / +5.2%** |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `Debug`** | `wasm32-freestanding` | 47.41 s | 33.20 s | 8,870,375 B (8,662.5 KB) | 2,935,259 B (2,866.5 KB) | **2,168,143 B (2,117.3 KB)** | — |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `Debug`** | `wasm64-freestanding` | 45.91 s | 35.01 s | 9,853,696 B (9,622.8 KB) | 3,026,960 B (2,956.0 KB) | **2,218,260 B (2,166.3 KB)** | **+11.1% / +3.1% / +2.3%** |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 44.06 s | 34.82 s | 2,271,537 B (2,218.3 KB) | 860,043 B (839.9 KB) | **721,389 B (704.5 KB)** | — |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 43.49 s | 35.25 s | 2,729,928 B (2,665.9 KB) | 881,290 B (860.6 KB) | **733,278 B (716.1 KB)** | **+20.2% / +2.5% / +1.6%** |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 80.77 s | 64.53 s | 7,614,997 B (7,436.5 KB) | 2,452,526 B (2,395.0 KB) | **1,999,598 B (1,952.7 KB)** | — |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 79.70 s | 64.44 s | 9,380,711 B (9,160.9 KB) | 2,527,205 B (2,468.0 KB) | **2,044,840 B (1,996.9 KB)** | **+23.2% / +3.0% / +2.3%** |
 
 ### F.2 Headless Benchmark Runner (`knots-wasm-bench`) — Compile Time & `.wasm` Binary Size
 
 | Compiler & Mode | Target | Cold Compile | Warm Compile (Median of 3) | Raw `.wasm` Size | `gzip -9` Size | `zstd -19` Size | `wasm64` vs `wasm32` Size Delta (Raw / `gzip` / `zstd`) |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **`wazig.6` (`-fno-llvm`) — `Debug`** | `wasm32-freestanding` | 12.14 s | 5.79 s | 1,084,332 B (1,058.9 KB) | 449,936 B (439.4 KB) | **389,506 B (380.4 KB)** | — |
-| **`wazig.6` (`-fno-llvm`) — `Debug`** | `wasm64-freestanding` | 12.16 s | 5.81 s | 1,136,092 B (1,109.5 KB) | 459,145 B (448.4 KB) | **394,429 B (385.2 KB)** | **+4.8% / +2.0% / +1.3%** |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 10.13 s | 4.05 s | 809,703 B (790.7 KB) | 370,167 B (361.5 KB) | **326,232 B (318.6 KB)** | — |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 10.12 s | 3.97 s | 825,814 B (806.5 KB) | 372,956 B (364.2 KB) | **327,361 B (319.7 KB)** | **+2.0% / +0.8% / +0.3%** |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 11.35 s | 4.97 s | 912,972 B (891.6 KB) | 410,161 B (400.5 KB) | **359,353 B (350.9 KB)** | — |
-| **`wazig.6` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 11.30 s | 4.84 s | 939,633 B (917.6 KB) | 417,246 B (407.5 KB) | **363,727 B (355.2 KB)** | **+2.9% / +1.7% / +1.2%** |
-| **`wazigl.6` (`-fllvm`) — `Debug`** | `wasm32-freestanding` | 25.32 s | 13.44 s | 3,153,625 B (3,079.7 KB) | 1,083,039 B (1,057.7 KB) | **890,150 B (869.3 KB)** | — |
-| **`wazigl.6` (`-fllvm`) — `Debug`** | `wasm64-freestanding` | 25.28 s | 13.40 s | 3,377,709 B (3,298.5 KB) | 1,098,010 B (1,072.3 KB) | **892,968 B (872.0 KB)** | **+7.1% / +1.4% / +0.3%** |
-| **`wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 20.91 s | 11.65 s | 657,922 B (642.5 KB) | 323,529 B (315.9 KB) | **290,394 B (283.6 KB)** | — |
-| **`wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 21.49 s | 12.02 s | 667,539 B (651.9 KB) | 325,390 B (317.8 KB) | **292,144 B (285.3 KB)** | **+1.5% / +0.6% / +0.6%** |
-| **`wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 35.67 s | 21.01 s | 2,577,979 B (2,517.6 KB) | 899,386 B (878.3 KB) | **768,447 B (750.4 KB)** | — |
-| **`wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 35.43 s | 20.70 s | 3,035,902 B (2,964.7 KB) | 919,334 B (897.8 KB) | **782,510 B (764.2 KB)** | **+17.8% / +2.2% / +1.8%** |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `Debug`** | `wasm32-freestanding` | 19.45 s | 12.40 s | 1,902,132 B (1,857.6 KB) | 673,715 B (657.9 KB) | **539,279 B (526.6 KB)** | — |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `Debug`** | `wasm64-freestanding` | 19.09 s | 12.28 s | 2,013,332 B (1,966.1 KB) | 703,617 B (687.1 KB) | **553,865 B (540.9 KB)** | **+5.8% / +4.4% / +2.7%** |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 15.33 s | 8.58 s | 1,396,718 B (1,364.0 KB) | 524,376 B (512.1 KB) | **435,681 B (425.5 KB)** | — |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 14.99 s | 8.17 s | 1,439,285 B (1,405.6 KB) | 534,765 B (522.2 KB) | **442,381 B (432.0 KB)** | **+3.0% / +2.0% / +1.5%** |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 17.32 s | 10.45 s | 1,673,579 B (1,634.4 KB) | 627,367 B (612.7 KB) | **511,631 B (499.6 KB)** | — |
+| **`0.17.1-wazig.1` (`-fno-llvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 17.18 s | 10.38 s | 1,737,666 B (1,696.9 KB) | 660,263 B (644.8 KB) | **527,041 B (514.7 KB)** | **+3.8% / +5.2% / +3.0%** |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `Debug`** | `wasm32-freestanding` | 25.32 s | 13.44 s | 4,940,630 B (4,824.8 KB) | 1,669,518 B (1,630.4 KB) | **1,298,950 B (1,268.5 KB)** | — |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `Debug`** | `wasm64-freestanding` | 25.28 s | 13.40 s | 5,325,725 B (5,200.9 KB) | 1,715,823 B (1,675.6 KB) | **1,324,218 B (1,293.2 KB)** | **+7.8% / +2.8% / +1.9%** |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm32-freestanding` | 20.91 s | 11.65 s | 1,013,559 B (989.8 KB) | 438,542 B (428.3 KB) | **386,038 B (377.0 KB)** | — |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseSmall`** | `wasm64-freestanding` | 21.49 s | 12.02 s | 1,037,714 B (1,013.4 KB) | 445,135 B (434.7 KB) | **391,196 B (382.0 KB)** | **+2.4% / +1.5% / +1.3%** |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm32-freestanding` | 35.67 s | 21.01 s | 4,359,510 B (4,257.3 KB) | 1,451,285 B (1,417.3 KB) | **1,219,129 B (1,190.6 KB)** | — |
+| **`0.17.0-wazigl.6` (`-fllvm`) — `ReleaseFast (+simd128)`** | `wasm64-freestanding` | 35.43 s | 20.70 s | 5,212,977 B (5,090.8 KB) | 1,489,554 B (1,454.6 KB) | **1,242,310 B (1,213.2 KB)** | **+19.6% / +2.6% / +1.9%** |
 
 ### F.3 Runtime Execution Performance (`wasmtime run -W memory64=y <knots-wasm-bench.wasm> --json`)
 
-> **Checksum Verification**: Every `wasm32-freestanding` and `wasm64-freestanding` run produces bit-identical output checksums across all optimization modes (`total_checksum = 2186326712793932228` under `wazig -fno-llvm` and `total_checksum = 13151244770801229719` under `wazigl -fllvm`, with matching per-workload checksums `layout_bench = 417689973924794692`, `text_bench = 12606774574179943755` / `7686275582076872382`, `render_bench = 8226312248921777708`, `combined_frame = 8133605907336869050`).
+> **Checksum Verification**: Every `wasm32-freestanding` and `wasm64-freestanding` run produces bit-identical output checksums across all optimization modes (`total_checksum = 135070606785217583` under `wazig -fno-llvm` and `total_checksum = 6654160893120457825` under `-fllvm`).
 
-#### `wazig v0.17.0-wazig.6` (`-fno-llvm`, Self-Hosted Wasm Backend)
+#### `wazig v0.17.1-wazig.1` (`-fno-llvm`, Self-Hosted Wasm Backend)
 
 | Optimize Mode | Workload | `wasm32-freestanding` (Median / Mean / p95 ms — FPS) | `wasm64-freestanding` (Median / Mean / p95 ms — FPS) | `wasm64` vs `wasm32` Latency / Throughput | Checksum |
 | :--- | :--- | ---: | ---: | ---: | :--- |
-| **`Debug`** | `layout_bench` (300 iters, 2,047 elems) | **0.250 ms** / 0.251 ms / 0.255 ms (**3,983.2 FPS**) | **0.429 ms** / 0.430 ms / 0.432 ms (**2,326.5 FPS**) | +71.5% ms / 0.58x FPS | `417689973924794692` |
-| **`Debug`** | `text_bench` (200 iters, 3,405 elems) | **0.592 ms** / 0.590 ms / 0.595 ms (**1,693.9 FPS**) | **0.812 ms** / 0.811 ms / 0.817 ms (**1,233.0 FPS**) | +37.0% ms / 0.73x FPS | `12606774574179943755` |
-| **`Debug`** | `render_bench` (300 iters, 5,100 elems) | **0.155 ms** / 0.157 ms / 0.168 ms (**6,353.2 FPS**) | **0.230 ms** / 0.233 ms / 0.243 ms (**4,293.1 FPS**) | +48.1% ms / 0.68x FPS | `8226312248921777708` |
-| **`Debug`** | `combined_frame` (100 iters, 514 elems) | **0.632 ms** / 0.630 ms / 0.638 ms (**1,586.4 FPS**) | **0.950 ms** / 0.952 ms / 0.958 ms (**1,051.0 FPS**) | +50.2% ms / 0.66x FPS | `8133605907336869050` |
-| **`Debug`** | **`total_bench_ms`** | **344.92 ms** | **518.10 ms** | **+50.2% ms / 0.67x** | `2186326712793932228` |
-| **`ReleaseSmall`** | `layout_bench` (300 iters, 2,047 elems) | **0.112 ms** / 0.112 ms / 0.116 ms (**8,912.6 FPS**) | **0.171 ms** / 0.171 ms / 0.175 ms (**5,836.4 FPS**) | +52.8% ms / 0.65x FPS | `417689973924794692` |
-| **`ReleaseSmall`** | `text_bench` (200 iters, 3,405 elems) | **0.381 ms** / 0.383 ms / 0.389 ms (**2,609.5 FPS**) | **0.532 ms** / 0.530 ms / 0.536 ms (**1,885.3 FPS**) | +39.8% ms / 0.72x FPS | `12606774574179943755` |
-| **`ReleaseSmall`** | `render_bench` (300 iters, 5,100 elems) | **0.114 ms** / 0.115 ms / 0.126 ms (**8,663.5 FPS**) | **0.157 ms** / 0.159 ms / 0.170 ms (**6,277.8 FPS**) | +37.8% ms / 0.72x FPS | `8226312248921777708` |
-| **`ReleaseSmall`** | `combined_frame` (100 iters, 514 elems) | **0.487 ms** / 0.485 ms / 0.491 ms (**2,062.7 FPS**) | **0.688 ms** / 0.687 ms / 0.698 ms (**1,455.2 FPS**) | +41.4% ms / 0.71x FPS | `8133605907336869050` |
-| **`ReleaseSmall`** | **`total_bench_ms`** | **219.50 ms** | **310.49 ms** | **+41.4% ms / 0.71x** | `2186326712793932228` |
-| **`ReleaseFast (+simd128)`** | `layout_bench` (300 iters, 2,047 elems) | **0.086 ms** / 0.087 ms / 0.090 ms (**11,533.5 FPS**) | **0.151 ms** / 0.151 ms / 0.155 ms (**6,603.8 FPS**) | +74.6% ms / 0.57x FPS | `417689973924794692` |
-| **`ReleaseFast (+simd128)`** | `text_bench` (200 iters, 3,405 elems) | **0.340 ms** / 0.343 ms / 0.349 ms (**2,918.5 FPS**) | **0.507 ms** / 0.505 ms / 0.512 ms (**1,979.2 FPS**) | +48.9% ms / 0.68x FPS | `12606774574179943755` |
-| **`ReleaseFast (+simd128)`** | `render_bench` (300 iters, 5,100 elems) | **0.099 ms** / 0.100 ms / 0.112 ms (**9,959.3 FPS**) | **0.153 ms** / 0.155 ms / 0.165 ms (**6,447.9 FPS**) | +54.6% ms / 0.65x FPS | `8226312248921777708` |
-| **`ReleaseFast (+simd128)`** | `combined_frame` (100 iters, 514 elems) | **0.367 ms** / 0.369 ms / 0.377 ms (**2,707.4 FPS**) | **0.609 ms** / 0.607 ms / 0.617 ms (**1,647.2 FPS**) | +66.1% ms / 0.61x FPS | `8133605907336869050` |
-| **`ReleaseFast (+simd128)`** | **`total_bench_ms`** | **183.29 ms** | **287.25 ms** | **+56.7% ms / 0.64x** | `2186326712793932228` |
+| **`Debug`** | `layout_bench` (300 iters, 2,047 elems) | **0.226 ms** / 0.227 ms / 0.232 ms (**4,402.2 FPS**) | **0.397 ms** / 0.398 ms / 0.401 ms (**2,515.6 FPS**) | +75.8% ms / 0.57x FPS | `417689973924794692` |
+| **`Debug`** | `text_bench` (200 iters, 3,413 elems) | **0.824 ms** / 0.822 ms / 0.828 ms (**1,216.6 FPS**) | **1.092 ms** / 1.091 ms / 1.100 ms (**916.3 FPS**) | +32.6% ms / 0.75x FPS | `17060092853839522222` |
+| **`Debug`** | `render_bench` (300 iters, 5,100 elems) | **0.183 ms** / 0.185 ms / 0.196 ms (**5,390.2 FPS**) | **0.293 ms** / 0.297 ms / 0.305 ms (**3,368.5 FPS**) | +60.2% ms / 0.62x FPS | `8226312248921777708` |
+| **`Debug`** | `combined_frame` (100 iters, 514 elems) | **0.657 ms** / 0.655 ms / 0.661 ms (**1,526.5 FPS**) | **0.988 ms** / 0.989 ms / 0.997 ms (**1,011.1 FPS**) | +50.4% ms / 0.66x FPS | `8133605907336869050` |
+| **`Debug`** | **`total_bench_ms`** | **405.00 ms** | **601.65 ms** | **+48.6% ms / 0.67x** | `135070606785217583` |
+| **`ReleaseSmall`** | `layout_bench` (300 iters, 2,047 elems) | **0.107 ms** / 0.108 ms / 0.112 ms (**9,261.9 FPS**) | **0.176 ms** / 0.176 ms / 0.180 ms (**5,675.3 FPS**) | +63.8% ms / 0.61x FPS | `417689973924794692` |
+| **`ReleaseSmall`** | `text_bench` (200 iters, 3,413 elems) | **0.535 ms** / 0.536 ms / 0.541 ms (**1,867.0 FPS**) | **0.725 ms** / 0.726 ms / 0.731 ms (**1,378.3 FPS**) | +35.5% ms / 0.74x FPS | `17060092853839522222` |
+| **`ReleaseSmall`** | `render_bench` (300 iters, 5,100 elems) | **0.144 ms** / 0.145 ms / 0.155 ms (**6,876.9 FPS**) | **0.212 ms** / 0.215 ms / 0.224 ms (**4,660.0 FPS**) | +47.5% ms / 0.68x FPS | `8226312248921777708` |
+| **`ReleaseSmall`** | `combined_frame` (100 iters, 514 elems) | **0.490 ms** / 0.489 ms / 0.499 ms (**2,044.7 FPS**) | **0.714 ms** / 0.713 ms / 0.723 ms (**1,401.7 FPS**) | +45.7% ms / 0.69x FPS | `8133605907336869050` |
+| **`ReleaseSmall`** | **`total_bench_ms`** | **265.75 ms** | **381.63 ms** | **+43.6% ms / 0.70x** | `135070606785217583` |
+| **`ReleaseFast (+simd128)`** | `layout_bench` (300 iters, 2,047 elems) | **0.088 ms** / 0.088 ms / 0.092 ms (**11,317.6 FPS**) | **0.150 ms** / 0.150 ms / 0.153 ms (**6,645.1 FPS**) | +70.5% ms / 0.59x FPS | `417689973924794692` |
+| **`ReleaseFast (+simd128)`** | `text_bench` (200 iters, 3,413 elems) | **0.459 ms** / 0.460 ms / 0.464 ms (**2,175.6 FPS**) | **0.663 ms** / 0.663 ms / 0.668 ms (**1,507.1 FPS**) | +44.4% ms / 0.69x FPS | `17060092853839522222` |
+| **`ReleaseFast (+simd128)`** | `render_bench` (300 iters, 5,100 elems) | **0.095 ms** / 0.096 ms / 0.105 ms (**10,448.9 FPS**) | **0.150 ms** / 0.152 ms / 0.163 ms (**6,557.0 FPS**) | +59.2% ms / 0.63x FPS | `8226312248921777708` |
+| **`ReleaseFast (+simd128)`** | `combined_frame` (100 iters, 514 elems) | **0.387 ms** / 0.389 ms / 0.400 ms (**2,568.1 FPS**) | **0.649 ms** / 0.647 ms / 0.653 ms (**1,545.8 FPS**) | +67.6% ms / 0.60x FPS | `8133605907336869050` |
+| **`ReleaseFast (+simd128)`** | **`total_bench_ms`** | **213.06 ms** | **329.96 ms** | **+54.9% ms / 0.65x** | `135070606785217583` |
 
 #### `wazigl v0.17.0-wazigl.6` (`-fllvm`, LLVM 22 Backend)
 
 | Optimize Mode | Workload | `wasm32-freestanding` (Median / Mean / p95 ms — FPS) | `wasm64-freestanding` (Median / Mean / p95 ms — FPS) | `wasm64` vs `wasm32` Latency / Throughput | Checksum |
 | :--- | :--- | ---: | ---: | ---: | :--- |
-| **`Debug`** | `layout_bench` (300 iters, 2,047 elems) | **0.628 ms** / 0.628 ms / 0.632 ms (**1,592.9 FPS**) | **0.893 ms** / 0.894 ms / 0.897 ms (**1,119.1 FPS**) | +42.1% ms / 0.70x FPS | `417689973924794692` |
-| **`Debug`** | `text_bench` (200 iters, 3,405 elems) | **1.142 ms** / 1.143 ms / 1.152 ms (**874.6 FPS**) | **1.524 ms** / 1.524 ms / 1.534 ms (**656.0 FPS**) | +33.4% ms / 0.75x FPS | `7686275582076872382` |
-| **`Debug`** | `render_bench` (300 iters, 5,100 elems) | **0.435 ms** / 0.440 ms / 0.450 ms (**2,273.0 FPS**) | **0.629 ms** / 0.625 ms / 0.637 ms (**1,600.3 FPS**) | +44.4% ms / 0.70x FPS | `8226312248921777708` |
-| **`Debug`** | `combined_frame` (100 iters, 514 elems) | **1.738 ms** / 1.739 ms / 1.749 ms (**575.1 FPS**) | **2.215 ms** / 2.215 ms / 2.224 ms (**451.5 FPS**) | +27.4% ms / 0.79x FPS | `8133605907336869050` |
-| **`Debug`** | **`total_bench_ms`** | **820.17 ms** | **1,113.40 ms** | **+35.8% ms / 0.74x** | `13151244770801229719` |
-| **`ReleaseSmall`** | `layout_bench` (300 iters, 2,047 elems) | **0.110 ms** / 0.110 ms / 0.113 ms (**9,079.9 FPS**) | **0.155 ms** / 0.156 ms / 0.159 ms (**6,419.7 FPS**) | +41.5% ms / 0.71x FPS | `417689973924794692` |
-| **`ReleaseSmall`** | `text_bench` (200 iters, 3,405 elems) | **0.390 ms** / 0.392 ms / 0.399 ms (**2,549.1 FPS**) | **0.502 ms** / 0.502 ms / 0.508 ms (**1,991.8 FPS**) | +28.9% ms / 0.78x FPS | `7686275582076872382` |
-| **`ReleaseSmall`** | `render_bench` (300 iters, 5,100 elems) | **0.092 ms** / 0.094 ms / 0.105 ms (**10,687.6 FPS**) | **0.126 ms** / 0.128 ms / 0.139 ms (**7,820.7 FPS**) | +36.8% ms / 0.73x FPS | `8226312248921777708` |
-| **`ReleaseSmall`** | `combined_frame` (100 iters, 514 elems) | **0.390 ms** / 0.393 ms / 0.404 ms (**2,542.6 FPS**) | **0.554 ms** / 0.552 ms / 0.558 ms (**1,810.2 FPS**) | +42.1% ms / 0.71x FPS | `8133605907336869050` |
-| **`ReleaseSmall`** | **`total_bench_ms`** | **203.10 ms** | **272.92 ms** | **+34.4% ms / 0.74x** | `13151244770801229719` |
-| **`ReleaseFast (+simd128)`** | `layout_bench` (300 iters, 2,047 elems) | **0.101 ms** / 0.102 ms / 0.105 ms (**9,832.1 FPS**) | **0.144 ms** / 0.144 ms / 0.147 ms (**6,940.2 FPS**) | +41.9% ms / 0.71x FPS | `417689973924794692` |
-| **`ReleaseFast (+simd128)`** | `text_bench` (200 iters, 3,405 elems) | **0.328 ms** / 0.329 ms / 0.335 ms (**3,037.6 FPS**) | **0.430 ms** / 0.431 ms / 0.438 ms (**2,321.0 FPS**) | +31.4% ms / 0.76x FPS | `7686275582076872382` |
-| **`ReleaseFast (+simd128)`** | `render_bench` (300 iters, 5,100 elems) | **0.086 ms** / 0.088 ms / 0.100 ms (**11,395.6 FPS**) | **0.121 ms** / 0.122 ms / 0.131 ms (**8,180.7 FPS**) | +39.9% ms / 0.72x FPS | `8226312248921777708` |
-| **`ReleaseFast (+simd128)`** | `combined_frame` (100 iters, 514 elems) | **0.270 ms** / 0.272 ms / 0.283 ms (**3,671.1 FPS**) | **0.401 ms** / 0.405 ms / 0.415 ms (**2,467.9 FPS**) | +48.6% ms / 0.67x FPS | `8133605907336869050` |
-| **`ReleaseFast (+simd128)`** | **`total_bench_ms`** | **170.15 ms** | **234.25 ms** | **+37.7% ms / 0.73x** | `13151244770801229719` |
+| **`Debug`** | `layout_bench` (300 iters, 2,047 elems) | **0.630 ms** / 0.629 ms / 0.633 ms (**1,590.0 FPS**) | **0.895 ms** / 0.896 ms / 0.899 ms (**1,116.5 FPS**) | +42.1% ms / 0.70x FPS | `417689973924794692` |
+| **`Debug`** | `text_bench` (200 iters, 3,413 elems) | **1.752 ms** / 1.748 ms / 1.762 ms (**572.1 FPS**) | **2.328 ms** / 2.324 ms / 2.343 ms (**430.3 FPS**) | +32.9% ms / 0.75x FPS | `12180320639109031162` |
+| **`Debug`** | `render_bench` (300 iters, 5,100 elems) | **0.454 ms** / 0.458 ms / 0.468 ms (**2,182.5 FPS**) | **0.675 ms** / 0.672 ms / 0.683 ms (**1,488.0 FPS**) | +48.5% ms / 0.68x FPS | `8226312248921777708` |
+| **`Debug`** | `combined_frame` (100 iters, 514 elems) | **1.927 ms** / 1.929 ms / 1.940 ms (**518.5 FPS**) | **2.452 ms** / 2.453 ms / 2.465 ms (**407.7 FPS**) | +27.3% ms / 0.79x FPS | `8133605907336869050` |
+| **`Debug`** | **`total_bench_ms`** | **998.01 ms** | **1,354.70 ms** | **+35.7% ms / 0.74x** | `6654160893120457825` |
+| **`ReleaseSmall`** | `layout_bench` (300 iters, 2,047 elems) | **0.107 ms** / 0.108 ms / 0.112 ms (**9,254.3 FPS**) | **0.165 ms** / 0.166 ms / 0.170 ms (**6,020.0 FPS**) | +53.9% ms / 0.65x FPS | `417689973924794692` |
+| **`ReleaseSmall`** | `text_bench` (200 iters, 3,413 elems) | **0.566 ms** / 0.567 ms / 0.571 ms (**1,764.8 FPS**) | **0.700 ms** / 0.700 ms / 0.705 ms (**1,429.3 FPS**) | +23.5% ms / 0.81x FPS | `12180320639109031162` |
+| **`ReleaseSmall`** | `render_bench` (300 iters, 5,100 elems) | **0.091 ms** / 0.093 ms / 0.105 ms (**10,793.4 FPS**) | **0.137 ms** / 0.139 ms / 0.149 ms (**7,217.0 FPS**) | +50.1% ms / 0.67x FPS | `8226312248921777708` |
+| **`ReleaseSmall`** | `combined_frame` (100 iters, 514 elems) | **0.457 ms** / 0.460 ms / 0.467 ms (**2,175.4 FPS**) | **0.654 ms** / 0.652 ms / 0.661 ms (**1,533.4 FPS**) | +43.2% ms / 0.70x FPS | `8133605907336869050` |
+| **`ReleaseSmall`** | **`total_bench_ms`** | **251.55 ms** | **339.71 ms** | **+35.0% ms / 0.74x** | `6654160893120457825` |
+| **`ReleaseFast (+simd128)`** | `layout_bench` (300 iters, 2,047 elems) | **0.101 ms** / 0.102 ms / 0.106 ms (**9,830.4 FPS**) | **0.143 ms** / 0.144 ms / 0.149 ms (**6,946.6 FPS**) | +41.4% ms / 0.71x FPS | `417689973924794692` |
+| **`ReleaseFast (+simd128)`** | `text_bench` (200 iters, 3,413 elems) | **0.502 ms** / 0.502 ms / 0.507 ms (**1,990.9 FPS**) | **0.617 ms** / 0.617 ms / 0.623 ms (**1,620.8 FPS**) | +23.0% ms / 0.81x FPS | `12180320639109031162` |
+| **`ReleaseFast (+simd128)`** | `render_bench` (300 iters, 5,100 elems) | **0.077 ms** / 0.078 ms / 0.086 ms (**12,832.0 FPS**) | **0.111 ms** / 0.112 ms / 0.121 ms (**8,899.5 FPS**) | +44.2% ms / 0.69x FPS | `8226312248921777708` |
+| **`ReleaseFast (+simd128)`** | `combined_frame` (100 iters, 514 elems) | **0.480 ms** / 0.481 ms / 0.486 ms (**2,080.3 FPS**) | **0.620 ms** / 0.619 ms / 0.630 ms (**1,616.3 FPS**) | +29.1% ms / 0.78x FPS | `8133605907336869050` |
+| **`ReleaseFast (+simd128)`** | **`total_bench_ms`** | **230.96 ms** | **298.90 ms** | **+29.4% ms / 0.77x** | `6654160893120457825` |
 
 ### F.4 Key Takeaways on `wasm64-freestanding` (Memory64) vs `wasm32-freestanding` Tradeoffs
 
-1. **Zero Compile-Time Penalty**: Compiling for `wasm64-freestanding` takes virtually the exact same time as `wasm32-freestanding` across both `wazig.6` (`3.97s` vs `4.05s` warm on `knots-wasm-bench ReleaseSmall`, `14.24s` vs `14.48s` warm on `playground ReleaseSmall`) and `wazigl.6` (`12.02s` vs `11.65s` warm on `knots-wasm-bench ReleaseSmall`, `35.25s` vs `34.82s` warm on `playground ReleaseSmall`).
+1. **Zero Compile-Time Penalty**: Compiling for `wasm64-freestanding` takes virtually the exact same time as `wasm32-freestanding` across both `wazig.6` (`8.17s` vs `8.58s` warm on `knots-wasm-bench ReleaseSmall`, `19.24s` vs `19.67s` warm on `playground ReleaseSmall`) and `wazigl.6` (`12.02s` vs `11.65s` warm on `knots-wasm-bench ReleaseSmall`, `35.25s` vs `34.82s` warm on `playground ReleaseSmall`).
 2. **Negligible Compressed Binary Size Overhead (`+0.3%` to `+7.2%` `zstd -19`)**:
-   - On `knots-wasm-bench`, `wasm64-freestanding` adds only **`+1.5%`–`+2.0%` raw** (`+0.3%`–`+0.6%` `zstd -19`) in `ReleaseSmall` (`319.7 KB` vs `318.6 KB` zstd under `wazig.6`; `285.3 KB` vs `283.6 KB` zstd under `wazigl.6`).
-   - On `examples/playground` (which embeds static UI/font tables and pointer-rich descriptors), 64-bit pointers and LEB128 `i64` address offsets increase raw `.wasm` size by `+17.9%`–`+19.8%` under `wazig.6` and `+11.8%`–`+23.7%` under `wazigl.6`, but the extra upper-zero bytes in 64-bit pointers compress away almost completely under `zstd -19` (**`+1.6%`–`+2.8%` in `ReleaseSmall`**, e.g. `606.8 KB` vs `597.0 KB` in `wazigl.6 ReleaseSmall` and `680.8 KB` vs `662.3 KB` in `wazig.6 ReleaseSmall`).
+   - On `knots-wasm-bench`, `wasm64-freestanding` adds only **`+1.5%`–`+2.0%` raw** (`+0.3%`–`+0.6%` `zstd -19`) in `ReleaseSmall` (`432.0 KB` vs `425.5 KB` zstd under `wazig.6`; `382.0 KB` vs `377.0 KB` zstd under `wazigl.6`).
+   - On `examples/playground` (which embeds static UI/font tables and pointer-rich descriptors), 64-bit pointers and LEB128 `i64` address offsets increase raw `.wasm` size by `+17.9%`–`+19.8%` under `wazig.6` and `+11.8%`–`+23.7%` under `wazigl.6`, but the extra upper-zero bytes in 64-bit pointers compress away almost completely under `zstd -19` (**`+1.6%`–`+2.8%` in `ReleaseSmall`**, e.g. `716.1 KB` vs `704.5 KB` in `wazigl.6 ReleaseSmall` and `803.1 KB` vs `771.7 KB` in `wazig.6 ReleaseSmall`).
 3. **Runtime Performance & Memory64 Bounds-Checking Overhead (`+34.3%` to `+56.7%` total suite time)**:
-   - Across `knots-wasm-bench`, `wasm64-freestanding` runs at **0.64x–0.74x** the overall throughput of `wasm32-freestanding` (`total_bench_ms`: `287.25 ms` vs `183.29 ms` in `wazig.6 ReleaseFast +simd128`; `234.25 ms` vs `170.15 ms` in `wazigl.6 ReleaseFast +simd128`), while still exceeding all `cataggar/knots#9` 600–1,800 FPS targets by a wide margin (`6,603.8 FPS` / `6,940.2 FPS` on `layout_bench`, `6,447.9 FPS` / `8,180.7 FPS` on `render_bench`, `1,647.2 FPS` / `2,467.9 FPS` on `combined_frame`).
+   - Across `knots-wasm-bench`, `wasm64-freestanding` runs at **0.64x–0.74x** the overall throughput of `wasm32-freestanding` (`total_bench_ms`: `329.96 ms` vs `213.06 ms` in `wazig.6 ReleaseFast +simd128`; `298.90 ms` vs `230.96 ms` in `wazigl.6 ReleaseFast +simd128`), while still exceeding all `cataggar/knots#9` 600–1,800 FPS targets by a wide margin (`6,645.1 FPS` / `6,946.6 FPS` on `layout_bench`, `6,557.0 FPS` / `8,899.5 FPS` on `render_bench`, `1,545.8 FPS` / `1,616.3 FPS` on `combined_frame`).
    - This runtime delta is driven by two fundamental architectural differences in WebAssembly Memory64:
      1. **Explicit Software Bounds Checks vs 4 GiB Virtual Guard Pages**: For `wasm32`, Wasmtime reserves a 4 GiB virtual address region with guard pages so `i32` loads/stores execute without explicit bounds-check branches. For `wasm64` (Memory64), the 64-bit address space cannot be covered by virtual memory guard pages alone, requiring explicit compare-and-branch bounds checks on linear-memory accesses.
      2. **Doubled Pointer & Slice Width (`usize = u64`, `[]T = 16 B` vs `8 B`)**: Pointer-heavy tree/slice traversals (`layout_bench`) experience higher cache-line pressure and 64-bit address arithmetic compared to SIMD/float-heavy batch generation (`render_bench`).
 4. **When to Choose `wasm32-freestanding` vs `wasm64-freestanding`**:
    - **`wasm32-freestanding` (Default for Web UI)**: Delivers maximum single-core throughput and smaller uncompressed binaries whenever the workload fits within the 4 GiB address space.
-   - **`wasm64-freestanding` (Memory64)**: Unlocks **>4 GiB linear memory** (up to 16 GiB in browsers/Wasmtime) with zero source changes, identical deterministic output, near-zero `zstd` wire-size overhead (`+0.3%`–`+2.8%` in `ReleaseSmall`), and `1,647`–`2,468 FPS` full-frame UI throughput.
+   - **`wasm64-freestanding` (Memory64)**: Unlocks **>4 GiB linear memory** (up to 16 GiB in browsers/Wasmtime) with zero source changes, identical deterministic output, near-zero `zstd` wire-size overhead (`+0.3%`–`+2.8%` in `ReleaseSmall`), and `1,546`–`1,616 FPS` full-frame UI throughput.
 
 ---
 

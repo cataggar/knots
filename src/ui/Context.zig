@@ -472,16 +472,17 @@ fn hasAccessibilityNode(ui: *const UI, id: Element.Id) bool {
 /// Returns true if any height changed, in which case the caller should re-run layout so ancestors fit the new heights.
 fn reflowWrappedText(ui: *UI) !bool {
     var changed = false;
-    for (ui.decorations.items, 0..) |dec, slot| {
-        if (dec != .text) continue;
-        const t = dec.text;
+    for (ui.decorations.items, 0..) |*dec, slot| {
+        if (dec.* != .text) continue;
+        const t = &dec.text;
         if (!t.wrap or t.content.len == 0) continue;
 
         const el = ui.layout_ctx.pool.get(@intCast(slot));
         const wrap_px = el.box.w() * ui.content_scale;
         if (wrap_px <= 0) continue;
 
-        const text_layout = try ui.styledTextLayout(&t, el.box.w());
+        const text_layout = try ui.styledTextLayout(t, el.box.w());
+        t.cached_layout = text_layout;
         const new_h = text_layout.height / ui.content_scale;
         if (new_h != el.intrinsic_h) {
             el.intrinsic_h = new_h;
@@ -911,7 +912,7 @@ fn textWrapWidth(t: Decoration.Text, el: *const Element) f32 {
 fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Text, clip: Clip.State) !void {
     const content_scale = ui.content_scale;
     if (t.size <= 0) return;
-    const text_layout = try ui.styledTextLayout(&t, textWrapWidth(t, el));
+    const text_layout = t.cached_layout orelse try ui.styledTextLayout(&t, textWrapWidth(t, el));
     if (text_layout.lines.len == 0) return;
     try paintUnderlines(draw_list, el, t, text_layout, content_scale, clip);
     if (text_layout.glyphs.ids.len == 0) return;
@@ -938,6 +939,8 @@ fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Te
 
     const slots = try ui.text_system.resolveSlots(text_layout);
     const store = &ui.text_system.glyph_store;
+    const uniform_color = t.colors.len == 0;
+    const default_half_color = halfColor(t.color);
     var colors: ColorCursor = .{ .spans = t.colors, .default = t.color };
     for (text_layout.lines[line_range.start..line_range.end]) |line| {
         const baseline = el.box.y() + line.baseline / content_scale + line.y / content_scale;
@@ -956,12 +959,13 @@ fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Te
                 .clip = clip.scissor,
                 .margin = dilation_margin,
             };
-            const color = colors.at(glyphs.cluster[index]);
             if (slot != text.TextLayout.layered_slot) {
                 store.touch(slot);
-                try pushSlot(draw_list, batch, slot, store.table.items[slot].bounds, pen, color);
+                const col_f16 = if (uniform_color) default_half_color else halfColor(colors.at(glyphs.cluster[index]));
+                try pushSlotHalf(draw_list, batch, slot, store.table.items[slot].bounds, pen, col_f16);
                 continue;
             }
+            const color = if (uniform_color) t.color else colors.at(glyphs.cluster[index]);
             const colr = &ui.text_system.faceById(run.face).program.colr;
             const layers = colr.layers(glyphs.ids[index]);
             try draw_list.reserveTextInstances(layers.count);
@@ -984,11 +988,11 @@ fn pushGlyph(ui: *UI, draw_list: *DrawList, batch: DrawList.TextBatch, face: tex
     const rec = try ui.text_system.glyphRecord(face, glyph_id);
     if (rec.isEmpty()) return;
     const bounds = [4]f32{ rec.bounds_em_min[0], rec.bounds_em_min[1], rec.bounds_em_max[0], rec.bounds_em_max[1] };
-    try pushSlot(draw_list, batch, rec.slot, bounds, pen, color);
+    try pushSlotHalf(draw_list, batch, rec.slot, bounds, pen, halfColor(color));
 }
 
 /// Pushes one glyph instance unless its ink, `bounds` in ems, falls outside the clip.
-fn pushSlot(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: [4]f32, pen: Pen, color: [4]f32) !void {
+inline fn pushSlotHalf(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: [4]f32, pen: Pen, col_f16: [4]f16) !void {
     const ink = math.Rect.fromMinMax(
         .{ pen.origin[0] + bounds[0] * pen.size, pen.origin[1] - bounds[3] * pen.size },
         .{ pen.origin[0] + bounds[2] * pen.size, pen.origin[1] - bounds[1] * pen.size },
@@ -996,7 +1000,7 @@ fn pushSlot(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: 
     if (pen.clip) |c| {
         if (!c.overlaps(ink.expand(pen.margin))) return;
     }
-    try draw_list.pushTextInstance(batch, ink, .{ .origin = pen.origin, .size = pen.size, .slot = slot, .col = halfColor(color) });
+    try draw_list.pushTextInstance(batch, ink, .{ .origin = pen.origin, .size = pen.size, .slot = slot, .col = col_f16 });
 }
 
 /// Palette colors keep the text's opacity. A null palette color is the text color.

@@ -34,6 +34,8 @@ pub const Decoration = union(enum) {
         key: ?u64 = null,
         /// Bump to force a relayout of keyed content.
         revision: u32 = 0,
+        /// Cached physical-pixel layout resolved during measurement/reflow within the current frame.
+        cached_layout: ?*const text.TextLayout = null,
     };
 
     pub const ColorSpan = struct { start: u32, end: u32, color: [4]f32 };

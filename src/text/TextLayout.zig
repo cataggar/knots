@@ -18,6 +18,9 @@ underline_thickness: f32 = 0,
 /// `slot_generation` equals the store's generation. `layered_slot` marks COLR glyphs.
 slots: []u32 = &.{},
 slot_generation: u64 = std.math.maxInt(u64),
+/// Total byte length of the single contiguous allocation starting at `@ptrCast(self)`.
+slab_len: usize = 0,
+owns_slots: bool = false,
 
 pub const layered_slot: u32 = std.math.maxInt(u32);
 
