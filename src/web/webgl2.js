@@ -4,6 +4,7 @@ const BUFFER_USAGE_INDEX = 16;
 const BUFFER_USAGE_UNIFORM = 64;
 const BUFFER_USAGE_STORAGE = 128;
 const MIN_UBO_BACKING_BYTES = 16384;
+const STORAGE_TEX_WIDTH = 1024;
 
 function textureFormatInfo(gl, format) {
   switch (format) {
@@ -62,16 +63,20 @@ function textureFormatInfo(gl, format) {
   }
 }
 
-function vertexFormatComponents(format) {
+function vertexFormatInfo(gl, format) {
   switch (format) {
     case "float32":
-      return 1;
+      return { components: 1, type: gl.FLOAT, isInteger: false };
     case "float32x2":
-      return 2;
+      return { components: 2, type: gl.FLOAT, isInteger: false };
     case "float32x3":
-      return 3;
+      return { components: 3, type: gl.FLOAT, isInteger: false };
     case "float32x4":
-      return 4;
+      return { components: 4, type: gl.FLOAT, isInteger: false };
+    case "uint32":
+      return { components: 1, type: gl.UNSIGNED_INT, isInteger: true };
+    case "float16x4":
+      return { components: 4, type: gl.HALF_FLOAT, isInteger: false };
     default:
       throw new Error(`Unsupported WebGL2 vertex format: ${format}`);
   }
@@ -326,6 +331,13 @@ class WebGL2RenderPass {
               gl.bindBufferRange(gl.UNIFORM_BUFFER, uboSlot, res.buffer.glBuffer, offset, bindSize);
             }
           }
+          const storageTexUnit = pipeline.storageTexBindings.get(key);
+          if (storageTexUnit !== undefined) {
+            const glTex = this.backend.ensureStorageTexture(res.buffer);
+            gl.activeTexture(gl.TEXTURE0 + storageTexUnit);
+            gl.bindTexture(gl.TEXTURE_2D, glTex);
+            gl.bindSampler(storageTexUnit, null);
+          }
         } else if (res.texture && res.texture.glTexture) {
           const texUnit = pipeline.textureBindings.get(key);
           if (texUnit !== undefined) {
@@ -351,14 +363,24 @@ class WebGL2RenderPass {
 
       for (const attr of vbLayout.attributes) {
         gl.enableVertexAttribArray(attr.shaderLocation);
-        gl.vertexAttribPointer(
-          attr.shaderLocation,
-          attr.components,
-          gl.FLOAT,
-          false,
-          vbLayout.arrayStride,
-          baseOffset + attr.offset,
-        );
+        if (attr.isInteger) {
+          gl.vertexAttribIPointer(
+            attr.shaderLocation,
+            attr.components,
+            attr.type,
+            vbLayout.arrayStride,
+            baseOffset + attr.offset,
+          );
+        } else {
+          gl.vertexAttribPointer(
+            attr.shaderLocation,
+            attr.components,
+            attr.type,
+            false,
+            vbLayout.arrayStride,
+            baseOffset + attr.offset,
+          );
+        }
         gl.vertexAttribDivisor(attr.shaderLocation, isInstanced ? 1 : 0);
       }
     }
@@ -529,6 +551,59 @@ export function createWebGL2Backend(initialCanvas) {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     },
 
+    ensureStorageTexture(buffer) {
+      const ctx = this.gl;
+      const byteLen = buffer.cpuBytes?.byteLength ?? 0;
+      const wordCount = Math.max(1, Math.ceil(byteLen / 4));
+      const height = Math.max(1, Math.ceil(wordCount / STORAGE_TEX_WIDTH));
+      const requiredBytes = STORAGE_TEX_WIDTH * height * 4;
+      if (!buffer.cpuBytes || buffer.cpuBytes.byteLength < requiredBytes) {
+        const grown = new Uint8Array(requiredBytes);
+        if (buffer.cpuBytes) grown.set(buffer.cpuBytes);
+        buffer.cpuBytes = grown;
+      }
+      if (!buffer.storageTex || buffer.storageTexHeight !== height) {
+        if (buffer.storageTex) ctx.deleteTexture(buffer.storageTex);
+        const tex = ctx.createTexture();
+        ctx.bindTexture(ctx.TEXTURE_2D, tex);
+        ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_BASE_LEVEL, 0);
+        ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAX_LEVEL, 0);
+        ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.NEAREST);
+        ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.NEAREST);
+        ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+        ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+        ctx.texStorage2D(ctx.TEXTURE_2D, 1, ctx.R32UI, STORAGE_TEX_WIDTH, height);
+        ctx.bindTexture(ctx.TEXTURE_2D, null);
+        buffer.storageTex = tex;
+        buffer.storageTexHeight = height;
+        buffer.storageTexDirty = true;
+      }
+      if (buffer.storageTexDirty) {
+        const wordsView = new Uint32Array(
+          buffer.cpuBytes.buffer,
+          buffer.cpuBytes.byteOffset,
+          STORAGE_TEX_WIDTH * height,
+        );
+        ctx.bindTexture(ctx.TEXTURE_2D, buffer.storageTex);
+        ctx.pixelStorei(ctx.UNPACK_ALIGNMENT, 4);
+        ctx.pixelStorei(ctx.UNPACK_ROW_LENGTH, 0);
+        ctx.texSubImage2D(
+          ctx.TEXTURE_2D,
+          0,
+          0,
+          0,
+          STORAGE_TEX_WIDTH,
+          height,
+          ctx.RED_INTEGER,
+          ctx.UNSIGNED_INT,
+          wordsView,
+        );
+        ctx.bindTexture(ctx.TEXTURE_2D, null);
+        buffer.storageTexDirty = false;
+      }
+      return buffer.storageTex;
+    },
+
     getCanvasContext(canvas) {
       ensureGl(canvas);
       return {
@@ -557,6 +632,17 @@ export function createWebGL2Backend(initialCanvas) {
       ctx.bindBuffer(target, buffer.glBuffer);
       ctx.bufferSubData(target, offset, dataBytes);
       ctx.bindBuffer(target, null);
+      if (buffer.isStorage) {
+        const needed = offset + dataBytes.byteLength;
+        if (!buffer.cpuBytes || buffer.cpuBytes.byteLength < needed) {
+          const aligned = Math.ceil(Math.max(needed, 4) / 4) * 4;
+          const next = new Uint8Array(aligned);
+          if (buffer.cpuBytes) next.set(buffer.cpuBytes);
+          buffer.cpuBytes = next;
+        }
+        buffer.cpuBytes.set(dataBytes, offset);
+        buffer.storageTexDirty = true;
+      }
     },
 
     writeTexture(dest, dataBytes, layout, size) {
@@ -617,6 +703,7 @@ export function createWebGL2Backend(initialCanvas) {
       const ctx = backend.gl;
       const usage = desc.usage ?? 0;
       const isIndex = (usage & BUFFER_USAGE_INDEX) !== 0;
+      const isStorage = (usage & BUFFER_USAGE_STORAGE) !== 0;
       const isUbo = (usage & (BUFFER_USAGE_UNIFORM | BUFFER_USAGE_STORAGE)) !== 0;
       const allocSize = isUbo
         ? Math.max(desc.size + MIN_UBO_BACKING_BYTES, MIN_UBO_BACKING_BYTES)
@@ -627,16 +714,27 @@ export function createWebGL2Backend(initialCanvas) {
       ctx.bindBuffer(target, glBuffer);
       ctx.bufferData(target, allocSize, ctx.DYNAMIC_DRAW);
       ctx.bindBuffer(target, null);
-      return {
+      const alignedBytes = Math.ceil(Math.max(desc.size ?? 4, 4) / 4) * 4;
+      const bufObj = {
         glBuffer,
         size: desc.size,
         allocSize,
         usage,
         isIndex,
+        isStorage,
+        cpuBytes: isStorage ? new Uint8Array(alignedBytes) : null,
+        storageTex: null,
+        storageTexHeight: 0,
+        storageTexDirty: true,
         destroy() {
+          if (bufObj.storageTex) {
+            ctx.deleteTexture(bufObj.storageTex);
+            bufObj.storageTex = null;
+          }
           ctx.deleteBuffer(glBuffer);
         },
       };
+      return bufObj;
     },
 
     createTexture(desc) {
@@ -745,6 +843,7 @@ export function createWebGL2Backend(initialCanvas) {
 
       const bindGroupLayouts = desc.layout?.bindGroupLayouts ?? [];
       const uboBindings = new Map();
+      const storageTexBindings = new Map();
       const textureBindings = new Map();
       let nextUboSlot = 0;
       let nextTexUnit = 0;
@@ -756,18 +855,23 @@ export function createWebGL2Backend(initialCanvas) {
           const key = `${groupIndex}:${entry.binding}`;
           const canonicalName = `g${groupIndex}_b${entry.binding}`;
           if (entry.buffer) {
-            const slot = nextUboSlot++;
-            uboBindings.set(key, slot);
             let blockIndex = ctx.getUniformBlockIndex(program, canonicalName);
-            if (blockIndex === ctx.INVALID_INDEX && slot === 0) {
-              const activeBlocks = ctx.getProgramParameter(program, ctx.ACTIVE_UNIFORMS);
-              void activeBlocks;
+            if (blockIndex === ctx.INVALID_INDEX && nextUboSlot === 0) {
               if (ctx.getProgramParameter(program, ctx.ACTIVE_UNIFORM_BLOCKS) === 1) {
                 blockIndex = 0;
               }
             }
             if (blockIndex !== ctx.INVALID_INDEX) {
+              const slot = nextUboSlot++;
+              uboBindings.set(key, slot);
               ctx.uniformBlockBinding(program, blockIndex, slot);
+            } else {
+              const loc = ctx.getUniformLocation(program, canonicalName);
+              if (loc !== null) {
+                const unit = nextTexUnit++;
+                storageTexBindings.set(key, unit);
+                ctx.uniform1i(loc, unit);
+              }
             }
           } else if (entry.texture) {
             const unit = nextTexUnit++;
@@ -785,11 +889,16 @@ export function createWebGL2Backend(initialCanvas) {
       const vertexBuffers = (desc.vertex?.buffers ?? []).map((vb) => ({
         arrayStride: vb.arrayStride,
         stepMode: vb.stepMode ?? "vertex",
-        attributes: (vb.attributes ?? []).map((attr) => ({
-          shaderLocation: attr.shaderLocation,
-          offset: attr.offset,
-          components: vertexFormatComponents(attr.format),
-        })),
+        attributes: (vb.attributes ?? []).map((attr) => {
+          const info = vertexFormatInfo(ctx, attr.format);
+          return {
+            shaderLocation: attr.shaderLocation,
+            offset: attr.offset,
+            components: info.components,
+            type: info.type,
+            isInteger: info.isInteger,
+          };
+        }),
       }));
 
       const target = desc.fragment?.targets?.[0];
@@ -819,6 +928,7 @@ export function createWebGL2Backend(initialCanvas) {
         vertexBuffers,
         bindGroupLayouts,
         uboBindings,
+        storageTexBindings,
         textureBindings,
         blend,
         depthStencil,

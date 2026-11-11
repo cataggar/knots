@@ -21,7 +21,8 @@ Knots in your own window or renderer.
 | Windows             | Vulkan          | WebGPU            |
 | WASM (freestanding) | WebGPU          | WebGL2 (automatic fallback or `-Dgpu_backend=webgl2`) |
 
-Select a backend with the `gpu_backend` dependency option. Read
+Select a backend with the `backend` dependency option (`none`, `vulkan` or
+`webgpu`). Read
 [GPU backends](https://knotsui.com/docs/gpu-backends.html).
 
 In the browser, Knots tries WebGPU first (including a software fallback adapter retry via `requestAdapter({ forceFallbackAdapter: true })`) and automatically falls back to WebGL2 (`#version 300 es`) when WebGPU is unavailable—such as on GPU-less Windows VMs / DevBoxes where Chromium enables ANGLE D3D11 WARP for WebGL2 by default. You can also target WebGL2 explicitly at build time with `-Dgpu_backend=webgl2` or at runtime with `startKnots({ gpuBackend: "webgl2" })` (or `?gpu=webgl2`).
@@ -29,8 +30,15 @@ In the browser, Knots tries WebGPU first (including a software fallback adapter 
 ## Known limitations
 
 - Linux windows use Wayland only. There is no X11 support.
-- Text uses one glyph for each Unicode codepoint. There is no complex shaping,
-  bidirectional text, ligatures, kerning, font fallback, or IME composition.
+- Text shaping matches HarfBuzz for simple scripts (ligatures, kerning, marks,
+  font fallback, COLRv0 color glyphs). There is no complex-script shaping
+  (Arabic, Indic, …), bidirectional or vertical text, or bitmap color glyphs.
+  Variable fonts are used at their default instance.
+- Input methods and dead keys compose inline in text fields on every platform:
+  NSTextInputClient on macOS, IMM32 and `WM_DEADCHAR` on Windows, text-input-v3
+  and xkb compose on Wayland, and EditContext in the browser (a hidden textarea
+  where the browser has no EditContext, which cannot reconvert committed text).
+  Windows has no TSF.
 - Accessibility (AccessKit) is available on macOS, Windows, and Linux. It is
   not available in the browser.
 
@@ -46,6 +54,9 @@ In the browser, Knots tries WebGPU first (including a software fallback adapter 
 
 ## Dependencies
 
+All dependencies are lazy. A build fetches only the ones that its target, GPU
+backend and options need. A `.backend = .none` build fetches none.
+
 | Dependency | Used for | Linking |
 | --- | --- | --- |
 | [wgpu](https://codeberg.org/shahwali/wgpu-zig) | WebGPU backend (native) | Static, shared on Windows MSVC (ship `wgpu_native.dll`) |
@@ -53,7 +64,6 @@ In the browser, Knots tries WebGPU first (including a software fallback adapter 
 | accesskit (`lib/accesskit`) | Native accessibility | Static, patched so it links next to wgpu-native |
 | zig_objc | macOS windowing | - |
 | wayland | Linux windowing | System `libwayland` |
-| TrueType | Text | - |
 | js_bridge (`lib/js-bridge`) | Browser host | - |
 | celer | `zig build dev` web server (dev only) | - |
 
@@ -150,6 +160,24 @@ app_module.addImport("render", knots_dep.module("render"));
 app_module.addImport("renderer", knots_dep.module("renderer"));
 ```
 
+If your host also has its own renderer, set `.backend = .none`. Knots then builds only
+the modules that need no window system, graphics API or other package: `ui`,
+`input`, `text_edit`, `text`, `render` and `math`. It skips `knots`, `window`,
+`gpu` and `renderer`, and it fetches no dependency.
+
+```zig
+const knots_dep = b.dependency("knots", .{
+    .target = target,
+    .optimize = optimize,
+    .backend = .none,
+});
+```
+
+Your renderer draws `render.Packet`. `render.contract` states its vertex
+layouts, bindings, uniforms and blending. `render.shaders` has the bundled
+shader sources (WGSL and Vulkan Zig) to read or translate. Image pixels use
+`render.PixelFormat`.
+
 ```zig
 var context = try ui.Context.init(allocator, .{});
 defer context.deinit();
@@ -160,6 +188,7 @@ try buildUi(&frame);
 
 const output = try context.endFrame(&frame);
 window.setCursorShape(output.cursor_shape);
+try window.setTextInput(output.text_input);
 if (output.clipboard_write) |value| {
     _ = try window.setClipboardText(allocator, value);
 }
@@ -196,6 +225,11 @@ reads the packet directly. `Painter` uses the bundled backend types. See
 - `Frame.deinit` aborts a frame that did not end. It is safe on copied handles.
 - Apply cursor and clipboard effects one time. The host decides when to redraw
   or close a window.
+- Pass `output.text_input` to the window every frame, including `null`, so the
+  input method follows focus. A host with its own window answers its input
+  method from that session and sends keys and text back, in order, as
+  `Input.events`. The `text_edit` module edits a copy of the field the way the
+  UI will, so the host can answer the input method between frames.
 - Custom backends must validate packet extensions and reject unsupported
   commands.
 

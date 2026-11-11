@@ -97,6 +97,7 @@ fn run(io: std.Io, gpa: std.mem.Allocator) !void {
 
         const output = try context_ui.endFrame(&frame);
         window.setCursorShape(output.cursor_shape);
+        try window.setTextInput(output.text_input);
 
         if (output.clipboard_write) |value| _ = try window.setClipboardText(gpa, value);
         if (output.close) break;

@@ -12,6 +12,7 @@ const State = @import("State.zig");
 const Input = @import("Input.zig");
 const InputScope = @import("InputScope.zig");
 const Accessibility = @import("Accessibility.zig");
+const text_edit = @import("text_edit");
 const animation = @import("animation.zig");
 
 const Decoration = @import("decoration.zig").Decoration;
@@ -49,7 +50,7 @@ pub const HitTarget = enum {
 
 pub const Config = struct {
     /// Default is Roboto regular + Material icons regular.
-    fonts: []const text.Font.FontSource = &.{.{
+    fonts: []const text.TextSystem.FontSource = &.{.{
         .name = "default",
         .data = @embedFile("fonts/default.ttf"),
     }},
@@ -97,7 +98,8 @@ layout_ctx: layout.Context,
 decorations: std.ArrayList(Decoration),
 /// Inherited style content per slot, parallel to `decorations`.
 contents: std.ArrayList(style.Content),
-font: text.Font,
+text_system: text.TextSystem,
+text_runs: std.ArrayList(text.TextSystem.StyleRun) = .empty,
 state: State,
 input: Input,
 hit_records: std.ArrayList(HitRecord),
@@ -127,7 +129,13 @@ culled_count: u32 = 0,
 content_scale: f32,
 scroll_line_size: FontSize.Input,
 anim_active: bool,
-text_input_requested: bool,
+text_session: ?input_types.TextInputSession = null,
+/// The field the platform last saw, and its session id.
+text_session_owner: Element.Id = Element.INVALID_ID,
+text_session_id: u64 = 0,
+/// The platform composes into one field at a time: `composition_owner`.
+composition: text_edit.Composition = .{},
+composition_owner: Element.Id = Element.INVALID_ID,
 theme: Theme,
 last_stats: Stats,
 cursor_shape: input_types.CursorShape,
@@ -142,7 +150,7 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .contents = .empty,
         .state = .init(allocator, cfg.state_ttls),
         .input = .{},
-        .font = try .init(allocator, cfg.fonts),
+        .text_system = try .init(allocator, cfg.fonts),
         .hit_records = .empty,
         .press_ancestors = .empty,
         .hover_ancestors = .empty,
@@ -158,7 +166,6 @@ pub fn init(allocator: Allocator, cfg: Config) !UI {
         .content_scale = 1.0,
         .scroll_line_size = cfg.scroll_line_size,
         .anim_active = false,
-        .text_input_requested = false,
         .theme = cfg.theme,
         .last_stats = .{},
         .cursor_shape = .default,
@@ -169,7 +176,8 @@ pub fn deinit(self: *UI) void {
     self.layout_ctx.deinit();
     self.decorations.deinit(self.allocator);
     self.contents.deinit(self.allocator);
-    self.font.deinit();
+    self.text_system.deinit();
+    self.text_runs.deinit(self.allocator);
     self.state.deinit();
     self.hit_records.deinit(self.allocator);
     self.hit_region_marks.deinit(self.allocator);
@@ -189,6 +197,7 @@ pub fn deinit(self: *UI) void {
     self.cull_prev.deinit(self.allocator);
     self.cull_next.deinit(self.allocator);
     self.cull_ancestors.deinit(self.allocator);
+    self.composition.deinit(self.allocator);
 }
 
 pub fn open(self: *UI, key: Key, element: Element.Config, decoration: Decoration) !Element.Id {
@@ -368,16 +377,54 @@ pub fn acceptsInput(self: *UI, id: Element.Id) bool {
 
 /// Line height in logical pixels for a font size in logical pixels.
 pub fn lineHeight(self: *UI, size: f32, font: ?[]const u8) !f32 {
-    const face = try self.font.getFace(font);
     const scale = self.content_scale;
-    return (try face.lineHeight(size * scale)) / scale;
+    return (try self.text_system.lineHeight(font, size * scale)) / scale;
+}
+
+/// Layout in physical pixels. `wrap_width` is in logical pixels and 0 disables wrapping.
+pub fn textLayout(self: *UI, content: []const u8, size: f32, font: ?[]const u8, wrap_width: f32) !*const text.TextLayout {
+    return self.styledTextLayout(&.{ .content = content, .size = size, .font = font }, wrap_width);
+}
+
+/// Layout of a text decoration with its runs, features and key, in physical pixels.
+pub fn styledTextLayout(self: *UI, t: *const Decoration.Text, wrap_width: f32) !*const text.TextLayout {
+    const scale = self.content_scale;
+    self.text_runs.clearRetainingCapacity();
+    for (t.runs) |run| {
+        var scaled = run;
+        if (run.size) |size| scaled.size = size * scale;
+        try self.text_runs.append(self.allocator, scaled);
+    }
+    return self.text_system.layout(.{
+        .text = t.content,
+        .font = t.font,
+        .size = t.size * scale,
+        .wrap_width = @max(0, wrap_width * scale),
+        .features = t.features,
+        .runs = self.text_runs.items,
+        .tab_size = t.tab_size,
+        .key = t.key,
+        .revision = t.revision,
+    });
+}
+
+/// Fills the intrinsic size of a text decoration from its layout.
+pub fn measureText(self: *UI, t: *Decoration.Text) !void {
+    const scale = self.content_scale;
+    if (t.wrap) {
+        t.intrinsic_w = 0;
+        t.intrinsic_h = (try self.text_system.lineHeight(t.font, t.size * scale)) / scale;
+        return;
+    }
+    const measured = try self.styledTextLayout(t, 0);
+    t.intrinsic_w = measured.width / scale;
+    t.intrinsic_h = measured.height / scale;
 }
 
 pub fn textDecoration(self: *UI, content: []const u8, size: f32, font: ?[]const u8, wrap: bool) !Decoration {
-    const face = try self.font.getFace(font);
     const scale = self.content_scale;
     if (wrap) {
-        const lh = (try face.lineHeight(size * scale)) / scale;
+        const lh = (try self.text_system.lineHeight(font, size * scale)) / scale;
         return .{ .text = .{
             .content = content,
             .size = size,
@@ -387,7 +434,7 @@ pub fn textDecoration(self: *UI, content: []const u8, size: f32, font: ?[]const 
             .wrap = true,
         } };
     }
-    const measured = try face.measure(content, size * scale);
+    const measured = try self.textLayout(content, size, font, 0);
     return .{ .text = .{
         .content = content,
         .size = size,
@@ -535,8 +582,21 @@ pub fn requestCursor(self: *UI, shape: input_types.CursorShape) void {
     self.cursor_shape = shape;
 }
 
-pub fn requestTextInput(self: *UI) void {
-    self.text_input_requested = true;
+/// The session id the platform knows field `id` by.
+pub fn textSessionId(self: *const UI, id: Element.Id) ?u64 {
+    if (id == Element.INVALID_ID or id != self.text_session_owner) return null;
+    return self.text_session_id;
+}
+
+/// Assigns `session.id`.
+pub fn publishTextInput(self: *UI, id: Element.Id, session: input_types.TextInputSession) void {
+    if (id != self.text_session_owner) {
+        self.text_session_owner = id;
+        self.text_session_id +%= 1;
+    }
+    var published = session;
+    published.id = self.text_session_id;
+    self.text_session = published;
 }
 
 /// Drive a time-based animation toward `target` for the given (element_id, channel)

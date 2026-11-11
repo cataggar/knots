@@ -38,8 +38,9 @@ pub const Options = struct {
 pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, executable: *std.Build.Step.Compile, threads: bool, options: Options) void {
     std.debug.assert(root_module.resolved_target != null);
     std.debug.assert(executable.root_module.resolved_target != null);
-    configureWasmTarget(&root_module.resolved_target.?, threads);
-    configureWasmTarget(&executable.root_module.resolved_target.?, threads);
+    const optimize = executable.root_module.optimize orelse .debug;
+    configureWasmTarget(&root_module.resolved_target.?, threads, optimize);
+    configureWasmTarget(&executable.root_module.resolved_target.?, threads, optimize);
     const target = executable.root_module.resolved_target.?;
     executable.import_memory = threads;
     executable.import_symbols = true;
@@ -54,7 +55,6 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
     // Upstream zig 0.17.0's self-hosted wasm backend emits invalid v128 code
     // when +simd128 is enabled, whereas wazig's self-hosted backend fixes this.
     const is_wazig = std.mem.indexOf(u8, @import("builtin").zig_version_string, "wazig") != null;
-    const optimize = executable.root_module.optimize orelse .debug;
     if (is_wazig and executable.use_llvm == null and optimize == .debug and executable.root_module.resolved_target.?.result.os.tag == .freestanding)
         executable.use_llvm = false;
 
@@ -81,13 +81,19 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
     root_module.export_symbol_names = names;
 }
 
-pub fn configureWasmTarget(target: *std.Build.ResolvedTarget, threads: bool) void {
+pub fn configureWasmTarget(target: *std.Build.ResolvedTarget, threads: bool, optimize: std.builtin.OptimizeMode) void {
     if (!target.result.cpu.arch.isWasm())
         return;
-    const simd = std.Target.wasm.Feature.simd128;
-    target.query.cpu_features_sub.removeFeature(@backingInt(simd));
-    target.query.cpu_features_add.addFeature(@backingInt(simd));
-    target.result.cpu.features.addFeature(@backingInt(simd));
+    // Text shaping and layout use @Vector, which lowers to scalar code without simd128.
+    // Upstream Zig's self-hosted wasm backend miscompiles vector code in Debug mode,
+    // whereas wazig's self-hosted wasm backend supports simd128 in all modes.
+    const is_wazig = std.mem.indexOf(u8, @import("builtin").zig_version_string, "wazig") != null;
+    if (is_wazig or optimize != .debug) {
+        const simd = std.Target.wasm.Feature.simd128;
+        target.query.cpu_features_sub.removeFeature(@backingInt(simd));
+        target.query.cpu_features_add.addFeature(@backingInt(simd));
+        target.result.cpu.features.addFeature(@backingInt(simd));
+    }
     if (!threads) {
         const feature = std.Target.wasm.Feature.atomics;
         target.query.cpu_features_add.removeFeature(@backingInt(feature));

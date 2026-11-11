@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .web_threads = web_threads,
-        .gpu_backend = gpu_backend,
+        .backend = knots.Backend.fromGpu(gpu_backend),
         .wasm64 = wasm64,
     });
 

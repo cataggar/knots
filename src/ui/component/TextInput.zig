@@ -1,4 +1,5 @@
 const std = @import("std");
+const TextLayout = @import("text").TextLayout;
 
 const Frame = @import("../root.zig").Frame;
 const UI = @import("../root.zig").UI;
@@ -6,11 +7,9 @@ const State = @import("../root.zig").State;
 const Style = @import("../root.zig").Style;
 const Key = @import("../root.zig").Key;
 const Decoration = @import("../root.zig").Decoration;
-const Face = @import("text").Face;
 
 const Element = @import("layout").Element;
 const Accessibility = @import("../Accessibility.zig");
-const util = @import("util.zig");
 const edit = @import("text_edit.zig");
 
 const BODY_INDEX: usize = 1; // text decoration
@@ -23,7 +22,7 @@ buf: *std.ArrayList(u8),
 /// Allocates `buf`, the caller frees `buf` with the same allocator.
 allocator: std.mem.Allocator,
 placeholder: []const u8 = "",
-bytes_max: u32 = Face.text_bytes_max,
+bytes_max: u32 = edit.text_bytes_max,
 key: Key,
 style: *const Style = &.{},
 parts: Parts = .{},
@@ -64,10 +63,7 @@ pub fn open(self: *const TextInput, frame: *Frame) !Element.Id {
     const edit_state = try ui.state.getOrCreate(.text_input, ui.allocator, id);
     try edit.processAccessibility(self.buf, self.allocator, frame, edit_state, id, self.bytes_max);
 
-    if (is_focused) {
-        ui.requestTextInput();
-        try edit.processInputEarly(self.buf, self.allocator, frame, edit_state, false, self.bytes_max);
-    }
+    if (!is_focused) try edit.processUnfocused(ui, id, self.buf, self.allocator, edit_state, self.limits());
 
     if (ui.hovering(id)) ui.requestCursor(.text);
     const root = ui.resolveStyle(id, .{ .base = &base.root, .user = self.style }, ui.states(id, .{}), null);
@@ -83,17 +79,19 @@ pub fn close(self: *const TextInput, frame: *Frame) !void {
     const ui = frame.ui();
     const id = self.key.hash();
     const is_focused = ui.focused(id);
-    var items = self.buf.items;
     const content = ui.contents.items[ui.currentSlot()];
     const padding = (ui.resolveStyle(id, .{ .base = &base.root, .user = self.style }, .{}, null)).layout.padding;
 
+    var focused_display: ?edit.Display = null;
     if (is_focused) {
         const s = ui.state.get(.text_input, id).?;
         const scale = ui.content_scale;
+        var f = edit.field(ui, id, self.buf, self.allocator, s, self.limits());
+        try edit.commitOnPress(ui, id, &f);
 
-        const face = try ui.font.getFace(content.font);
-        const shaped = try face.shapeWrapped(items, content.font_size * scale, 0);
-        const line_h = shaped.line_height / scale;
+        var layout: edit.Layout = .{ .ui = ui, .key = self.key.indexed(BODY_INDEX).hash(), .size = content.font_size, .font = content.font, .wrap_width = 0 };
+        var text_layout = try layout.of(self.buf.items, s.selection.caret);
+        const line_h = text_layout.line_height / scale;
         const measured = try ui.state.getOrCreate(.measured, ui.allocator, id);
         const scroll = try ui.state.getOrCreate(.scroll, ui.allocator, id);
         const content_origin = [2]f32{
@@ -101,35 +99,33 @@ pub fn close(self: *const TextInput, frame: *Frame) !void {
             measured.box.y() + padding.top(),
         };
 
-        edit.processMouse(ui, id, items, s, shaped, content_origin, scroll.offset, scale);
-
-        try edit.processInputLate(
-            self.buf,
-            self.allocator,
-            false,
-            ui,
-            s,
-            shaped,
-            line_h,
-            self.bytes_max,
-        );
-        items = self.buf.items;
+        edit.processMouse(ui, id, self.buf.items, s, text_layout, content_origin, scroll.offset, scale);
+        try edit.processEvents(frame, id, &f, &layout, line_h);
+        try edit.processPaste(frame, &f);
+        edit.settle(ui, id, &f);
         ui.input.consumeKeyboard();
 
-        const sel_lo = @min(s.cursor, s.sel_anchor);
-        const sel_hi = @max(s.cursor, s.sel_anchor);
-        const has_sel = sel_lo != sel_hi;
-        const cursor_pos = util.posAtByte(shaped, s.cursor, scale);
+        const d = try edit.display(frame, &f);
+        focused_display = d;
+        text_layout = try layout.of(d.text, d.caret);
+
+        const sel_lo = d.selection.start;
+        const sel_hi = d.selection.end;
+        const has_sel = d.composition == null and sel_lo != sel_hi;
+        const caret_point = text_layout.pointForByte(d.caret);
+        const cursor_pos = .{ .x = caret_point.x / scale, .y = caret_point.y / scale };
         const viewport_w = @max(0, measured.width - padding.left() - padding.right());
-        ensureCaretVisibleX(scroll, cursor_pos.x, viewport_w, shaped.width / scale);
+        ensureCaretVisibleX(scroll, cursor_pos.x, viewport_w, text_layout.width / scale);
         const scroll_x = scroll.offset[0];
+        try edit.publishTextInput(frame, id, d, text_layout, .{ content_origin[0] - scroll_x, content_origin[1] }, line_h, self.limits());
 
         if (has_sel) {
             const selection = ui.resolveStyle(self.key.indexed(SELECTION_BASE).hash(), .{ .base = &base.selection, .user = self.parts.selection }, .{}, null);
-            const spans = try util.lineSpansForRange(ui.allocator, shaped, sel_lo, sel_hi, scale);
-            defer ui.allocator.free(spans);
-            for (spans, 0..) |sp, i| {
-                _ = try ui.open(self.key.indexed(SELECTION_BASE + i), .at(sp.x - scroll_x, sp.y, sp.w, line_h), .{ .rect = selection.surface });
+            var spans: std.ArrayList(TextLayout.Rect) = .empty;
+            defer spans.deinit(ui.allocator);
+            try text_layout.selectionRects(ui.allocator, sel_lo, sel_hi, &spans);
+            for (spans.items, 0..) |sp, i| {
+                _ = try ui.open(self.key.indexed(SELECTION_BASE + i), .at(sp.x / scale - scroll_x, sp.y / scale, sp.w / scale, line_h), .{ .rect = selection.surface });
                 ui.close();
             }
         } else {
@@ -138,15 +134,23 @@ pub fn close(self: *const TextInput, frame: *Frame) !void {
             ui.close();
         }
 
-        if (has_sel) ui.state.selection_text = try frame.arena().dupe(u8, items[sel_lo..sel_hi]);
+        if (has_sel) ui.state.selection_text = try frame.arena().dupe(u8, self.buf.items[sel_lo..sel_hi]);
     }
 
-    if (!is_focused and items.len == 0) {
+    var body_features: [1]edit.Feature = undefined;
+    const body = if (focused_display) |d| d.text else self.buf.items;
+    if (!is_focused and body.len == 0) {
         if (self.placeholder.len > 0)
             _ = try ui.styledText(self.key.indexed(BODY_INDEX), self.placeholder, .{ .base = &base.placeholder, .user = self.parts.placeholder }, .{});
-    } else if (items.len > 0) {
-        var deco = try ui.textDecoration(try frame.arena().dupe(u8, items), content.font_size, content.font, false);
+    } else if (body.len > 0) {
+        var deco = try ui.textDecoration(if (focused_display) |d| d.text else try frame.arena().dupe(u8, body), content.font_size, content.font, false);
         deco.text.color = content.foreground;
+        deco.text.key = self.key.indexed(BODY_INDEX).hash();
+        if (focused_display) |d| {
+            deco.text.features = try frame.arena().dupe(edit.Feature, edit.caretFeatures(d.text, d.caret, &body_features));
+            deco.text.underlines = try edit.compositionUnderlines(frame, d);
+            try ui.measureText(&deco.text);
+        }
         _ = try ui.open(self.key.indexed(BODY_INDEX), .{ .width = .fit(), .height = .fit() }, deco);
         ui.close();
     }
@@ -160,8 +164,8 @@ pub fn close(self: *const TextInput, frame: *Frame) !void {
         .name = self.placeholder,
         .state = .{
             .value_text = self.buf.items,
-            .selection_anchor = edit.byteToCharacter(self.buf.items, edit_state.sel_anchor),
-            .selection_focus = edit.byteToCharacter(self.buf.items, edit_state.cursor),
+            .selection_anchor = edit.byteToCharacter(self.buf.items, edit_state.selection.anchor),
+            .selection_focus = edit.byteToCharacter(self.buf.items, edit_state.selection.caret),
         },
     });
     try ui.setAccessibility(text_run_id, .{
@@ -169,6 +173,10 @@ pub fn close(self: *const TextInput, frame: *Frame) !void {
         .parent = id,
         .state = .{ .value_text = self.buf.items },
     });
+}
+
+fn limits(self: *const TextInput) edit.Limits {
+    return .{ .multiline = false, .bytes_max = self.bytes_max };
 }
 
 fn ensureCaretVisibleX(scroll: *State.Scroll, caret_x: f32, viewport_w: f32, content_w: f32) void {

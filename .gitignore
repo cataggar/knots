@@ -4,4 +4,5 @@ zig-pkg
 .cache-bench
 zig-out
 .wrangler/
+.cache
 __pycache__/

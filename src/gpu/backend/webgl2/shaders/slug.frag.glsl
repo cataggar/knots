@@ -3,12 +3,12 @@ precision highp float;
 precision highp int;
 precision highp usampler2D;
 
-const uint LOG_BAND_TEXTURE_WIDTH = 12u;
+const uint LOG_STORAGE_TEXTURE_WIDTH = 10u;
+const uint STORAGE_TEXTURE_MASK = (1u << LOG_STORAGE_TEXTURE_WIDTH) - 1u;
 const uint MAX_CLIP_DEPTH = 32u;
 const uint MAX_CLIP_NODES = 256u;
 
-uniform sampler2D g1_b0;
-uniform usampler2D g1_b1;
+uniform highp usampler2D g1_b1;
 
 layout(std140) uniform g2_b0 {
     uvec4 clip_nodes_raw[MAX_CLIP_NODES * 3u];
@@ -17,7 +17,8 @@ layout(std140) uniform g2_b0 {
 in vec4 v_color;
 in vec2 v_texcoord;
 flat in vec4 v_banding;
-flat in ivec4 v_glyph;
+flat in uvec4 v_glyph;
+flat in vec4 v_quant;
 in vec2 v_world_pos;
 in float v_clip_node;
 
@@ -134,16 +135,22 @@ vec2 solve_vert_poly(vec4 p12, vec2 p3) {
     );
 }
 
-ivec2 offset_texture_loc(ivec2 base, int offset) {
-    int mask = int((1u << LOG_BAND_TEXTURE_WIDTH) - 1u);
-    ivec2 loc = ivec2(base.x + offset, base.y);
-    loc.y = loc.y + (loc.x >> int(LOG_BAND_TEXTURE_WIDTH));
-    loc.x = loc.x & mask;
-    return loc;
+uint fetch_glyph_word(uint word_idx) {
+    ivec2 coord = ivec2(
+        int(word_idx & STORAGE_TEXTURE_MASK),
+        int(word_idx >> LOG_STORAGE_TEXTURE_WIDTH)
+    );
+    return texelFetch(g1_b1, coord, 0).r;
 }
 
-ivec2 calc_band_loc(ivec2 glyph_loc, uint offset) {
-    return offset_texture_loc(glyph_loc, int(offset));
+vec2 glyph_point(uint base, uint index, vec4 quant) {
+    uint word = fetch_glyph_word(base + index);
+    return quant.xy + vec2(float(word & 0xFFFFu), float(word >> 16u)) * quant.zw;
+}
+
+uint band_curve(uint blob, uint list, uint i) {
+    uint word = fetch_glyph_word(blob + list + (i >> 1u));
+    return (word >> ((i & 1u) * 16u)) & 0xFFFFu;
 }
 
 float calc_coverage(float xcov, float ycov, float xwgt, float ywgt) {
@@ -153,28 +160,29 @@ float calc_coverage(float xcov, float ycov, float xwgt, float ywgt) {
     return clamp(cov, 0.0, 1.0);
 }
 
-float slug_render(vec2 render_coord, vec4 banding, ivec4 glyph_data) {
+float slug_render(vec2 render_coord, vec4 banding, uvec4 glyph_data, vec4 quant) {
     vec2 ems_per_pixel = fwidth(render_coord);
     vec2 pixels_per_em = vec2(1.0, 1.0) / ems_per_pixel;
 
-    ivec2 band_max = glyph_data.zw;
-    band_max.y = band_max.y & 0x00FF;
-
+    ivec2 band_max = ivec2(glyph_data.zw);
     ivec2 band_index = ivec2(render_coord * banding.xy + banding.zw);
     band_index = clamp(band_index, ivec2(0, 0), band_max);
-    ivec2 glyph_loc = glyph_data.xy;
+    uint blob = glyph_data.x;
+    uint points = blob + glyph_data.y;
 
     float xcov = 0.0;
     float xwgt = 0.0;
 
-    uvec2 hband = texelFetch(g1_b1, offset_texture_loc(glyph_loc, band_index.y), 0).xy;
-    int hcount = int(hband.x);
-    ivec2 hloc = calc_band_loc(glyph_loc, hband.y);
+    uint hband = fetch_glyph_word(blob + uint(band_index.y));
+    uint hcount = hband & 0xFFFFu;
+    uint hlist = hband >> 16u;
 
-    for (int i = 0; i < hcount; i = i + 1) {
-        ivec2 curve_loc = ivec2(texelFetch(g1_b1, offset_texture_loc(hloc, i), 0).xy);
-        vec4 p12 = texelFetch(g1_b0, curve_loc, 0) - vec4(render_coord, render_coord);
-        vec2 p3 = texelFetch(g1_b0, offset_texture_loc(curve_loc, 1), 0).xy - render_coord;
+    for (uint i = 0u; i < hcount; i = i + 1u) {
+        uint curve = points + band_curve(blob, hlist, i);
+        vec2 p1 = glyph_point(curve, 0u, quant) - render_coord;
+        vec2 p2 = glyph_point(curve, 1u, quant) - render_coord;
+        vec2 p3 = glyph_point(curve, 2u, quant) - render_coord;
+        vec4 p12 = vec4(p1, p2);
 
         if (max(max(p12.x, p12.z), p3.x) * pixels_per_em.x < -0.5) {
             break;
@@ -197,14 +205,16 @@ float slug_render(vec2 render_coord, vec4 banding, ivec4 glyph_data) {
     float ycov = 0.0;
     float ywgt = 0.0;
 
-    uvec2 vband = texelFetch(g1_b1, offset_texture_loc(glyph_loc, band_max.y + 1 + band_index.x), 0).xy;
-    int vcount = int(vband.x);
-    ivec2 vloc = calc_band_loc(glyph_loc, vband.y);
+    uint vband = fetch_glyph_word(blob + uint(band_max.y + 1 + band_index.x));
+    uint vcount = vband & 0xFFFFu;
+    uint vlist = vband >> 16u;
 
-    for (int i = 0; i < vcount; i = i + 1) {
-        ivec2 curve_loc = ivec2(texelFetch(g1_b1, offset_texture_loc(vloc, i), 0).xy);
-        vec4 p12 = texelFetch(g1_b0, curve_loc, 0) - vec4(render_coord, render_coord);
-        vec2 p3 = texelFetch(g1_b0, offset_texture_loc(curve_loc, 1), 0).xy - render_coord;
+    for (uint i = 0u; i < vcount; i = i + 1u) {
+        uint curve = points + band_curve(blob, vlist, i);
+        vec2 p1 = glyph_point(curve, 0u, quant) - render_coord;
+        vec2 p2 = glyph_point(curve, 1u, quant) - render_coord;
+        vec2 p3 = glyph_point(curve, 2u, quant) - render_coord;
+        vec4 p12 = vec4(p1, p2);
 
         if (max(max(p12.y, p12.w), p3.y) * pixels_per_em.y < -0.5) {
             break;
@@ -228,7 +238,7 @@ float slug_render(vec2 render_coord, vec4 banding, ivec4 glyph_data) {
 }
 
 vec4 shade_linear() {
-    float coverage = slug_render(v_texcoord, v_banding, v_glyph);
+    float coverage = slug_render(v_texcoord, v_banding, v_glyph, v_quant);
     float alpha = v_color.a * coverage * clipAlpha(v_world_pos, v_clip_node);
     return vec4(v_color.rgb * alpha, alpha);
 }

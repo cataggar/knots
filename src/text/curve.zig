@@ -1,11 +1,14 @@
 const std = @import("std");
-const TrueType = @import("TrueType");
+const font = @import("font");
+const Outline = font.Outline;
 
 pub const Curve = struct {
     p1: [2]f32,
     p2: [2]f32,
     p3: [2]f32,
 };
+
+pub const stack_decomposed_curve_capacity: usize = 256;
 
 // Eight fixed segments avoid recursive, input-dependent subdivision work.
 const cubic_subdivision_depth: u32 = 3;
@@ -76,19 +79,19 @@ fn appendCubic(out: *[cubic_segment_count]Curve, cubic: Cubic) void {
     }
 }
 
-pub inline fn countDecomposedCurves(vertices: []const TrueType.Vertex) usize {
+pub inline fn countDecomposedCurves(vertices: []const Outline.Vertex) usize {
     var count: usize = 0;
     for (vertices) |vertex| {
-        count += switch (vertex.type) {
-            .vline, .vcurve => 1,
-            .vcubic => cubic_segment_count,
-            else => 0,
+        count += switch (vertex.kind) {
+            .move => 0,
+            .line, .quad => 1,
+            .cubic => cubic_segment_count,
         };
     }
     return count;
 }
 
-pub fn decomposeVerticesInto(out: []Curve, vertices: []const TrueType.Vertex, units_per_em: f32) []Curve {
+pub fn decomposeVerticesInto(out: []Curve, vertices: []const Outline.Vertex, units_per_em: f32) []Curve {
     std.debug.assert(std.math.isFinite(units_per_em));
     std.debug.assert(units_per_em > 0);
 
@@ -101,11 +104,11 @@ pub fn decomposeVerticesInto(out: []Curve, vertices: []const TrueType.Vertex, un
             @as(f32, @floatFromInt(vertex.x)) * units_per_em_inverse,
             @as(f32, @floatFromInt(vertex.y)) * units_per_em_inverse,
         };
-        switch (vertex.type) {
-            .vmove => {
+        switch (vertex.kind) {
+            .move => {
                 current_point = point;
             },
-            .vline => {
+            .line => {
                 out[write_idx] = .{
                     .p1 = current_point,
                     .p2 = midpoint(current_point, point),
@@ -114,7 +117,7 @@ pub fn decomposeVerticesInto(out: []Curve, vertices: []const TrueType.Vertex, un
                 write_idx += 1;
                 current_point = point;
             },
-            .vcurve => {
+            .quad => {
                 out[write_idx] = .{
                     .p1 = current_point,
                     .p2 = .{
@@ -126,7 +129,7 @@ pub fn decomposeVerticesInto(out: []Curve, vertices: []const TrueType.Vertex, un
                 write_idx += 1;
                 current_point = point;
             },
-            .vcubic => {
+            .cubic => {
                 appendCubic(out[write_idx..][0..cubic_segment_count], .{
                     .p0 = current_point,
                     .p1 = .{
@@ -142,14 +145,13 @@ pub fn decomposeVerticesInto(out: []Curve, vertices: []const TrueType.Vertex, un
                 write_idx += cubic_segment_count;
                 current_point = point;
             },
-            else => {},
         }
     }
 
     return out[0..write_idx];
 }
 
-pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const TrueType.Vertex, units_per_em: f32) ![]Curve {
+pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const Outline.Vertex, units_per_em: f32) ![]Curve {
     std.debug.assert(std.math.isFinite(units_per_em));
     std.debug.assert(units_per_em > 0);
 
@@ -160,12 +162,12 @@ pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const TrueTyp
 test "decomposeVertices produces line as degenerate quadratic" {
     const allocator = std.testing.allocator;
 
-    const vertices = [_]TrueType.Vertex{
-        .{ .x = 0, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vmove },
-        .{ .x = 1024, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vline },
-        .{ .x = 1024, .y = 1024, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vline },
-        .{ .x = 0, .y = 1024, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vline },
-        .{ .x = 0, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vline },
+    const vertices = [_]Outline.Vertex{
+        .{ .kind = .move, .x = 0, .y = 0 },
+        .{ .kind = .line, .x = 1024, .y = 0 },
+        .{ .kind = .line, .x = 1024, .y = 1024 },
+        .{ .kind = .line, .x = 0, .y = 1024 },
+        .{ .kind = .line, .x = 0, .y = 0 },
     };
 
     const curves = try decomposeVertices(allocator, &vertices, 1024.0);
@@ -182,11 +184,11 @@ test "decomposeVertices produces line as degenerate quadratic" {
         try std.testing.expectApproxEqAbs(expected_midpoint[1], curve.p2[1], 1e-6);
     }
 
-    const mixed_vertices = [_]TrueType.Vertex{
-        .{ .x = 0, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vmove },
-        .{ .x = 512, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vline },
-        .{ .x = 1024, .y = 512, .cx = 1024, .cy = 0, .cx1 = 0, .cy1 = 0, .type = .vcurve },
-        .{ .x = 0, .y = 0, .cx = 512, .cy = 1024, .cx1 = 0, .cy1 = 512, .type = .vcubic },
+    const mixed_vertices = [_]Outline.Vertex{
+        .{ .x = 0, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .kind = .move },
+        .{ .x = 512, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .kind = .line },
+        .{ .x = 1024, .y = 512, .cx = 1024, .cy = 0, .cx1 = 0, .cy1 = 0, .kind = .quad },
+        .{ .x = 0, .y = 0, .cx = 512, .cy = 1024, .cx1 = 0, .cy1 = 512, .kind = .cubic },
     };
     const expected_count = countDecomposedCurves(&mixed_vertices);
     try std.testing.expectEqual(@as(usize, 1 + 1 + cubic_segment_count), expected_count);

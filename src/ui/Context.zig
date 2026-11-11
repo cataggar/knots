@@ -4,7 +4,6 @@ const render = @import("render");
 const text = @import("text");
 const layout = @import("layout");
 const math = @import("math");
-const types = @import("render_types");
 const style = @import("style");
 
 const UI = @import("UI.zig");
@@ -56,7 +55,6 @@ frame_input: input_types.FrameInput,
 frame_state: ?Frame.State,
 generation: u64,
 atlas_id: u32,
-glyph_revision_emitted: u64,
 accessibility_pending: std.ArrayList(Accessibility.ActionRequest) = .empty,
 accessibility_frame: std.ArrayList(Accessibility.ActionRequest) = .empty,
 semantic_revision: u64 = 0,
@@ -78,7 +76,6 @@ pub fn init(allocator: std.mem.Allocator, cfg: Config) !Context {
         .frame_state = null,
         .generation = 0,
         .atlas_id = render.GlyphAtlas.allocateId(),
-        .glyph_revision_emitted = 0,
     };
 }
 
@@ -156,9 +153,10 @@ pub fn enqueueAccessibilityAction(self: *Context, request: Accessibility.ActionR
 }
 
 fn copyRequested(input: *const @import("Input.zig")) bool {
-    for (input.key_events) |event| {
-        if (event.key == .c and event.action != .release and input_types.clipboardModifierHeld(event.mods)) return true;
-    }
+    for (input.events) |event| switch (event) {
+        .key => |key| if (key.key == .c and key.action != .release and input_types.clipboardModifierHeld(key.mods)) return true,
+        .text => {},
+    };
     return false;
 }
 
@@ -179,6 +177,7 @@ pub fn endFrame(self: *Context, frame: *Frame) !Frame.Output {
     if (self.frame_state.?.effects.clipboard_write == null and
         self.ui.state.selection_text.len > 0 and copyRequested(&self.ui.input))
         try frame.writeClipboard(self.ui.state.selection_text);
+    endTextInput(&self.ui);
     try endStateFrame(&self.ui);
     try resolve(&self.ui);
     const digest = if (self.cfg.accessibility) semanticDigest(semanticSnapshot(&self.ui)) else 0;
@@ -203,7 +202,7 @@ pub fn endFrame(self: *Context, frame: *Frame) !Frame.Output {
         .cursor_shape = self.ui.cursor_shape,
         .capture_pointer = self.ui.state.hovered != UI.INVALID_ID,
         .capture_keyboard = self.ui.state.focused != UI.INVALID_ID,
-        .text_input = self.ui.text_input_requested,
+        .text_input = self.ui.text_session,
         .redraw = self.frame_state.?.effects.redraw or hover_changed or
             self.ui.anim_active,
         .close = self.frame_state.?.effects.close,
@@ -212,6 +211,15 @@ pub fn endFrame(self: *Context, frame: *Frame) !Frame.Output {
         .minimize = self.frame_state.?.effects.minimize,
         .hit_regions = hit_regions,
     };
+}
+
+/// Drops the session of a field that stopped publishing, and a composition without a session.
+fn endTextInput(ui: *UI) void {
+    if (ui.text_session == null) ui.text_session_owner = UI.INVALID_ID;
+    if (ui.composition_owner != ui.text_session_owner) {
+        ui.composition.clear();
+        ui.composition_owner = UI.INVALID_ID;
+    }
 }
 
 /// Every reachable hit record that overlaps a marked one, so elements on top
@@ -370,25 +378,18 @@ fn frameIsActive(self: *const Context) bool {
 }
 
 fn glyphAtlas(self: *Context) render.GlyphAtlas {
-    const builder = self.ui.font.glyph_builder;
-    comptime {
-        std.debug.assert(text.GlyphBuilder.texture_width == render.GlyphAtlas.width);
-        std.debug.assert(@sizeOf(text.GlyphBuilder.CurveTexel) == render.GlyphAtlas.texel_bytes);
-        std.debug.assert(@sizeOf(text.GlyphBuilder.BandTexel) == render.GlyphAtlas.texel_bytes);
-    }
+    const snapshot = self.ui.text_system.glyph_store.snapshot();
     const atlas: render.GlyphAtlas = .{
         .id = self.atlas_id,
-        .revision = builder.revision(),
-        .base_revision = self.glyph_revision_emitted,
-        .curve_row_start = if (builder.curveDirtyRange()) |range| range.y_start else builder.curveTextureHeight(),
-        .band_row_start = if (builder.bandDirtyRange()) |range| range.y_start else builder.bandTextureHeight(),
-        .curve = std.mem.sliceAsBytes(builder.curve_data.items),
-        .band = std.mem.sliceAsBytes(builder.band_data.items),
+        .revision = snapshot.revision,
+        .base_revision = snapshot.base_revision,
+        .full = snapshot.full,
+        .words = snapshot.words,
+        .table = snapshot.table,
+        .words_dirty = .{ .start = snapshot.words_dirty[0], .end = snapshot.words_dirty[1] },
+        .table_dirty = .{ .start = snapshot.table_dirty[0], .end = snapshot.table_dirty[1] },
     };
     atlas.validate();
-    // A missed output is safe: consumers with an older revision use full data.
-    self.glyph_revision_emitted = atlas.revision;
-    builder.markClean();
     return atlas;
 }
 
@@ -422,7 +423,7 @@ fn reset(ui: *UI) void {
     clearList(&ui.clip_nodes);
     ui.input_scopes.resetFrame();
     ui.anim_active = false;
-    ui.text_input_requested = false;
+    ui.text_session = null;
     ui.cursor_shape = .default;
 }
 
@@ -480,9 +481,8 @@ fn reflowWrappedText(ui: *UI) !bool {
         const wrap_px = el.box.w() * ui.content_scale;
         if (wrap_px <= 0) continue;
 
-        const face = try ui.font.getFace(t.font);
-        const shaped = try face.shapeWrapped(t.content, t.size * ui.content_scale, wrap_px);
-        const new_h = shaped.height / ui.content_scale;
+        const text_layout = try ui.styledTextLayout(&t, el.box.w());
+        const new_h = text_layout.height / ui.content_scale;
         if (new_h != el.intrinsic_h) {
             el.intrinsic_h = new_h;
             changed = true;
@@ -826,7 +826,7 @@ fn updateStats(ui: *UI) void {
 }
 
 fn tessellate(ui: *UI, allocator: Allocator, draw_list: *DrawList) !void {
-    defer ui.font.endFrame();
+    defer ui.text_system.endFrame();
 
     try buildClipStates(ui);
     try draw_list.clip_nodes.appendSlice(draw_list.allocator, ui.clip_nodes.items);
@@ -903,8 +903,161 @@ fn childClip(ui: *UI, slot: Element.Slot, parent_clip: Clip.State) !Clip.State {
     return out;
 }
 
-fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: []const Element.Slot, layer: Layer) !void {
+fn textWrapWidth(t: Decoration.Text, el: *const Element) f32 {
+    if (!t.wrap) return 0;
+    return @max(0, el.box.w());
+}
+
+fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Text, clip: Clip.State) !void {
     const content_scale = ui.content_scale;
+    if (t.size <= 0) return;
+    const text_layout = try ui.styledTextLayout(&t, textWrapWidth(t, el));
+    if (text_layout.lines.len == 0) return;
+    try paintUnderlines(draw_list, el, t, text_layout, content_scale, clip);
+    if (text_layout.glyphs.ids.len == 0) return;
+
+    const glyphs = text_layout.glyphs;
+    const dilation_margin = 2.0 / content_scale;
+    const batch = (try draw_list.beginTextBatch(glyphs.ids.len, clip)).?;
+    const primary_size = t.size * content_scale;
+
+    var line_range: struct { start: u32, end: u32 } = .{ .start = 0, .end = @intCast(text_layout.lines.len) };
+    var glyph_left: f64 = -std.math.inf(f64);
+    var glyph_right: f64 = std.math.inf(f64);
+    if (clip.scissor) |c| {
+        // Ink can overhang the line box and the pen position by a few ems.
+        const margin_y = 2 * t.size + dilation_margin;
+        const margin_x = 4 * t.size + dilation_margin;
+        const top = (c.y() - el.box.y() - margin_y) * content_scale;
+        const bottom = (c.y() + c.h() - el.box.y() + margin_y) * content_scale;
+        const visible = text_layout.visibleLines(top, bottom);
+        line_range = .{ .start = visible.start, .end = visible.end };
+        glyph_left = (c.x() - el.box.x() - margin_x) * content_scale;
+        glyph_right = (c.x() + c.w() - el.box.x() + margin_x) * content_scale;
+    }
+
+    const slots = try ui.text_system.resolveSlots(text_layout);
+    const store = &ui.text_system.glyph_store;
+    var colors: ColorCursor = .{ .spans = t.colors, .default = t.color };
+    for (text_layout.lines[line_range.start..line_range.end]) |line| {
+        const baseline = el.box.y() + line.baseline / content_scale + line.y / content_scale;
+        const visible = text_layout.visibleGlyphs(line, glyph_left, glyph_right, 0);
+        var run_index = text_layout.runIndex(visible.start);
+        for (visible.start..visible.end) |index| {
+            const slot = slots[index];
+            if (slot == text.GlyphStore.empty_slot) continue;
+            while (text_layout.runs[run_index].glyph_end <= index) run_index += 1;
+            const run = text_layout.runs[run_index];
+            const size_logical = runSize(run.size, primary_size, t.size, content_scale);
+            const pen_x: f32 = @floatCast(glyphs.x[index]);
+            const pen: Pen = .{
+                .origin = .{ el.box.x() + (pen_x + glyphs.x_offset[index]) / content_scale, baseline - glyphs.y_offset[index] / content_scale },
+                .size = size_logical,
+                .clip = clip.scissor,
+                .margin = dilation_margin,
+            };
+            const color = colors.at(glyphs.cluster[index]);
+            if (slot != text.TextLayout.layered_slot) {
+                store.touch(slot);
+                try pushSlot(draw_list, batch, slot, store.table.items[slot].bounds, pen, color);
+                continue;
+            }
+            const colr = &ui.text_system.faceById(run.face).program.colr;
+            const layers = colr.layers(glyphs.ids[index]);
+            try draw_list.reserveTextInstances(layers.count);
+            for (layers.start..layers.start + layers.count) |layer_index| {
+                const layer = colr.layer(@intCast(layer_index));
+                try pushGlyph(ui, draw_list, batch, run.face, layer.glyph, pen, layerColor(colr.color(layer.palette_index), color));
+            }
+        }
+    }
+}
+
+const Pen = struct {
+    origin: [2]f32,
+    size: f32,
+    clip: ?math.Rect,
+    margin: f32,
+};
+
+fn pushGlyph(ui: *UI, draw_list: *DrawList, batch: DrawList.TextBatch, face: text.TextSystem.FaceId, glyph_id: u32, pen: Pen, color: [4]f32) !void {
+    const rec = try ui.text_system.glyphRecord(face, glyph_id);
+    if (rec.isEmpty()) return;
+    const bounds = [4]f32{ rec.bounds_em_min[0], rec.bounds_em_min[1], rec.bounds_em_max[0], rec.bounds_em_max[1] };
+    try pushSlot(draw_list, batch, rec.slot, bounds, pen, color);
+}
+
+/// Pushes one glyph instance unless its ink, `bounds` in ems, falls outside the clip.
+fn pushSlot(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: [4]f32, pen: Pen, color: [4]f32) !void {
+    const ink = math.Rect.fromMinMax(
+        .{ pen.origin[0] + bounds[0] * pen.size, pen.origin[1] - bounds[3] * pen.size },
+        .{ pen.origin[0] + bounds[2] * pen.size, pen.origin[1] - bounds[1] * pen.size },
+    );
+    if (pen.clip) |c| {
+        if (!c.overlaps(ink.expand(pen.margin))) return;
+    }
+    try draw_list.pushTextInstance(batch, ink, .{ .origin = pen.origin, .size = pen.size, .slot = slot, .col = halfColor(color) });
+}
+
+/// Palette colors keep the text's opacity. A null palette color is the text color.
+fn layerColor(palette: ?[4]f32, text_color: [4]f32) [4]f32 {
+    const value = palette orelse return text_color;
+    return .{ value[0], value[1], value[2], value[3] * text_color[3] };
+}
+
+fn halfColor(color: [4]f32) [4]f16 {
+    return .{ @floatCast(color[0]), @floatCast(color[1]), @floatCast(color[2]), @floatCast(color[3]) };
+}
+
+fn runSize(run_size: f32, primary_size: f32, logical: f32, content_scale: f32) f32 {
+    if (run_size == primary_size) return logical;
+    return run_size / content_scale;
+}
+
+/// Colors glyphs by the span containing their cluster's first byte. Clusters mostly increase, so it walks forward.
+const ColorCursor = struct {
+    spans: []const Decoration.ColorSpan,
+    default: [4]f32,
+    index: usize = 0,
+
+    fn at(self: *ColorCursor, byte: u32) [4]f32 {
+        if (self.spans.len == 0) return self.default;
+        if (self.index >= self.spans.len or self.spans[self.index].start > byte) self.index = 0;
+        while (self.index < self.spans.len and self.spans[self.index].end <= byte) self.index += 1;
+        if (self.index < self.spans.len and self.spans[self.index].start <= byte) return self.spans[self.index].color;
+        return self.default;
+    }
+};
+
+fn paintUnderlines(draw_list: *DrawList, el: *const Element, t: Decoration.Text, text_layout: *const text.TextLayout, content_scale: f32, clip: Clip.State) !void {
+    if (t.underlines.len == 0) return;
+    const thickness = @max(text_layout.underline_thickness / content_scale, 1.0 / content_scale);
+    for (t.underlines) |underline| {
+        for (text_layout.lines) |line| {
+            if (underline.end <= line.byte_start or underline.start > line.byte_end) continue;
+            const lo = @max(underline.start, line.byte_start);
+            const hi = @min(underline.end, line.byte_end);
+            if (hi <= lo) continue;
+            const x0: f32 = @floatCast(text_layout.xForByte(lo));
+            const x1: f32 = @floatCast(text_layout.xForByte(hi));
+            const y = el.box.y() + (line.y + line.baseline + text_layout.underline_offset) / content_scale;
+            const inst = render.Instance{
+                .pos = .{ el.box.x() + x0 / content_scale, y },
+                .size = .{ (x1 - x0) / content_scale, if (underline.thick) thickness * 2 else thickness },
+                .uv0 = .{ 0, 0 },
+                .uv1 = .{ 0, 0 },
+                .color = underline.color orelse t.color,
+                .border_color = .{ 0, 0, 0, 0 },
+                .corner_radius = Radius.zero.value,
+                .border_width = BorderWidth.zero.value,
+                .prim_type = 0.0,
+            };
+            try draw_list.pushInstances(&[_]render.Instance{inst}, .atlas, clip);
+        }
+    }
+}
+
+fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: []const Element.Slot, layer: Layer) !void {
     const elements = ui.layout_ctx.pool.elements.items;
 
     for (slots) |slot| {
@@ -923,7 +1076,7 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
             .rect => |*r| {
                 // The backdrop filters what is already drawn; the fill then tints it.
                 if (r.backdrop.isActive() and r.backdrop.isValid()) try draw_list.pushBackdrop(el.box, r.corner_radius.value, r.backdrop, clip);
-                const inst = types.Instance{
+                const inst = render.Instance{
                     .pos = .{ el.box.v[0], el.box.v[1] },
                     .size = .{ el.box.v[2], el.box.v[3] },
                     .uv0 = .{ 0, 0 },
@@ -934,76 +1087,16 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
                     .border_width = r.border_width.value,
                     .prim_type = 0.0,
                 };
-                try draw_list.pushInstances(&[_]types.Instance{inst}, .atlas, clip);
+                try draw_list.pushInstances(&[_]render.Instance{inst}, .atlas, clip);
             },
-            .text => |*t| if (t.content.len > 0) {
-                const face = try ui.font.getFace(t.font);
-                const wrap_px: f32 = if (t.wrap) @max(0, el.box.v[2] * content_scale) else 0;
-                const shaped = try face.shapeWrapped(t.content, t.size * content_scale, wrap_px);
-                if (shaped.lines.len > 0) {
-                    const ascender = shaped.ascender / content_scale;
-                    const size_logical = t.size;
-
-                    if (size_logical <= 0) continue;
-                    const inv_size = 1.0 / size_logical;
-
-                    var total_glyphs: usize = 0;
-                    for (shaped.lines) |ln| total_glyphs += ln.glyphs.len;
-                    if (total_glyphs == 0) continue;
-
-                    const batch = (try draw_list.beginTextBatch(total_glyphs, clip)).?;
-                    const box_x = el.box.v[0];
-                    const box_y = el.box.v[1];
-                    const dilation_margin = 2.0 / content_scale;
-
-                    for (shaped.lines) |*line| {
-                        const baseline = box_y + ascender + line.y / content_scale;
-                        for (line.glyphs) |*gl| {
-                            const rec = &gl.record;
-                            if (rec.is_empty) continue;
-
-                            const origin_x = box_x + gl.x / content_scale;
-
-                            if (clip.scissor) |c| {
-                                const glyph_bounds = math.Rect.fromMinMax(
-                                    .{ origin_x + rec.bounds_em_min[0] * size_logical, baseline - rec.bounds_em_max[1] * size_logical },
-                                    .{ origin_x + rec.bounds_em_max[0] * size_logical, baseline - rec.bounds_em_min[1] * size_logical },
-                                ).expand(dilation_margin);
-                                if (!c.overlaps(glyph_bounds)) continue;
-                            }
-
-                            const tex_z_bits: u32 =
-                                @as(u32, rec.glyph_location_x) |
-                                (@as(u32, rec.glyph_location_y) << 16);
-                            const tex_w_bits: u32 =
-                                @as(u32, rec.band_x_max) |
-                                (@as(u32, rec.band_y_max) << 16);
-                            const tex_z: f32 = @bitCast(tex_z_bits);
-                            const tex_w: f32 = @bitCast(tex_w_bits);
-
-                            const bnd = [4]f32{
-                                rec.band_scale[0],  rec.band_scale[1],
-                                rec.band_offset[0], rec.band_offset[1],
-                            };
-
-                            try draw_list.pushTextInstance(batch, .{
-                                .bounds = .{ rec.bounds_em_min[0], rec.bounds_em_max[1], rec.bounds_em_max[0], rec.bounds_em_min[1] },
-                                .origin_size = .{ origin_x, baseline, size_logical, inv_size },
-                                .glyph = .{ tex_z, tex_w },
-                                .bnd = bnd,
-                                .col = t.color,
-                            });
-                        }
-                    }
-                }
-            },
+            .text => |t| if (t.content.len > 0) try paintText(ui, draw_list, el, t, clip),
             .canvas => |c| try canvas_tessellator.tessellate(allocator, draw_list, c.cmds, .{ el.box.x(), el.box.y() }, clip),
             .gpu_canvas => |canvas| {
                 try draw_list.pushCustomDraw(&canvas, el.box, clip);
             },
             .image => |img| {
                 const zero4 = [4]f32{ 0, 0, 0, 0 };
-                const inst = types.Instance{
+                const inst = render.Instance{
                     .pos = .{ el.box.x(), el.box.y() },
                     .size = .{ el.box.w(), el.box.h() },
                     .uv0 = .{ 0, 0 },
@@ -1014,7 +1107,7 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
                     .border_width = BorderWidth.zero.value,
                     .prim_type = if (img.@"opaque") 4.0 else 2.0,
                 };
-                try draw_list.pushInstances(&[_]types.Instance{inst}, img.source, clip);
+                try draw_list.pushInstances(&[_]render.Instance{inst}, img.source, clip);
             },
             .range => |r| try renderRange(draw_list, el.box, r, clip),
         }
@@ -1042,11 +1135,11 @@ fn renderRange(draw_list: *DrawList, box: math.Rect, r: Decoration.Range, clip: 
     const progress = std.math.clamp(r.progress, 0.0, 1.0);
 
     const track = solidRectInstance(bx, ty, bw, th, r.track_color, r.corner_radius);
-    try draw_list.pushInstances(&[_]types.Instance{track}, .atlas, clip);
+    try draw_list.pushInstances(&[_]render.Instance{track}, .atlas, clip);
 
     if (progress > 0) {
         const fill = solidRectInstance(bx, ty, bw * progress, th, r.fill_color, r.corner_radius);
-        try draw_list.pushInstances(&[_]types.Instance{fill}, .atlas, clip);
+        try draw_list.pushInstances(&[_]render.Instance{fill}, .atlas, clip);
     }
 
     if (r.halo_radius > 0 and r.halo_color[3] > 0) {
@@ -1054,7 +1147,7 @@ fn renderRange(draw_list: *DrawList, box: math.Rect, r: Decoration.Range, clip: 
         const cx = bx + bw * progress;
         const cy = by + bh * 0.5;
         const halo = solidRectInstance(cx - hr, cy - hr, hr * 2, hr * 2, r.halo_color, Radius.all(hr));
-        try draw_list.pushInstances(&[_]types.Instance{halo}, .atlas, clip);
+        try draw_list.pushInstances(&[_]render.Instance{halo}, .atlas, clip);
     }
 
     if (r.knob_radius > 0) {
@@ -1062,11 +1155,11 @@ fn renderRange(draw_list: *DrawList, box: math.Rect, r: Decoration.Range, clip: 
         const cx = bx + bw * progress;
         const cy = by + bh * 0.5;
         const knob = solidRectInstance(cx - kr, cy - kr, kr * 2, kr * 2, r.knob_color, Radius.all(kr));
-        try draw_list.pushInstances(&[_]types.Instance{knob}, .atlas, clip);
+        try draw_list.pushInstances(&[_]render.Instance{knob}, .atlas, clip);
     }
 }
 
-inline fn solidRectInstance(x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius) types.Instance {
+inline fn solidRectInstance(x: f32, y: f32, w: f32, h: f32, color: [4]f32, corner_radius: Radius) render.Instance {
     return .{
         .pos = .{ x, y },
         .size = .{ w, h },
@@ -1115,7 +1208,6 @@ test "scroll routing uses previous frame elements" {
     try resolveWindow(&ui, .{
         .pos = .{ 150, 100 },
         .scroll = .{ .pixel = .{ 0, 50 } },
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1192,7 +1284,6 @@ fn wheelInput(delta: math.Vec2) input_types.Input {
     return .{
         .pos = .{ 50, 50 },
         .scroll = .{ .pixel = delta },
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1203,7 +1294,6 @@ fn scrollInput(scroll: input_types.ScrollInput) input_types.Input {
     return .{
         .pos = .{ 50, 50 },
         .scroll = scroll,
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1349,7 +1439,6 @@ test "scrollbar drag moves scroll offset proportionally" {
             break :blk buttons;
         },
         .scroll = .{},
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1371,7 +1460,6 @@ test "scrollbar drag moves scroll offset proportionally" {
             break :blk buttons;
         },
         .scroll = .{},
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1388,7 +1476,6 @@ test "scrollbar drag moves scroll offset proportionally" {
     try resolveWindow(&ui, .{
         .pos = .{ bar.thumb.x() + 1, drag_target_y },
         .scroll = .{},
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1430,7 +1517,6 @@ test "wheel scroll over container updates offset" {
     try resolveWindow(&ui, .{
         .pos = .{ 50, 50 },
         .scroll = .{ .pixel = .{ 0, 25 } },
-        .chars = &.{},
         .shift_held = false,
         .ctrl_held = false,
         .super_held = false,
@@ -1570,14 +1656,14 @@ test "copy shortcut copies the selected text" {
     var view = try Context.init(std.testing.allocator, .{});
     defer view.deinit();
 
-    const copy = [_]input_types.KeyEvent{.{ .key = .c, .action = .press, .mods = .{ .ctrl = true, .super = true } }};
+    const copy = [_]input_types.Event{.{ .key = .{ .key = .c, .action = .press, .mods = .{ .ctrl = true, .super = true } } }};
     var frame = try view.beginFrame(.{
         .now_ms = 0,
         .delta_ns = 0,
         .content_scale = 1,
         .logical_extent = .{ .width = 100, .height = 50 },
         .physical_extent = .{ .width = 100, .height = 50 },
-        .input = .{ .pos = .{ 0, 0 }, .key_events = &copy },
+        .input = .{ .pos = .{ 0, 0 }, .events = &copy },
     });
     view.ui.state.selection_text = "selected";
     const output = try view.endFrame(&frame);
@@ -1694,9 +1780,9 @@ test "every finalization allocation failure releases the frame and permits retry
     try std.testing.expect(failure_offset > 0);
 }
 
-fn textEditTestInput(pos: [2]f64, button: input_types.MouseButtonState, chars: []const u21, key_events: []const input_types.KeyEvent) input_types.FrameInput {
+fn textEditTestInput(pos: [2]f64, button: input_types.MouseButtonState, events: []const input_types.Event) input_types.FrameInput {
     var frame_input: input_types.FrameInput = .{
-        .input = .{ .pos = pos, .chars = chars, .key_events = key_events },
+        .input = .{ .pos = pos, .events = events },
         .now_ms = 0,
         .delta_ns = 0,
         .logical_extent = .{ .width = 400, .height = 100 },
@@ -1709,8 +1795,8 @@ fn textEditTestInput(pos: [2]f64, button: input_types.MouseButtonState, chars: [
 
 fn textEditTestClick(pos: [2]f64) [2]input_types.FrameInput {
     return .{
-        textEditTestInput(pos, .{ .down = true, .pressed = true, .pressed_pos = pos }, &.{}, &.{}),
-        textEditTestInput(pos, .{ .released = true, .released_pos = pos }, &.{}, &.{}),
+        textEditTestInput(pos, .{ .down = true, .pressed = true, .pressed_pos = pos }, &.{}),
+        textEditTestInput(pos, .{ .released = true, .released_pos = pos }, &.{}),
     };
 }
 
@@ -1757,13 +1843,13 @@ test "text input may be cleared after it is emitted in the same frame" {
     const focus = textEditTestClick(input_pos);
     const add = textEditTestClick(add_pos);
     const steps = [_]input_types.FrameInput{
-        textEditTestInput(input_pos, .{}, &.{}, &.{}),
+        textEditTestInput(input_pos, .{}, &.{}),
         focus[0],
         focus[1],
-        textEditTestInput(input_pos, .{}, &.{ 'h', 'i' }, &.{}),
+        textEditTestInput(input_pos, .{}, &.{.{ .text = .{ .text = "hi" } }}),
         add[0],
         add[1],
-        textEditTestInput(add_pos, .{}, &.{}, &.{}),
+        textEditTestInput(add_pos, .{}, &.{}),
     };
     for (steps) |step| {
         var f = try view.beginFrame(step);
@@ -1785,12 +1871,12 @@ test "text area draws the text after enter grows the buffer" {
 
     const pos = [2]f64{ 40, 20 };
     const focus = textEditTestClick(pos);
-    const enter = [_]input_types.KeyEvent{.{ .key = .enter, .action = .press, .mods = .{} }};
+    const enter = [_]input_types.Event{.{ .key = .{ .key = .enter, .action = .press, .mods = .{} } }};
     const steps = [_]input_types.FrameInput{
-        textEditTestInput(pos, .{}, &.{}, &.{}),
+        textEditTestInput(pos, .{}, &.{}),
         focus[0],
         focus[1],
-        textEditTestInput(pos, .{}, &.{}, &enter),
+        textEditTestInput(pos, .{}, &enter),
     };
     for (steps) |step| {
         var f = try view.beginFrame(step);
@@ -1809,6 +1895,167 @@ test "text area draws the text after enter grows the buffer" {
         else => {},
     };
     try testing.expectEqualStrings("ab\n", drawn.?);
+}
+
+fn compositionTestFrame(view: *Context, step: input_types.FrameInput, buf: *std.ArrayList(u8)) !Frame.Output {
+    const component = @import("component/root.zig");
+    var f = try view.beginFrame(step);
+    try f.e(component.TextInput{
+        .key = .str("field"),
+        .buf = buf,
+        .allocator = testing.allocator,
+        .style = &.{ .width = .fixed(400) },
+    });
+    return view.endFrame(&f);
+}
+
+test "a composition shows in the field and the session but not in the buffer" {
+    var view = try Context.init(testing.allocator, .{});
+    defer view.deinit();
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try buf.appendSlice(testing.allocator, "ab");
+
+    const pos = [2]f64{ 40, 20 };
+    const focus = textEditTestClick(pos);
+    var output: Frame.Output = undefined;
+    for ([_]input_types.FrameInput{ textEditTestInput(pos, .{}, &.{}), focus[0], focus[1] }) |step| {
+        output = try compositionTestFrame(&view, step, &buf);
+    }
+    const session = output.text_input.?;
+    try testing.expectEqualStrings("ab", session.text);
+    try testing.expectEqual(null, session.composition);
+
+    const segments = [_]input_types.CompositionSegment{.{ .start = 0, .end = 6, .active = true }};
+    const compose = [_]input_types.Event{.{ .text = .{
+        .session = session.id,
+        .text = "にほ",
+        .compose = .{ .caret = .at(6), .segments = &segments },
+    } }};
+    var step = textEditTestInput(pos, .{}, &compose);
+    output = try compositionTestFrame(&view, step, &buf);
+    try testing.expectEqualStrings("ab", buf.items);
+    const composing = output.text_input.?;
+    try testing.expectEqual(session.id, composing.id);
+    try testing.expectEqualStrings("abにほ", composing.text);
+    try testing.expectEqual(input_types.TextRange{ .start = 2, .end = 8 }, composing.composition.?);
+    try testing.expectEqual(input_types.TextRange.at(8), composing.selection);
+    try testing.expectEqual(@as(usize, 1), composing.composition_rects.len);
+
+    var underlined = false;
+    for (view.ui.decorations.items) |decoration| switch (decoration) {
+        .text => |t| if (t.underlines.len == 2 and t.underlines[1].thick) {
+            underlined = true;
+        },
+        else => {},
+    };
+    try testing.expect(underlined);
+
+    // Edits with a range for a stale session are ignored.
+    const stale = [_]input_types.Event{.{ .text = .{ .session = session.id + 1, .replace = .at(0), .text = "x" } }};
+    step.input.events = &stale;
+    _ = try compositionTestFrame(&view, step, &buf);
+    try testing.expectEqualStrings("ab", buf.items);
+
+    const commit = [_]input_types.Event{.{ .text = .{ .session = session.id, .replace = composing.composition.?, .text = "日本" } }};
+    step.input.events = &commit;
+    output = try compositionTestFrame(&view, step, &buf);
+    try testing.expectEqualStrings("ab日本", buf.items);
+    try testing.expectEqual(null, output.text_input.?.composition);
+}
+
+test "clicking a composing field commits the composition" {
+    var view = try Context.init(testing.allocator, .{});
+    defer view.deinit();
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+
+    const pos = [2]f64{ 40, 20 };
+    const focus = textEditTestClick(pos);
+    var output: Frame.Output = undefined;
+    for ([_]input_types.FrameInput{ textEditTestInput(pos, .{}, &.{}), focus[0], focus[1] }) |step| {
+        output = try compositionTestFrame(&view, step, &buf);
+    }
+    const compose = [_]input_types.Event{.{ .text = .{ .session = output.text_input.?.id, .text = "´", .compose = .{ .caret = .at(2) } } }};
+    _ = try compositionTestFrame(&view, textEditTestInput(pos, .{}, &compose), &buf);
+    try testing.expectEqual(@as(usize, 0), buf.items.len);
+
+    output = try compositionTestFrame(&view, focus[0], &buf);
+    try testing.expectEqualStrings("´", buf.items);
+    try testing.expectEqual(null, output.text_input.?.composition);
+}
+
+const TwoFieldsTest = struct {
+    a: *std.ArrayList(u8),
+    b: *std.ArrayList(u8),
+
+    fn frame(self: TwoFieldsTest, view: *Context, step: input_types.FrameInput) !Frame.Output {
+        const component = @import("component/root.zig");
+        var f = try view.beginFrame(step);
+        const column: component.Rect = .{ .key = .str("column"), .style = &.{ .direction = .column } };
+        _ = try column.open(&f);
+        try f.e(component.TextInput{ .key = .str("a"), .buf = self.a, .allocator = testing.allocator, .style = &.{ .width = .fixed(400), .height = .fixed(30) } });
+        try f.e(component.TextInput{ .key = .str("b"), .buf = self.b, .allocator = testing.allocator, .style = &.{ .width = .fixed(400), .height = .fixed(30) } });
+        try column.close(&f);
+        return view.endFrame(&f);
+    }
+};
+
+test "text typed while focus moves to another field lands in the new field" {
+    var view = try Context.init(testing.allocator, .{});
+    defer view.deinit();
+    var a: std.ArrayList(u8) = .empty;
+    defer a.deinit(testing.allocator);
+    var b: std.ArrayList(u8) = .empty;
+    defer b.deinit(testing.allocator);
+    const t: TwoFieldsTest = .{ .a = &a, .b = &b };
+
+    const a_pos = [2]f64{ 40, 15 };
+    const b_pos = [2]f64{ 40, 45 };
+    const focus_a = textEditTestClick(a_pos);
+    var output: Frame.Output = undefined;
+    for ([_]input_types.FrameInput{ textEditTestInput(a_pos, .{}, &.{}), focus_a[0], focus_a[1] }) |step| {
+        output = try t.frame(&view, step);
+    }
+    const a_session = output.text_input.?.id;
+
+    // The platform still addresses a: typing follows focus, a ranged edit for a is dropped.
+    const typed = [_]input_types.Event{
+        .{ .text = .{ .session = a_session, .text = "x" } },
+        .{ .text = .{ .session = a_session, .replace = .at(0), .text = "y" } },
+    };
+    var press_b = textEditTestClick(b_pos)[0];
+    press_b.input.events = &typed;
+    output = try t.frame(&view, press_b);
+    try testing.expectEqual(@as(usize, 0), a.items.len);
+    try testing.expectEqualStrings("x", b.items);
+    try testing.expect(output.text_input.?.id != a_session);
+}
+
+test "keys and text apply in the order they happened" {
+    var view = try Context.init(testing.allocator, .{});
+    defer view.deinit();
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try buf.appendSlice(testing.allocator, "abc");
+
+    const pos = [2]f64{ 40, 20 };
+    const focus = textEditTestClick(pos);
+    for ([_]input_types.FrameInput{ textEditTestInput(pos, .{}, &.{}), focus[0], focus[1] }) |step| {
+        _ = try compositionTestFrame(&view, step, &buf);
+    }
+    const end = [_]input_types.Event{.{ .key = .{ .key = .end, .action = .press, .mods = .{} } }};
+    _ = try compositionTestFrame(&view, textEditTestInput(pos, .{}, &end), &buf);
+
+    // Left, then typing, within one frame: the text lands where Left put the caret.
+    const events = [_]input_types.Event{
+        .{ .key = .{ .key = .left, .action = .press, .mods = .{} } },
+        .{ .text = .{ .text = "x" } },
+        .{ .key = .{ .key = .backspace, .action = .press, .mods = .{} } },
+        .{ .text = .{ .text = "y" } },
+    };
+    _ = try compositionTestFrame(&view, textEditTestInput(pos, .{}, &events), &buf);
+    try testing.expectEqualStrings("abyc", buf.items);
 }
 
 const EdgePopupTest = struct {
@@ -1855,10 +2102,10 @@ test "popups near the right edge end-align to their anchor" {
     const picker_pos = [2]f64{ 370, 62 };
     const open_menu = textEditTestClick(menu_pos);
     const open_picker = textEditTestClick(picker_pos);
-    const settle = textEditTestInput(picker_pos, .{}, &.{}, &.{});
+    const settle = textEditTestInput(picker_pos, .{}, &.{});
 
     const menu_popup = Key.str("menu").indexed(1).hash();
-    const hover_menu = textEditTestInput(menu_pos, .{}, &.{}, &.{});
+    const hover_menu = textEditTestInput(menu_pos, .{}, &.{});
     const steps = [_]input_types.FrameInput{ hover_menu, open_menu[0], open_menu[1], hover_menu };
     for (steps) |step| {
         var f = try view.beginFrame(step);

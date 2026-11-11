@@ -141,16 +141,6 @@ def compress_sizes(wasm_path: Path) -> dict[str, int]:
     return {"raw": raw, "gzip": gz, "zstd": zst}
 
 
-def ensure_truetype_pkg(wb_mod, wazig_bin: str, zig_local: Path, zig_global: Path) -> Path:
-    """Ensure TrueType package is unpacked into zig_global/p/ and return TrueType.zig path."""
-    for pkg_hash in wb_mod.EXTERNAL_WASM_PACKAGES:
-        wb_mod.ensure_external_package(zig_global, pkg_hash)
-    matches = sorted((zig_global / "p").glob("TrueType-*/TrueType.zig"))
-    if not matches:
-        raise RuntimeError(f"TrueType.zig not found under {zig_global / 'p'}")
-    return matches[0]
-
-
 def rel_path(p: Path | str) -> str:
     return os.path.relpath(Path(p).resolve(), REPO_ROOT.resolve())
 
@@ -161,8 +151,6 @@ def wasm_bench_runner_args(
     out_wasm: Path,
     cache_dir: Path,
     global_cache_dir: Path,
-    tt_zig: Path,
-    tt_options_zig: Path,
     mcpu: str | None = None,
 ) -> list[str]:
     def target_opt_flags() -> list[str]:
@@ -183,11 +171,13 @@ def wasm_bench_runner_args(
         "--dep",
         "layout",
         "--dep",
-        "TrueType",
+        "font",
+        "--dep",
+        "shape",
+        "--dep",
+        "unicode",
         "--dep",
         "text",
-        "--dep",
-        "render_types",
         "--dep",
         "render",
         "--dep",
@@ -198,35 +188,90 @@ def wasm_bench_runner_args(
         *target_opt_flags(),
         "-Mmath=src/math/root.zig",
         *target_opt_flags(),
-        "-Mrender_types=src/render/types/root.zig",
-        *target_opt_flags(),
         "-Minput=src/input/root.zig",
+        *target_opt_flags(),
         "--dep",
         "math",
+        "--dep",
+        "primitives_wgsl",
+        "--dep",
+        "slug_wgsl",
+        "--dep",
+        "backdrop_wgsl",
+        "--dep",
+        "primitives_vert_glsl",
+        "--dep",
+        "primitives_instance_vert_glsl",
+        "--dep",
+        "primitives_frag_glsl",
+        "--dep",
+        "slug_vert_glsl",
+        "--dep",
+        "slug_frag_glsl",
+        "--dep",
+        "backdrop_blur_vert_glsl",
+        "--dep",
+        "backdrop_blur_down_frag_glsl",
+        "--dep",
+        "backdrop_blur_up_frag_glsl",
+        "--dep",
+        "backdrop_glass_vert_glsl",
+        "--dep",
+        "backdrop_glass_frag_glsl",
+        "--dep",
+        "primitives_vertex_zig",
+        "--dep",
+        "primitives_instance_vertex_zig",
+        "--dep",
+        "primitives_fragment_zig",
+        "--dep",
+        "text_vertex_zig",
+        "--dep",
+        "text_fragment_zig",
+        "-Mrender=src/render/root.zig",
         *target_opt_flags(),
+        "-Municode=src/unicode/root.zig",
+        *target_opt_flags(),
+        "--dep",
+        "input",
+        "--dep",
+        "unicode",
+        "-Mtext_edit=src/text_edit/root.zig",
+        *target_opt_flags(),
+        "--dep",
+        "test_font",
+        "-Mfont=src/font/root.zig",
+        *target_opt_flags(),
+        "--dep",
+        "font",
+        "--dep",
+        "unicode",
+        "-Mshape=src/shape/root.zig",
+        *target_opt_flags(),
+        "--dep",
+        "font",
+        "--dep",
+        "shape",
+        "--dep",
+        "unicode",
+        "--dep",
+        "render",
+        "--dep",
+        "test_font=test_font0",
+        "-Mtext=src/text/root.zig",
+        *target_opt_flags(),
+        "--dep",
+        "math",
         "-Mlayout=src/layout/root.zig",
+        *target_opt_flags(),
         "--dep",
         "layout",
         "--dep",
         "math",
         "--dep",
-        "render_types",
-        *target_opt_flags(),
+        "render",
         "-Mstyle=src/style/root.zig",
-        "--dep",
-        "build_options",
         *target_opt_flags(),
-        f"-MTrueType={rel_path(tt_zig)}",
-        "--dep",
-        "TrueType",
-        *target_opt_flags(),
-        "-Mtext=src/text/root.zig",
-        "--dep",
-        "render_types",
-        "--dep",
-        "math",
-        *target_opt_flags(),
-        "-Mrender=src/render/root.zig",
         "--dep",
         "layout",
         "--dep",
@@ -236,15 +281,32 @@ def wasm_bench_runner_args(
         "--dep",
         "input",
         "--dep",
-        "render_types",
+        "text_edit",
         "--dep",
         "render",
         "--dep",
         "math",
-        *target_opt_flags(),
         "-Mui=src/ui/root.zig",
-        *target_opt_flags(),
-        f"-Mbuild_options={rel_path(tt_options_zig)}",
+        "-Mtest_font=src/ui/fonts/default.ttf",
+        "-Mtest_font0=src/ui/fonts/default.ttf",
+        "-Mprimitives_wgsl=src/gpu/backend/webgpu/shaders/ui_primitives.wgsl",
+        "-Mslug_wgsl=src/gpu/backend/webgpu/shaders/slug.wgsl",
+        "-Mbackdrop_wgsl=src/gpu/backend/webgpu/shaders/backdrop.wgsl",
+        "-Mprimitives_vert_glsl=src/gpu/backend/webgl2/shaders/ui_primitives.vert.glsl",
+        "-Mprimitives_instance_vert_glsl=src/gpu/backend/webgl2/shaders/ui_primitives_instance.vert.glsl",
+        "-Mprimitives_frag_glsl=src/gpu/backend/webgl2/shaders/ui_primitives.frag.glsl",
+        "-Mslug_vert_glsl=src/gpu/backend/webgl2/shaders/slug.vert.glsl",
+        "-Mslug_frag_glsl=src/gpu/backend/webgl2/shaders/slug.frag.glsl",
+        "-Mbackdrop_blur_vert_glsl=src/gpu/backend/webgl2/shaders/backdrop_blur.vert.glsl",
+        "-Mbackdrop_blur_down_frag_glsl=src/gpu/backend/webgl2/shaders/backdrop_blur_down.frag.glsl",
+        "-Mbackdrop_blur_up_frag_glsl=src/gpu/backend/webgl2/shaders/backdrop_blur_up.frag.glsl",
+        "-Mbackdrop_glass_vert_glsl=src/gpu/backend/webgl2/shaders/backdrop_glass.vert.glsl",
+        "-Mbackdrop_glass_frag_glsl=src/gpu/backend/webgl2/shaders/backdrop_glass.frag.glsl",
+        "-Mprimitives_vertex_zig=src/gpu/backend/vulkan/shaders/ui_primitives_vertex.zig",
+        "-Mprimitives_instance_vertex_zig=src/gpu/backend/vulkan/shaders/ui_primitives_instance_vertex.zig",
+        "-Mprimitives_fragment_zig=src/gpu/backend/vulkan/shaders/ui_primitives_fragment.zig",
+        "-Mtext_vertex_zig=src/gpu/backend/vulkan/shaders/slug_vertex.zig",
+        "-Mtext_fragment_zig=src/gpu/backend/vulkan/shaders/slug_fragment.zig",
         "--cache-dir",
         rel_path(cache_dir),
         "--global-cache-dir",
@@ -333,10 +395,6 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
         print("[bench-wazig] Warming Wasmtime module cache for wazigl...", file=sys.stderr, flush=True)
         subprocess.run([wazigl_bin, "version"], cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
 
-    tt_zig = ensure_truetype_pkg(wb, wazig_bin, paths["zig_local"], paths["zig_global"])
-    tt_options_zig = paths["tmp"] / "truetype_options.zig"
-    tt_options_zig.write_text("pub const debug_todo: bool = false;\n", encoding="utf-8")
-
     # 1. Measure wazig fmt --check (and wazigl fmt --check if installed)
     print("[bench-wazig] Timing wazig fmt --check...", file=sys.stderr, flush=True)
     t0 = time.perf_counter()
@@ -377,7 +435,7 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
         ci_gc.mkdir(parents=True, exist_ok=True)
 
         out_w = paths["bins"] / f"{key}_ci_wazig.wasm"
-        args = wasm_bench_runner_args(opt, "-fno-llvm", out_w, ci_lc, ci_gc, tt_zig, tt_options_zig, mcpu=mcpu)
+        args = wasm_bench_runner_args(opt, "-fno-llvm", out_w, ci_lc, ci_gc, mcpu=mcpu)
         print(f"[bench-wazig] Compiling {key} with wazig...", file=sys.stderr, flush=True)
         t_c0 = time.perf_counter()
         subprocess.run([wazig_bin, *args], cwd=REPO_ROOT, check=True)
@@ -426,7 +484,7 @@ def run_ci_summary(paths: dict[str, Path]) -> str:
             ci_gc.mkdir(parents=True, exist_ok=True)
 
             out_w = paths["bins"] / f"{key}_ci_wazigl.wasm"
-            args = wasm_bench_runner_args(opt, "-fllvm", out_w, ci_lc, ci_gc, tt_zig, tt_options_zig, mcpu=mcpu)
+            args = wasm_bench_runner_args(opt, "-fllvm", out_w, ci_lc, ci_gc, mcpu=mcpu)
             print(f"[bench-wazig] Compiling {key} with wazigl...", file=sys.stderr, flush=True)
             t_c0 = time.perf_counter()
             subprocess.run([wazigl_bin, *args], cwd=REPO_ROOT, check=True)
@@ -1159,10 +1217,6 @@ def run_live_full_comparison(paths: dict[str, Path]) -> dict[str, Any]:
     if wazigl_bin:
         subprocess.run([wazigl_bin, "version"], cwd=REPO_ROOT, check=True, stdout=subprocess.DEVNULL)
 
-    tt_zig = ensure_truetype_pkg(wb, wazig_bin, paths["zig_local"], paths["zig_global"])
-    tt_options_zig = paths["tmp"] / "truetype_options.zig"
-    tt_options_zig.write_text("pub const debug_todo: bool = false;\n", encoding="utf-8")
-
     compilers_to_run = [("wazig", wazig_bin, "-fno-llvm")]
     if wazigl_bin:
         compilers_to_run.append(("wazigl", wazigl_bin, "-fllvm"))
@@ -1197,7 +1251,7 @@ def run_live_full_comparison(paths: dict[str, Path]) -> dict[str, Any]:
             c_gc.mkdir(parents=True, exist_ok=True)
 
             out_w = paths["bins"] / f"{key}_{cname}.wasm"
-            args = wasm_bench_runner_args(opt, flag, out_w, c_lc, c_gc, tt_zig, tt_options_zig, mcpu=mcpu)
+            args = wasm_bench_runner_args(opt, flag, out_w, c_lc, c_gc, mcpu=mcpu)
             t_c0 = time.perf_counter()
             subprocess.run([bin_path, *args], cwd=REPO_ROOT, check=True)
             t_cold = round(time.perf_counter() - t_c0, 3)

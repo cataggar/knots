@@ -6,11 +6,9 @@ const layout = @import("layout");
 const style = @import("style");
 const text = @import("text");
 const render = @import("render");
-const render_types = @import("render_types");
 const math = @import("math");
 const input = @import("input");
 const ui = @import("ui");
-const TrueType = @import("TrueType");
 
 const Element = layout.Element;
 
@@ -435,12 +433,17 @@ const sample_paragraphs = [_][]const u8{
 const font_sizes = [_]f32{ 12.0, 14.0, 16.0, 20.0, 24.0 };
 const wrap_widths = [_]f32{ 185.0, 265.0, 385.0, 545.0 };
 
-fn runTextIteration(allocator: std.mem.Allocator, font_bytes: []const u8, iter_idx: usize) !struct { ops: usize, hash: u64 } {
-    var glyph_builder = try text.GlyphBuilder.init(allocator);
-    defer glyph_builder.deinit();
-
-    var face = try text.Face.init(allocator, font_bytes, &glyph_builder);
-    defer face.deinit();
+fn runTextIteration(ts: *text.TextSystem, iter_idx: usize) !struct { ops: usize, hash: u64 } {
+    const face = ts.faceById(0);
+    face.glyphs.clearRetainingCapacity();
+    ts.glyph_store.words.shrinkRetainingCapacity(1);
+    ts.glyph_store.table.shrinkRetainingCapacity(1);
+    ts.glyph_store.slots.shrinkRetainingCapacity(1);
+    ts.glyph_store.free_slots.clearRetainingCapacity();
+    ts.glyph_store.dead_words = 0;
+    ts.glyph_store.generation +%= 1;
+    ts.layouts.deinit(ts.gpa);
+    ts.layouts = .init(text.TextSystem.layout_cache_bytes_default);
 
     var h: u64 = @intCast(iter_idx);
     var ops_count: usize = 0;
@@ -450,37 +453,41 @@ fn runTextIteration(allocator: std.mem.Allocator, font_bytes: []const u8, iter_i
     var cp: u21 = 33;
     var accum_w: f32 = 0;
     while (cp <= 126) : (cp += 1) {
-        const rec = try face.getGlyph(cp);
-        h = mixHash(h, (@as(u64, rec.glyph_location_x) << 16) | rec.glyph_location_y);
-        accum_w += rec.advance_em;
+        const gid = face.program.cmap.glyph(cp);
+        const rec = try ts.glyphRecord(0, gid);
+        h = mixHash(h, rec.slot);
+        accum_w += rec.bounds_em_max[0] - rec.bounds_em_min[0];
         ops_count += 1;
     }
 
     // 2. Shape and word-wrap paragraphs, headings, and numeric tables across sizes & wrap widths
     for (sample_paragraphs, 0..) |para, p_idx| {
         const size_px = font_sizes[(p_idx + iter_idx) % font_sizes.len];
-        const shaped = try face.shape(para, size_px);
+        const shaped = try ts.layout(.{ .text = para, .size = size_px });
+        _ = try ts.resolveSlots(shaped);
         accum_w += shaped.width;
-        h = mixHash(h, @intCast(shaped.glyphs.len));
-        ops_count += shaped.glyphs.len;
+        h = mixHash(h, @intCast(shaped.glyphs.ids.len));
+        ops_count += shaped.glyphs.ids.len;
 
         for (wrap_widths) |wrap_w| {
-            const wrapped = try face.shapeWrapped(para, size_px, wrap_w);
+            const wrapped = try ts.layout(.{ .text = para, .size = size_px, .wrap_width = wrap_w });
+            _ = try ts.resolveSlots(wrapped);
             accum_w += wrapped.width;
             h = mixHash(h, @intFromFloat(@round(wrapped.height)));
             h = mixHash(h, @intCast(wrapped.lines.len));
             for (wrapped.lines) |line| {
+                const count: usize = line.glyph_end - line.glyph_start;
                 accum_w += line.width;
-                h = mixHash(h, @intCast(line.glyphs.len));
-                ops_count += line.glyphs.len;
+                h = mixHash(h, @intCast(count));
+                ops_count += count;
             }
         }
     }
 
     h = mixHash(h, @intFromFloat(accum_w / 16.0));
-    h = mixHash(h, @intCast(glyph_builder.curve_data.items.len));
-    h = mixHash(h, @intCast(glyph_builder.band_data.items.len >> 4));
-    face.endFrame();
+    h = mixHash(h, @intCast(ts.glyph_store.words.items.len));
+    h = mixHash(h, @intCast(ts.glyph_store.table.items.len));
+    ts.endFrame();
 
     return .{ .ops = ops_count, .hash = h };
 }
@@ -489,11 +496,14 @@ fn runTextBench(allocator: std.mem.Allocator, io: Io, warmup_iters: usize, measu
     const default_ui_cfg: ui.UI.Config = .{};
     const font_bytes = default_ui_cfg.fonts[0].data;
 
+    var ts = try text.TextSystem.init(allocator, &.{.{ .name = "default", .data = font_bytes }});
+    defer ts.deinit();
+
     var elements_per_iter: usize = 0;
     var checksum: u64 = 0;
 
     for (0..warmup_iters) |i| {
-        const res = try runTextIteration(allocator, font_bytes, i);
+        const res = try runTextIteration(&ts, i);
         elements_per_iter = res.ops;
     }
 
@@ -502,7 +512,7 @@ fn runTextBench(allocator: std.mem.Allocator, io: Io, warmup_iters: usize, measu
 
     for (0..measured_iters) |i| {
         const start_ns = nowNs(io);
-        const res = try runTextIteration(allocator, font_bytes, i);
+        const res = try runTextIteration(&ts, i);
         const end_ns = nowNs(io);
         samples[i] = @intCast(@max(0, end_ns - start_ns));
         elements_per_iter = res.ops;
@@ -548,10 +558,10 @@ fn buildRenderFrame(
             .scissor = clip_panels[(row / 15) % 4],
         };
 
-        var row_instances: [40]render_types.Instance = undefined;
+        var row_instances: [40]render.Instance = undefined;
         for (0..40) |col| {
             const x: f32 = 12.0 + @as(f32, @floatFromInt(col)) * 38.0 + (f_offset * 0.25);
-            var inst = comptime std.mem.zeroes(render_types.Instance);
+            var inst = comptime std.mem.zeroes(render.Instance);
             inst.pos = .{ x, y };
             inst.size = .{ 34.0, 13.0 };
             inst.color = .{ 0.15, 0.25, 0.45, 1.0 };
@@ -566,12 +576,12 @@ fn buildRenderFrame(
         if (try draw_list.beginTextBatch(40, clip_state)) |batch| {
             for (0..40) |col| {
                 const x: f32 = 16.0 + @as(f32, @floatFromInt(col)) * 38.0;
-                var glyph_inst = comptime std.mem.zeroes(render_types.SlugInstance);
-                glyph_inst.bounds = .{ 0.0, 0.0, 0.65, 0.85 };
-                glyph_inst.origin_size = .{ x, y + 10.0, 12.0, 1.0 / 12.0 };
+                var glyph_inst = comptime std.mem.zeroes(render.SlugInstance);
+                glyph_inst.origin = .{ x, y + 10.0 };
+                glyph_inst.size = 12.0;
+                glyph_inst.slot = @intCast((row * 40 + col) % 94 + 1);
                 glyph_inst.col = .{ 0.92, 0.95, 0.98, 1.0 };
-                glyph_inst.glyph = .{ @floatFromInt((row * 40 + col) % 94 + 1), 0.0 };
-                try draw_list.pushTextInstance(batch, glyph_inst);
+                try draw_list.pushTextInstance(batch, math.Rect.init(x, y, 8.0, 10.0), glyph_inst);
             }
             prim_count += 40;
         }
@@ -582,7 +592,7 @@ fn buildRenderFrame(
     for (0..200) |vi| {
         const vx: f32 = @floatFromInt((vi * 23) % 1400);
         const vy: f32 = @floatFromInt((vi * 17) % 900);
-        var verts: [4]render_types.Vertex = comptime @splat(std.mem.zeroes(render_types.Vertex));
+        var verts: [4]render.Vertex = comptime @splat(std.mem.zeroes(render.Vertex));
         verts[0].pos = .{ vx, vy };
         verts[1].pos = .{ vx + 18.0, vy };
         verts[2].pos = .{ vx + 18.0, vy + 10.0 };
@@ -604,9 +614,9 @@ fn buildRenderFrame(
         );
         prim_count += 1;
     }
-    var overlay_insts: [96]render_types.Instance = undefined;
+    var overlay_insts: [96]render.Instance = undefined;
     for (0..96) |oi| {
-        var inst = comptime std.mem.zeroes(render_types.Instance);
+        var inst = comptime std.mem.zeroes(render.Instance);
         inst.pos = .{ 310.0 + @as(f32, @floatFromInt((oi % 16) * 52)), 130.0 + @as(f32, @floatFromInt((oi / 16) * 20)) };
         inst.size = .{ 48.0, 16.0 };
         inst.color = .{ 0.25, 0.30, 0.40, 0.95 };

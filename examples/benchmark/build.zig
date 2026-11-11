@@ -45,14 +45,15 @@ pub fn build(b: *std.Build) void {
     if (is_wasm) tracy_mod.link_libc = false;
 
     const web_threads = b.option(bool, "web_threads", "Enable worker threads in the web benchmark app.") orelse false;
-    const gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots.") orelse
-        knots.defaultGpuBackend(target.result);
+    const gpu_backend = b.option(knots.GPUBackend, "gpu_backend", "GPU backend to compile into knots.");
+    const backend = b.option(knots.Backend, "backend", "What knots builds around its UI core: vulkan, webgpu, or webgl2. Default: the target's.") orelse
+        knots.Backend.fromGpu(gpu_backend orelse knots.defaultGpuBackend(target.result));
 
     const knots_dep = b.dependency("knots", .{
         .target = target,
         .optimize = optimize,
         .web_threads = web_threads,
-        .gpu_backend = gpu_backend,
+        .backend = backend,
     });
 
     const exe = b.addExecutable(.{

@@ -2,7 +2,7 @@ name: Snapshots
 
 on:
   push:
-    branches: [main]
+    branches: [main, wazig]
   pull_request:
   workflow_dispatch:
 
