@@ -30,11 +30,67 @@ keyed: std.AutoArrayHashMapUnmanaged(u64, Keyed),
 words: ClockCache([]shape.ShapedGlyph, WordValue),
 key_bytes: std.ArrayList(u8),
 word_key: std.ArrayList(u8),
+outline_vertices: std.ArrayList(Outline.Vertex) = .empty,
+layout_scratch: LayoutScratch = .{},
 itemize_scratch: itemize.Scratch,
 line_break_scratch: unicode.linebreak.Scratch = .{},
 frame: u32,
 /// Cache counters since init, for tools and diagnostics.
 stats: Stats = .{},
+
+const LayoutScratch = struct {
+    ids: std.ArrayList(u32) = .empty,
+    xs: std.ArrayList(f64) = .empty,
+    advances: std.ArrayList(f32) = .empty,
+    x_offsets: std.ArrayList(f32) = .empty,
+    y_offsets: std.ArrayList(f32) = .empty,
+    clusters: std.ArrayList(u32) = .empty,
+    flags: std.ArrayList(u8) = .empty,
+    lines: std.ArrayList(TextLayout.Line) = .empty,
+    runs: std.ArrayList(TextLayout.Run) = .empty,
+    items: std.ArrayList(itemize.Run) = .empty,
+    ranges: std.ArrayList(shape.Plan.Feature) = .empty,
+    features: std.ArrayList(shape.Plan.Feature) = .empty,
+    carets: std.ArrayList(TextLayout.Caret) = .empty,
+    caret_offsets: std.ArrayList(f32) = .empty,
+    breaks: std.ArrayList(unicode.linebreak.Break) = .empty,
+
+    fn reset(self: *LayoutScratch) void {
+        self.ids.clearRetainingCapacity();
+        self.xs.clearRetainingCapacity();
+        self.advances.clearRetainingCapacity();
+        self.x_offsets.clearRetainingCapacity();
+        self.y_offsets.clearRetainingCapacity();
+        self.clusters.clearRetainingCapacity();
+        self.flags.clearRetainingCapacity();
+        self.lines.clearRetainingCapacity();
+        self.runs.clearRetainingCapacity();
+        self.items.clearRetainingCapacity();
+        self.ranges.clearRetainingCapacity();
+        self.features.clearRetainingCapacity();
+        self.carets.clearRetainingCapacity();
+        self.caret_offsets.clearRetainingCapacity();
+        self.breaks.clearRetainingCapacity();
+    }
+
+    fn deinit(self: *LayoutScratch, gpa: std.mem.Allocator) void {
+        self.ids.deinit(gpa);
+        self.xs.deinit(gpa);
+        self.advances.deinit(gpa);
+        self.x_offsets.deinit(gpa);
+        self.y_offsets.deinit(gpa);
+        self.clusters.deinit(gpa);
+        self.flags.deinit(gpa);
+        self.lines.deinit(gpa);
+        self.runs.deinit(gpa);
+        self.items.deinit(gpa);
+        self.ranges.deinit(gpa);
+        self.features.deinit(gpa);
+        self.carets.deinit(gpa);
+        self.caret_offsets.deinit(gpa);
+        self.breaks.deinit(gpa);
+    }
+};
 
 const TextSystem = @This();
 
@@ -86,10 +142,16 @@ pub const FontSource = struct {
 };
 
 pub const Face = struct {
+    pub const no_glyph_slot: u32 = std.math.maxInt(u32);
+
     name: []const u8,
     program: FontProgram,
     follow: shape.follow.Store,
-    glyphs: std.AutoHashMapUnmanaged(u32, glyph.GlyphRecord) = .empty,
+    glyph_slots: []u32 = &.{},
+
+    pub fn clearGlyphCache(self: *Face) void {
+        @memset(self.glyph_slots, no_glyph_slot);
+    }
 
     pub fn unitsPerEm(self: *const Face) f32 {
         return @floatFromInt(self.program.units_per_em);
@@ -167,6 +229,8 @@ pub fn deinit(self: *TextSystem) void {
     self.words.deinit(self.gpa);
     self.key_bytes.deinit(self.gpa);
     self.word_key.deinit(self.gpa);
+    self.outline_vertices.deinit(self.gpa);
+    self.layout_scratch.deinit(self.gpa);
     self.itemize_scratch.deinit(self.gpa);
     self.line_break_scratch.deinit(self.gpa);
     self.plans.deinit(self.gpa);
@@ -183,7 +247,7 @@ fn deinitFaces(self: *TextSystem) void {
     for (self.faces.items) |face| {
         face.follow.deinit(self.gpa);
         face.program.deinit();
-        face.glyphs.deinit(self.gpa);
+        self.gpa.free(face.glyph_slots);
         self.gpa.destroy(face);
     }
     self.faces.deinit(self.gpa);
@@ -204,6 +268,10 @@ pub fn addFace(self: *TextSystem, name: []const u8, data: []const u8) !void {
     errdefer face.program.deinit();
     face.follow = try shape.follow.Store.init(self.gpa, &face.program);
     errdefer face.follow.deinit(self.gpa);
+    const slot_cap = @max(@as(usize, face.program.glyph_count), 1);
+    face.glyph_slots = try self.gpa.alloc(u32, slot_cap);
+    errdefer self.gpa.free(face.glyph_slots);
+    @memset(face.glyph_slots, Face.no_glyph_slot);
     try self.faces.append(self.gpa, face);
 }
 
@@ -349,19 +417,28 @@ fn validateSize(size: f32) !void {
 /// The glyph's store slot, built on first use and kept while used every `GlyphStore.eviction_age_frames`.
 pub fn glyphRecord(self: *TextSystem, face_id: FaceId, glyph_id: u32) !glyph.GlyphRecord {
     const target = self.faceById(face_id);
-    if (target.glyphs.get(glyph_id)) |record| {
-        self.glyph_store.touch(record.slot);
-        return record;
+    if (glyph_id < target.glyph_slots.len) {
+        const slot = target.glyph_slots[glyph_id];
+        if (slot != Face.no_glyph_slot) {
+            self.glyph_store.touch(slot);
+            const b = self.glyph_store.table.items[slot].bounds;
+            return .{ .slot = slot, .bounds_em_min = .{ b[0], b[1] }, .bounds_em_max = .{ b[2], b[3] } };
+        }
+    } else {
+        return .{ .slot = GlyphStore.empty_slot, .bounds_em_min = .{ 0, 0 }, .bounds_em_max = .{ 0, 0 } };
     }
     const record = try self.buildGlyph(target, glyph_id, (@as(u64, face_id) << 32) | glyph_id);
-    try target.glyphs.put(self.gpa, glyph_id, record);
+    target.glyph_slots[glyph_id] = record.slot;
     return record;
 }
 
 fn buildGlyph(self: *TextSystem, target: *Face, glyph_id: u32, owner: u64) !glyph.GlyphRecord {
-    var vertices: std.ArrayList(Outline.Vertex) = .empty;
-    defer vertices.deinit(self.gpa);
-    try target.program.outline.glyph(self.gpa, glyph_id, &vertices);
+    const vertices = &self.outline_vertices;
+    vertices.clearRetainingCapacity();
+    try target.program.outline.glyph(self.gpa, glyph_id, vertices);
+    if (vertices.items.len == 0) {
+        return .{ .slot = GlyphStore.empty_slot, .bounds_em_min = .{ 0, 0 }, .bounds_em_max = .{ 0, 0 } };
+    }
     const curve_count = curve.countDecomposedCurves(vertices.items);
     var stack_curves: [curve.stack_decomposed_curve_capacity]curve.Curve = undefined;
     const curves = if (curve_count <= curve.stack_decomposed_curve_capacity)
@@ -382,19 +459,39 @@ pub fn resolveSlots(self: *TextSystem, text_layout: *const TextLayout) ![]const 
         return target.slots;
     }
     if (target.slots.len != target.glyphs.ids.len) {
-        self.gpa.free(target.slots);
+        if (target.owns_slots) self.gpa.free(target.slots);
         target.slots = &.{};
+        target.owns_slots = false;
         target.slots = try self.gpa.alloc(u32, target.glyphs.ids.len);
+        target.owns_slots = true;
     }
+    const out_slots = target.slots;
+    const ids = target.glyphs.ids;
     for (target.runs) |run| {
-        const colr = &self.faceById(run.face).program.colr;
+        const face = self.faceById(run.face);
+        const colr = &face.program.colr;
+        const has_colr = colr.base_count != 0;
+        const glyph_slots = face.glyph_slots;
         for (run.glyph_start..run.glyph_end) |index| {
-            const id = target.glyphs.ids[index];
-            if (colr.layers(id).count > 0) {
-                target.slots[index] = TextLayout.layered_slot;
+            const id = ids[index];
+            if (has_colr and colr.layers(id).count > 0) {
+                out_slots[index] = TextLayout.layered_slot;
                 continue;
             }
-            target.slots[index] = (try self.glyphRecord(run.face, id)).slot;
+            if (id < glyph_slots.len) {
+                const slot = glyph_slots[id];
+                if (slot != Face.no_glyph_slot) {
+                    self.glyph_store.slots.items[slot].last_used = self.glyph_store.frame;
+                    out_slots[index] = slot;
+                    continue;
+                }
+            } else {
+                out_slots[index] = GlyphStore.empty_slot;
+                continue;
+            }
+            const record = try self.buildGlyph(face, id, (@as(u64, run.face) << 32) | id);
+            face.glyph_slots[id] = record.slot;
+            out_slots[index] = record.slot;
         }
     }
     // Building glyphs can evict, which bumps the generation: resolve again next time if so.
@@ -413,21 +510,32 @@ pub fn layout(self: *TextSystem, request: Request) !*const TextLayout {
         .size = @bitCast(request.size),
         .wrap = @bitCast(@max(request.wrap_width, 0)),
         .tab_size = request.tab_size,
-        .has_key = request.key != null,
-        .key = request.key orelse 0,
+        .has_key = false,
+        .key = 0,
         .revision = request.revision,
     };
-    self.key_bytes.clearRetainingCapacity();
-    try self.key_bytes.appendSlice(self.gpa, std.mem.asBytes(&header));
-    try self.appendStyleKey(request, .all);
-    try self.key_bytes.appendSlice(self.gpa, request.text);
-    if (self.layouts.get(self.key_bytes.items, self.frame)) |cached| {
+    const plain_prefix_len = @sizeOf(LayoutKey) + 8;
+    var stack_key: [256]u8 = undefined;
+    const key_slice: []const u8 = blk: {
+        if (request.features.len == 0 and request.runs.len == 0 and request.text.len <= stack_key.len - plain_prefix_len) {
+            @memcpy(stack_key[0..@sizeOf(LayoutKey)], std.mem.asBytes(&header));
+            @memset(stack_key[@sizeOf(LayoutKey)..plain_prefix_len], 0);
+            @memcpy(stack_key[plain_prefix_len .. plain_prefix_len + request.text.len], request.text);
+            break :blk stack_key[0 .. plain_prefix_len + request.text.len];
+        }
+        self.key_bytes.clearRetainingCapacity();
+        try self.key_bytes.appendSlice(self.gpa, std.mem.asBytes(&header));
+        try self.appendStyleKey(request, .all);
+        try self.key_bytes.appendSlice(self.gpa, request.text);
+        break :blk self.key_bytes.items;
+    };
+    if (self.layouts.get(key_slice, self.frame)) |cached| {
         self.stats.layout_hits += 1;
         return cached;
     }
     self.stats.layout_builds += 1;
     const built = try self.build(self.chainOf(chain_id), request);
-    return self.layouts.put(self.gpa, self.key_bytes.items, built, self.frame);
+    return self.layouts.put(self.gpa, key_slice, built, self.frame);
 }
 
 /// Frames a keyed layout survives without being requested.
@@ -448,6 +556,15 @@ const Keyed = struct {
     }
 };
 
+inline fn hashPlainLayoutKey(header: LayoutKey) u64 {
+    const w0 = header.key ^ (@as(u64, header.chain) << 48) ^ (@as(u64, header.tab_size) << 40) ^ 0x9e3779b97f4a7c15;
+    const w1 = (@as(u64, header.size) << 32) | @as(u64, header.wrap);
+    var x = (w0 +% w1) ^ (@as(u64, header.revision) *% 0xbf58476d1ce4e5b9);
+    x = (x ^ (x >> 30)) *% 0xbf58476d1ce4e5b9;
+    x = (x ^ (x >> 27)) *% 0x94d049bb133111eb;
+    return x ^ (x >> 31);
+}
+
 fn keyedLayout(self: *TextSystem, key: u64, chain_id: ChainId, request: Request) !*const TextLayout {
     const header: LayoutKey = .{
         .chain = chain_id,
@@ -458,11 +575,30 @@ fn keyedLayout(self: *TextSystem, key: u64, chain_id: ChainId, request: Request)
         .key = key,
         .revision = request.revision,
     };
-    self.key_bytes.clearRetainingCapacity();
-    try self.key_bytes.appendSlice(self.gpa, std.mem.asBytes(&header));
-    try self.appendStyleKey(request, .global_only);
-    const style = self.key_bytes.items;
-    const entry = try self.keyed.getOrPut(self.gpa, std.hash.Wyhash.hash(0, style));
+    const plain_style_len = @sizeOf(LayoutKey) + 4;
+    var plain_style: [plain_style_len]u8 = undefined;
+    var style: []const u8 = undefined;
+    var style_hash: u64 = undefined;
+    if (request.runs.len == 0 and request.features.len == 0) {
+        @memcpy(plain_style[0..@sizeOf(LayoutKey)], std.mem.asBytes(&header));
+        @memset(plain_style[@sizeOf(LayoutKey)..plain_style_len], 0);
+        style = &plain_style;
+        style_hash = hashPlainLayoutKey(header);
+        if (self.keyed.getPtr(style_hash)) |keyed| {
+            if (keyed.features.len == 0 and std.mem.eql(u8, keyed.style, &plain_style) and std.mem.eql(u8, keyed.layout.text, request.text)) {
+                keyed.frame = self.frame;
+                self.stats.layout_hits += 1;
+                return keyed.layout;
+            }
+        }
+    } else {
+        self.key_bytes.clearRetainingCapacity();
+        try self.key_bytes.appendSlice(self.gpa, std.mem.asBytes(&header));
+        try self.appendStyleKey(request, .global_only);
+        style = self.key_bytes.items;
+        style_hash = std.hash.Wyhash.hash(0, style);
+    }
+    const entry = try self.keyed.getOrPut(self.gpa, style_hash);
     if (entry.found_existing and std.mem.eql(u8, entry.value_ptr.style, style)) {
         const keyed = entry.value_ptr;
         const old = keyed.layout;
@@ -552,7 +688,10 @@ pub fn endFrame(self: *TextSystem) void {
     self.glyph_store.endFrame(&self.evicted_glyphs) catch return;
     for (self.evicted_glyphs.items) |owner| {
         const target = self.faceById(@intCast(owner >> 32));
-        _ = target.glyphs.remove(@truncate(owner));
+        const gid: u32 = @truncate(owner);
+        if (gid < target.glyph_slots.len) {
+            target.glyph_slots[gid] = Face.no_glyph_slot;
+        }
     }
 }
 
@@ -592,15 +731,25 @@ const WordValue = struct {
 
 /// Shapes `text` with `plan`, through the word cache.
 fn shapeCached(self: *TextSystem, face_id: FaceId, cached_plan: *const CachedPlan, text: []const u8, ranges: []const shape.Plan.Feature) ![]const shape.ShapedGlyph {
-    var key_buffer: [12]u8 = undefined;
-    std.mem.writeInt(u64, key_buffer[0..8], cached_plan.serial, .little);
-    std.mem.writeInt(u32, key_buffer[8..12], @intCast(ranges.len), .little);
-    const key = &self.word_key;
-    key.clearRetainingCapacity();
-    try key.appendSlice(self.gpa, &key_buffer);
-    try key.appendSlice(self.gpa, std.mem.sliceAsBytes(ranges));
-    try key.appendSlice(self.gpa, text);
-    if (self.words.get(key.items, self.frame)) |cached| {
+    var stack_key: [128]u8 = undefined;
+    const key_slice: []const u8 = blk: {
+        if (ranges.len == 0 and text.len <= stack_key.len - 12) {
+            std.mem.writeInt(u64, stack_key[0..8], cached_plan.serial, .little);
+            std.mem.writeInt(u32, stack_key[8..12], 0, .little);
+            @memcpy(stack_key[12 .. 12 + text.len], text);
+            break :blk stack_key[0 .. 12 + text.len];
+        }
+        var key_buffer: [12]u8 = undefined;
+        std.mem.writeInt(u64, key_buffer[0..8], cached_plan.serial, .little);
+        std.mem.writeInt(u32, key_buffer[8..12], @intCast(ranges.len), .little);
+        const key = &self.word_key;
+        key.clearRetainingCapacity();
+        try key.appendSlice(self.gpa, &key_buffer);
+        try key.appendSlice(self.gpa, std.mem.sliceAsBytes(ranges));
+        try key.appendSlice(self.gpa, text);
+        break :blk key.items;
+    };
+    if (self.words.get(key_slice, self.frame)) |cached| {
         self.stats.word_hits += 1;
         return cached;
     }
@@ -609,7 +758,7 @@ fn shapeCached(self: *TextSystem, face_id: FaceId, cached_plan: *const CachedPla
     const program = &self.faceById(face_id).program;
     try shape.shaper.shapeRanged(&self.buffer, program, &cached_plan.plan, text, ranges, self.gpa, &self.shaped);
     const owned = try self.gpa.dupe(shape.ShapedGlyph, self.shaped.items);
-    return self.words.put(self.gpa, key.items, owned, self.frame);
+    return self.words.put(self.gpa, key_slice, owned, self.frame);
 }
 
 /// End of the word or run of spaces at `start`, for fonts whose space glyph takes part in no
@@ -635,6 +784,7 @@ fn build(self: *TextSystem, chain: Chain, request: Request) !*TextLayout {
 
 /// Builds a layout, copying paragraphs `reuse` shows are unchanged.
 fn buildReusing(self: *TextSystem, chain: Chain, request: Request, reuse: ?Reuse) !*TextLayout {
+    self.layout_scratch.reset();
     var builder: LayoutBuilder = .{
         .system = self,
         .request = request,
@@ -642,8 +792,23 @@ fn buildReusing(self: *TextSystem, chain: Chain, request: Request, reuse: ?Reuse
         .primary = self.faceById(chain.faces[0]),
         .text = request.text,
         .wrap_width = @max(request.wrap_width, 0),
+        .ids = self.layout_scratch.ids,
+        .xs = self.layout_scratch.xs,
+        .advances = self.layout_scratch.advances,
+        .x_offsets = self.layout_scratch.x_offsets,
+        .y_offsets = self.layout_scratch.y_offsets,
+        .clusters = self.layout_scratch.clusters,
+        .flags = self.layout_scratch.flags,
+        .lines = self.layout_scratch.lines,
+        .runs = self.layout_scratch.runs,
+        .items = self.layout_scratch.items,
+        .ranges = self.layout_scratch.ranges,
+        .features = self.layout_scratch.features,
+        .carets = self.layout_scratch.carets,
+        .caret_offsets = self.layout_scratch.caret_offsets,
+        .breaks = self.layout_scratch.breaks,
     };
-    defer builder.deinit();
+    defer builder.saveScratch();
     builder.reuse = reuse;
     return builder.run();
 }
@@ -720,23 +885,23 @@ const LayoutBuilder = struct {
     y: f32 = 0,
     uniform: bool = true,
 
-    fn deinit(self: *LayoutBuilder) void {
-        const gpa = self.system.gpa;
-        self.ids.deinit(gpa);
-        self.xs.deinit(gpa);
-        self.advances.deinit(gpa);
-        self.x_offsets.deinit(gpa);
-        self.y_offsets.deinit(gpa);
-        self.clusters.deinit(gpa);
-        self.flags.deinit(gpa);
-        self.lines.deinit(gpa);
-        self.runs.deinit(gpa);
-        self.items.deinit(gpa);
-        self.ranges.deinit(gpa);
-        self.features.deinit(gpa);
-        self.carets.deinit(gpa);
-        self.caret_offsets.deinit(gpa);
-        self.breaks.deinit(gpa);
+    fn saveScratch(self: *LayoutBuilder) void {
+        const s = &self.system.layout_scratch;
+        s.ids = self.ids;
+        s.xs = self.xs;
+        s.advances = self.advances;
+        s.x_offsets = self.x_offsets;
+        s.y_offsets = self.y_offsets;
+        s.clusters = self.clusters;
+        s.flags = self.flags;
+        s.lines = self.lines;
+        s.runs = self.runs;
+        s.items = self.items;
+        s.ranges = self.ranges;
+        s.features = self.features;
+        s.carets = self.carets;
+        s.caret_offsets = self.caret_offsets;
+        s.breaks = self.breaks;
     }
 
     fn run(self: *LayoutBuilder) !*TextLayout {
@@ -848,6 +1013,12 @@ const LayoutBuilder = struct {
     }
 
     fn paragraph(self: *LayoutBuilder, start: u32, end: u32) !void {
+        if (self.wrap_width <= 0 and unicode.linebreak.hasNoMandatoryBreaks(self.text[start..end])) {
+            const base = self.glyphCount();
+            try self.shapeSpan(start, end);
+            try self.appendLine(base, self.glyphCount(), start, end);
+            return;
+        }
         const system = self.system;
         try self.breaks.resize(system.gpa, end - start);
         try unicode.linebreak.opportunities(system.gpa, &system.line_break_scratch, self.text[start..end], self.breaks.items);
@@ -887,8 +1058,15 @@ const LayoutBuilder = struct {
     /// Whitespace that hangs past the end of a line instead of counting toward its width.
     fn isBlank(self: *const LayoutBuilder, glyph_index: u32) bool {
         const byte = self.clusters.items[glyph_index];
+        const first = self.text[byte];
+        if (first < 0x80) {
+            return switch (first) {
+                ' ', '\t', 0x0B, 0x0C, '\r' => true,
+                else => false,
+            };
+        }
         return switch (unicode.decodeUtf8(self.text, byte).codepoint) {
-            ' ', '\t', 0x0B, 0x0C, '\r', 0x85, 0x2028, 0x2029 => true,
+            0x85, 0x2028, 0x2029 => true,
             else => false,
         };
     }
@@ -1085,10 +1263,36 @@ const LayoutBuilder = struct {
             const glyphs = try self.system.shapeCached(face_id, plan, self.text[start..end], try self.rangesFor(start, end));
             return self.appendShaped(glyphs, start, pen_start, scale);
         }
+        const program = &self.system.faceById(face_id).program;
+        const space_glyph = program.space_glyph;
+        const space_adv: f32 = if (space_glyph != 0) @as(f32, @floatFromInt(program.advance(space_glyph))) * scale else 0;
         var pen = pen_start;
         var segment = start;
         while (segment < end) {
             const segment_end: u32 = @intCast(wordEnd(self.text, segment, end));
+            if (space_glyph != 0 and self.text[segment] == ' ' and self.text[segment_end - 1] == ' ') {
+                const count: usize = segment_end - segment;
+                const gpa = self.system.gpa;
+                try self.ids.ensureUnusedCapacity(gpa, count);
+                try self.xs.ensureUnusedCapacity(gpa, count);
+                try self.advances.ensureUnusedCapacity(gpa, count);
+                try self.x_offsets.ensureUnusedCapacity(gpa, count);
+                try self.y_offsets.ensureUnusedCapacity(gpa, count);
+                try self.clusters.ensureUnusedCapacity(gpa, count);
+                try self.flags.ensureUnusedCapacity(gpa, count);
+                for (segment..segment_end) |byte_idx| {
+                    self.ids.appendAssumeCapacity(space_glyph);
+                    self.xs.appendAssumeCapacity(pen);
+                    self.advances.appendAssumeCapacity(space_adv);
+                    self.x_offsets.appendAssumeCapacity(0);
+                    self.y_offsets.appendAssumeCapacity(0);
+                    self.clusters.appendAssumeCapacity(@intCast(byte_idx));
+                    self.flags.appendAssumeCapacity(0);
+                    pen += space_adv;
+                }
+                segment = segment_end;
+                continue;
+            }
             const glyphs = try self.system.shapeCached(face_id, plan, self.text[segment..segment_end], try self.rangesFor(segment, segment_end));
             pen = try self.appendShaped(glyphs, segment, pen, scale);
             segment = segment_end;
@@ -1238,40 +1442,94 @@ const LayoutBuilder = struct {
         }.lessThan);
     }
 
+    const slab_align = @max(@alignOf(TextLayout), @alignOf(f64));
+
+    inline fn reserveSlab(comptime T: type, cursor: *usize, len: usize) void {
+        comptime std.debug.assert(@alignOf(T) <= slab_align);
+        if (len == 0) return;
+        cursor.* = std.mem.alignForward(usize, cursor.*, @alignOf(T)) + len * @sizeOf(T);
+    }
+
+    inline fn carveSlab(comptime T: type, slab: []align(slab_align) u8, cursor: *usize, len: usize) []T {
+        if (len == 0) return &.{};
+        const aligned = std.mem.alignForward(usize, cursor.*, @alignOf(T));
+        cursor.* = aligned + len * @sizeOf(T);
+        const ptr: [*]T = @ptrCast(@alignCast(slab.ptr + aligned));
+        return ptr[0..len];
+    }
+
+    inline fn copySlab(comptime T: type, slab: []align(slab_align) u8, cursor: *usize, src: []const T) []T {
+        const dst = carveSlab(T, slab, cursor, src.len);
+        if (src.len > 0) @memcpy(dst, src);
+        return dst;
+    }
+
     fn finish(self: *LayoutBuilder) !*TextLayout {
         const gpa = self.system.gpa;
-        const result = try gpa.create(TextLayout);
-        errdefer gpa.destroy(result);
-        const text_copy = try gpa.dupe(u8, self.text);
-        errdefer gpa.free(text_copy);
-        const runs = try self.runs.toOwnedSlice(gpa);
-        errdefer gpa.free(runs);
+        const g_len = self.ids.items.len;
+
+        var slab_len: usize = @sizeOf(TextLayout);
+        reserveSlab(f64, &slab_len, g_len);
+        reserveSlab(u32, &slab_len, g_len); // ids
+        reserveSlab(f32, &slab_len, g_len); // advances
+        reserveSlab(f32, &slab_len, g_len); // x_offsets
+        reserveSlab(f32, &slab_len, g_len); // y_offsets
+        reserveSlab(u32, &slab_len, g_len); // clusters
+        reserveSlab(u32, &slab_len, g_len); // slots
+        reserveSlab(TextLayout.Line, &slab_len, self.lines.items.len);
+        reserveSlab(TextLayout.Run, &slab_len, self.runs.items.len);
+        reserveSlab(TextLayout.Caret, &slab_len, self.carets.items.len);
+        reserveSlab(f32, &slab_len, self.caret_offsets.items.len);
+        reserveSlab(u8, &slab_len, self.text.len);
+        reserveSlab(u8, &slab_len, g_len); // flags
+
+        const slab = try gpa.alignedAlloc(u8, .fromByteUnits(slab_align), slab_len);
+        var cursor: usize = @sizeOf(TextLayout);
+        const xs = copySlab(f64, slab, &cursor, self.xs.items);
+        const ids = copySlab(u32, slab, &cursor, self.ids.items);
+        const advances = copySlab(f32, slab, &cursor, self.advances.items);
+        const x_offsets = copySlab(f32, slab, &cursor, self.x_offsets.items);
+        const y_offsets = copySlab(f32, slab, &cursor, self.y_offsets.items);
+        const clusters = copySlab(u32, slab, &cursor, self.clusters.items);
+        const slots = carveSlab(u32, slab, &cursor, g_len);
+        const lines = copySlab(TextLayout.Line, slab, &cursor, self.lines.items);
+        const runs = copySlab(TextLayout.Run, slab, &cursor, self.runs.items);
+        const carets = copySlab(TextLayout.Caret, slab, &cursor, self.carets.items);
+        const caret_offsets = copySlab(f32, slab, &cursor, self.caret_offsets.items);
+        const text_copy = copySlab(u8, slab, &cursor, self.text);
+        const flags = copySlab(u8, slab, &cursor, self.flags.items);
+        std.debug.assert(cursor == slab_len);
+
         const line_height = self.primary.lineHeight(self.request.size);
         var height = self.y;
         if (self.uniform) {
             height = @as(f32, @floatFromInt(@max(self.lines.items.len, 1))) * line_height;
         }
+        const result: *TextLayout = @ptrCast(slab.ptr);
         result.* = .{
             .text = text_copy,
             .glyphs = .{
-                .ids = try self.ids.toOwnedSlice(gpa),
-                .x = try self.xs.toOwnedSlice(gpa),
-                .advance = try self.advances.toOwnedSlice(gpa),
-                .x_offset = try self.x_offsets.toOwnedSlice(gpa),
-                .y_offset = try self.y_offsets.toOwnedSlice(gpa),
-                .cluster = try self.clusters.toOwnedSlice(gpa),
-                .flags = try self.flags.toOwnedSlice(gpa),
+                .ids = ids,
+                .x = xs,
+                .advance = advances,
+                .x_offset = x_offsets,
+                .y_offset = y_offsets,
+                .cluster = clusters,
+                .flags = flags,
             },
             .runs = runs,
-            .lines = try self.lines.toOwnedSlice(gpa),
-            .carets = try self.carets.toOwnedSlice(gpa),
-            .caret_offsets = try self.caret_offsets.toOwnedSlice(gpa),
+            .lines = lines,
+            .carets = carets,
+            .caret_offsets = caret_offsets,
             .width = self.width,
             .height = height,
             .ascender = self.primary.ascender(self.request.size),
             .line_height = line_height,
             .underline_offset = -@as(f32, @floatFromInt(self.primary.program.metrics.underline_position)) * self.request.size / self.primary.unitsPerEm(),
             .underline_thickness = @as(f32, @floatFromInt(self.primary.program.metrics.underline_thickness)) * self.request.size / self.primary.unitsPerEm(),
+            .slots = slots,
+            .slab_len = slab_len,
+            .owns_slots = false,
         };
         return result;
     }
@@ -1318,20 +1576,11 @@ fn layoutBytes(value: *const TextLayout) usize {
 }
 
 fn freeLayout(gpa: std.mem.Allocator, value: *TextLayout) void {
-    gpa.free(value.text);
-    gpa.free(value.glyphs.ids);
-    gpa.free(value.glyphs.x);
-    gpa.free(value.glyphs.advance);
-    gpa.free(value.glyphs.x_offset);
-    gpa.free(value.glyphs.y_offset);
-    gpa.free(value.glyphs.cluster);
-    gpa.free(value.glyphs.flags);
-    gpa.free(value.runs);
-    gpa.free(value.lines);
-    gpa.free(value.carets);
-    gpa.free(value.caret_offsets);
-    gpa.free(value.slots);
-    gpa.destroy(value);
+    if (value.owns_slots) {
+        gpa.free(value.slots);
+    }
+    const base: [*]align(LayoutBuilder.slab_align) u8 = @ptrCast(@alignCast(value));
+    gpa.free(base[0..value.slab_len]);
 }
 
 test "layout wraps at blanks and caches by request" {
@@ -1476,4 +1725,25 @@ test "glyphs map to points and to their cluster's bytes" {
     }
     try std.testing.expectEqual(@as(?u32, null), value.glyphAt(.{ .x = value.width + 5, .y = 1 }));
     try std.testing.expectEqual(@as(?u32, null), value.glyphAt(.{ .x = 1, .y = value.height + 5 }));
+}
+
+test "unwrapped mandatory breaks and glyph slot eviction preserve correctness" {
+    var system = try TextSystem.init(std.testing.allocator, &.{.{ .name = "default", .data = @embedFile("test_font") }});
+    defer system.deinit();
+
+    const vtab = try system.layout(.{ .text = "one\x0btwo\u{2028}three", .size = 16 });
+    try std.testing.expectEqual(@as(usize, 3), vtab.lines.len);
+
+    const slots_a = try system.resolveSlots(vtab);
+    try std.testing.expectEqual(vtab.glyphs.ids.len, slots_a.len);
+    const out_of_range = try system.glyphRecord(0, 0xFFFF);
+    try std.testing.expectEqual(GlyphStore.empty_slot, out_of_range.slot);
+
+    system.endFrame();
+    system.endFrame();
+    system.glyph_store.budget_bytes = 64;
+    _ = try system.resolveSlots(try system.layout(.{ .text = "PACK MY BOX", .size = 16 }));
+    system.endFrame();
+    const slots_b = try system.resolveSlots(vtab);
+    try std.testing.expectEqual(vtab.glyphs.ids.len, slots_b.len);
 }

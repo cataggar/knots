@@ -412,11 +412,13 @@ pub fn styledTextLayout(self: *UI, t: *const Decoration.Text, wrap_width: f32) !
 pub fn measureText(self: *UI, t: *Decoration.Text) !void {
     const scale = self.content_scale;
     if (t.wrap) {
+        t.cached_layout = null;
         t.intrinsic_w = 0;
         t.intrinsic_h = (try self.text_system.lineHeight(t.font, t.size * scale)) / scale;
         return;
     }
     const measured = try self.styledTextLayout(t, 0);
+    t.cached_layout = measured;
     t.intrinsic_w = measured.width / scale;
     t.intrinsic_h = measured.height / scale;
 }

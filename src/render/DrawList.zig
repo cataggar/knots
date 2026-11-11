@@ -373,8 +373,8 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
         const count_f: f32 = @floatFromInt(@max(finite_count, 1));
         const cols = gridCells(union_w, extent_sum_x / count_f);
         const rows = gridCells(union_h, extent_sum_y / count_f);
-        const cell_w = union_w / @as(f32, @floatFromInt(cols));
-        const cell_h = union_h / @as(f32, @floatFromInt(rows));
+        const inv_cell_w = @as(f32, @floatFromInt(cols)) / union_w;
+        const inv_cell_h = @as(f32, @floatFromInt(rows)) / union_h;
 
         // Buckets of earlier entries per cell, as linked lists through `batch_links`.
         var heads_buffer: [grid_cells_max]u32 = undefined;
@@ -385,10 +385,10 @@ fn emitBatched(self: *DrawList, out: *std.ArrayList(Command), commands: []const 
         try self.batch_links.ensureTotalCapacity(self.allocator, entries.len * 4);
         var level_max: u32 = 0;
         for (entries, 0..) |*entry, entry_index| {
-            const cx0 = gridCoord(entry.bounds.x0, union_box.x0, cell_w, cols);
-            const cy0 = gridCoord(entry.bounds.y0, union_box.y0, cell_h, rows);
-            const cx1 = gridCoord(entry.bounds.x1, union_box.x0, cell_w, cols);
-            const cy1 = gridCoord(entry.bounds.y1, union_box.y0, cell_h, rows);
+            const cx0 = gridCoord(entry.bounds.x0, union_box.x0, inv_cell_w, cols);
+            const cy0 = gridCoord(entry.bounds.y0, union_box.y0, inv_cell_h, rows);
+            const cx1 = gridCoord(entry.bounds.x1, union_box.x0, inv_cell_w, cols);
+            const cy1 = gridCoord(entry.bounds.y1, union_box.y0, inv_cell_h, rows);
             // Any level at or above the minimum is valid; joining the key's latest
             // batch avoids opening a new draw.
             const tracked = entry.key < self.batch_keys.items.len;
@@ -499,8 +499,8 @@ inline fn gridCells(extent: f32, average: f32) usize {
     return @intFromFloat(cells);
 }
 
-inline fn gridCoord(value: f32, origin: f32, cell: f32, cells: usize) usize {
-    const coord = @floor((value - origin) / cell);
+inline fn gridCoord(value: f32, origin: f32, inv_cell: f32, cells: usize) usize {
+    const coord = @floor((value - origin) * inv_cell);
     if (!(coord > 0)) return 0;
     const last: f32 = @floatFromInt(cells - 1);
     if (coord >= last) return cells - 1;

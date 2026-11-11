@@ -49,46 +49,143 @@ fn absorbs(class: LineBreak) bool {
     };
 }
 
+const ascii_classes: [128]LineBreak = table: {
+    @setEvalBranchQuota(20_000);
+    var out: [128]LineBreak = undefined;
+    for (&out, 0..) |*slot, cp| {
+        const p = unicode.props(@intCast(cp));
+        const c = resolve(p.line_break, p.general_category);
+        std.debug.assert(c != .zwj);
+        if (cp >= 0x20 and cp <= 0x7E) {
+            std.debug.assert(c != .cm);
+        }
+        std.debug.assert(!p.east_asian_wide);
+        std.debug.assert(p.general_category != .initial_punctuation);
+        std.debug.assert(p.general_category != .final_punctuation);
+        std.debug.assert(!(p.extended_pictographic and p.general_category == .unassigned));
+        if (cp != '\n' and cp != 0x0B and cp != 0x0C and cp != '\r') {
+            std.debug.assert(c != .bk and c != .cr and c != .lf and c != .nl);
+        }
+        slot.* = c;
+    }
+    break :table out;
+};
+
+/// Returns true when a slice (already split on `\n`) contains no mandatory UAX #14 line breaks.
+pub inline fn hasNoMandatoryBreaks(text: []const u8) bool {
+    var i: usize = 0;
+    while (i + 8 <= text.len) : (i += 8) {
+        const w = std.mem.readInt(u64, text[i..][0..8], .little);
+        // Fast check: printable ASCII + tab (`0x20..0x7F` or `\t`) — if all 8 bytes are `< 0x80` and `>= 0x20`, none is 0x0B/0x0C/0x0D/0x0A.
+        const high_bits = w & 0x8080_8080_8080_8080;
+        const under_0x20 = (w -% 0x2020_2020_2020_2020) & ~w & 0x8080_8080_8080_8080;
+        if ((high_bits | under_0x20) != 0) {
+            for (text[i..][0..8]) |b| {
+                if (b >= 0x80 or b == 0x0A or b == 0x0B or b == 0x0C or b == 0x0D) return false;
+            }
+        }
+    }
+    while (i < text.len) : (i += 1) {
+        const b = text[i];
+        if (b >= 0x80 or b == 0x0A or b == 0x0B or b == 0x0C or b == 0x0D) return false;
+    }
+    return true;
+}
+
 /// Writes the opportunity before each byte of `text` to `out`, which has `text.len` entries.
 /// Bytes inside a codepoint, and the start of the text, get `.none`.
 pub fn opportunities(gpa: std.mem.Allocator, scratch: *Scratch, text: []const u8, out: []Break) !void {
     std.debug.assert(out.len == text.len);
     @memset(out, .none);
+    if (text.len < 2) {
+        return;
+    }
     const units = &scratch.units;
     units.clearRetainingCapacity();
-    var index: usize = 0;
-    while (index < text.len) {
-        const decoded = unicode.decodeUtf8(text, index);
-        const props = unicode.props(decoded.codepoint);
-        const class = resolve(props.line_break, props.general_category);
-        defer index += decoded.len;
-        if (class == .cm or class == .zwj) {
-            if (units.items.len > 0 and absorbs(units.items[units.items.len - 1].class)) {
-                units.items[units.items.len - 1].ends_with_zwj = class == .zwj;
+
+    if (unicode.isAscii(text)) {
+        try units.ensureTotalCapacity(gpa, text.len);
+        for (text, 0..) |b, idx| {
+            const class = ascii_classes[b];
+            if (class == .cm) {
+                if (units.items.len > 0 and absorbs(units.items[units.items.len - 1].class)) {
+                    units.items[units.items.len - 1].ends_with_zwj = false;
+                    continue;
+                }
+                units.appendAssumeCapacity(.{
+                    .start = @intCast(idx),
+                    .class = .al,
+                    .east_asian = false,
+                    .initial_quote = false,
+                    .final_quote = false,
+                    .unassigned_pictographic = false,
+                    .dotted_circle = false,
+                    .ends_with_zwj = false,
+                });
                 continue;
             }
+            units.appendAssumeCapacity(.{
+                .start = @intCast(idx),
+                .class = class,
+                .east_asian = false,
+                .initial_quote = false,
+                .final_quote = false,
+                .unassigned_pictographic = false,
+                .dotted_circle = false,
+                .ends_with_zwj = false,
+            });
         }
-        var effective = class;
-        if (class == .cm or class == .zwj) {
-            effective = .al;
+    } else {
+        try units.ensureTotalCapacity(gpa, text.len);
+        var index: usize = 0;
+        while (index < text.len) {
+            const decoded = unicode.decodeUtf8(text, index);
+            const props = unicode.props(decoded.codepoint);
+            const class = resolve(props.line_break, props.general_category);
+            defer index += decoded.len;
+            if (class == .cm or class == .zwj) {
+                if (units.items.len > 0 and absorbs(units.items[units.items.len - 1].class)) {
+                    units.items[units.items.len - 1].ends_with_zwj = class == .zwj;
+                    continue;
+                }
+            }
+            var effective = class;
+            if (class == .cm or class == .zwj) {
+                effective = .al;
+            }
+            units.appendAssumeCapacity(.{
+                .start = @intCast(index),
+                .class = effective,
+                .east_asian = props.east_asian_wide,
+                .initial_quote = props.general_category == .initial_punctuation,
+                .final_quote = props.general_category == .final_punctuation,
+                .unassigned_pictographic = props.extended_pictographic and props.general_category == .unassigned,
+                .dotted_circle = decoded.codepoint == 0x25CC,
+                .ends_with_zwj = class == .zwj,
+            });
         }
-        try units.append(gpa, .{
-            .start = @intCast(index),
-            .class = effective,
-            .east_asian = props.east_asian_wide,
-            .initial_quote = props.general_category == .initial_punctuation,
-            .final_quote = props.general_category == .final_punctuation,
-            .unassigned_pictographic = props.extended_pictographic and props.general_category == .unassigned,
-            .dotted_circle = decoded.codepoint == 0x25CC,
-            .ends_with_zwj = class == .zwj,
-        });
     }
+
     const list = units.items;
     if (list.len < 2) {
         return;
     }
     for (1..list.len) |k| {
-        out[list[k].start] = decide(list, k);
+        const a = list[k - 1];
+        const b = list[k];
+        if (!a.ends_with_zwj and (a.class == .al or a.class == .nu)) {
+            if (b.class == .al or b.class == .nu or b.class == .sp) {
+                continue;
+            }
+        }
+        if (a.class == .sp and (b.class == .al or b.class == .nu) and k >= 2) {
+            const prev = list[k - 2].class;
+            if (prev == .al or prev == .nu) {
+                out[b.start] = .allowed;
+                continue;
+            }
+        }
+        out[b.start] = decide(list, k);
     }
 }
 
@@ -365,4 +462,27 @@ test "breaks after spaces and keeps words whole" {
     try std.testing.expectEqual(Break.none, out[5]);
     try std.testing.expectEqual(Break.none, out[2]);
     try std.testing.expectEqual(Break.allowed, out[13]);
+}
+
+test "ascii and fast-path opportunities match full decide rules" {
+    const cases = [_][]const u8{
+        "Knots 1,024.50 MB/s ( open) [ok] \"quote\" 's a1b2",
+        "c0\x00ctrl\x7fend\x0bvtab\x0cff\r\ncrlf",
+        "zwj\u{200D}al and e\u{0301} space",
+    };
+    var scratch: Scratch = .{};
+    defer scratch.deinit(std.testing.allocator);
+    for (cases) |sample| {
+        const out = try std.testing.allocator.alloc(Break, sample.len);
+        defer std.testing.allocator.free(out);
+        try opportunities(std.testing.allocator, &scratch, sample, out);
+        const list = scratch.units.items;
+        for (1..list.len) |k| {
+            try std.testing.expectEqual(decide(list, k), out[list[k].start]);
+        }
+    }
+    try std.testing.expect(hasNoMandatoryBreaks("plain ASCII 1234567890 !@#\t"));
+    try std.testing.expect(!hasNoMandatoryBreaks("has\x0bvtab"));
+    try std.testing.expect(!hasNoMandatoryBreaks("has\rreturn"));
+    try std.testing.expect(!hasNoMandatoryBreaks("non-ascii \u{2028}"));
 }

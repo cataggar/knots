@@ -103,21 +103,19 @@ pub fn add(self: *GlyphStore, curves: []const Curve, owner: u64) !Added {
     if (curves.len == 0) {
         return .{ .slot = empty_slot, .entry = .empty };
     }
-    const encoded = try encode(self.allocator, curves);
-    defer self.allocator.free(encoded.words);
-    if (encoded.words.len > blob_words_max) {
+    const blob: u32 = @intCast(self.words.items.len);
+    const encoded = try encodeInto(self.allocator, curves, &self.words);
+    if (encoded.words_len > blob_words_max) {
+        self.words.shrinkRetainingCapacity(blob);
         return .{ .slot = empty_slot, .entry = .empty };
     }
-
-    const blob: u32 = @intCast(self.words.items.len);
-    try self.words.appendSlice(self.allocator, encoded.words);
     self.dirty.markWords(blob, self.words.items.len);
 
     var entry = encoded.entry;
     entry.blob = blob;
     const slot = try self.allocateSlot();
     self.table.items[slot] = entry;
-    self.slots.items[slot] = .{ .blob = blob, .words = @intCast(encoded.words.len), .last_used = self.frame, .owner = owner, .live = true };
+    self.slots.items[slot] = .{ .blob = blob, .words = @intCast(encoded.words_len), .last_used = self.frame, .owner = owner, .live = true };
     self.dirty.markTable(slot);
     self.bumpRevision();
     return .{ .slot = slot, .entry = entry };
@@ -257,42 +255,60 @@ const Encoded = struct {
     entry: Entry,
 };
 
+const EncodedInto = struct {
+    words_len: usize,
+    entry: Entry,
+};
+
 const quant_max: f32 = 65535;
 
-fn quantize(value: f32, min: f32, extent: f32) u16 {
-    const scaled = (value - min) / extent * quant_max;
+inline fn quantizeScaled(value: f32, min: f32, scale: f32) u16 {
+    const scaled = (value - min) * scale;
     return @intFromFloat(std.math.clamp(@round(scaled), 0, quant_max));
 }
 
-pub fn dequantize(q: u16, min: f32, extent: f32) f32 {
+pub inline fn dequantize(q: u16, min: f32, extent: f32) f32 {
     return min + @as(f32, @floatFromInt(q)) * (extent / quant_max);
 }
 
 const Bounds = struct { min: [2]f32, extent: [2]f32 };
 
-fn boundsOf(curves: []const Curve) Bounds {
-    var min: [2]f32 = .{ std.math.inf(f32), std.math.inf(f32) };
-    var max: [2]f32 = .{ -std.math.inf(f32), -std.math.inf(f32) };
+inline fn boundsOf(curves: []const Curve) Bounds {
+    var min_x: f32 = std.math.inf(f32);
+    var min_y: f32 = std.math.inf(f32);
+    var max_x: f32 = -std.math.inf(f32);
+    var max_y: f32 = -std.math.inf(f32);
     for (curves) |c| {
-        inline for (.{ c.p1, c.p2, c.p3 }) |point| {
-            min = .{ @min(min[0], point[0]), @min(min[1], point[1]) };
-            max = .{ @max(max[0], point[0]), @max(max[1], point[1]) };
-        }
+        min_x = @min(min_x, @min(c.p1[0], @min(c.p2[0], c.p3[0])));
+        min_y = @min(min_y, @min(c.p1[1], @min(c.p2[1], c.p3[1])));
+        max_x = @max(max_x, @max(c.p1[0], @max(c.p2[0], c.p3[0])));
+        max_y = @max(max_y, @max(c.p1[1], @max(c.p2[1], c.p3[1])));
     }
-    var extent: [2]f32 = .{ max[0] - min[0], max[1] - min[1] };
+    var extent: [2]f32 = .{ max_x - min_x, max_y - min_y };
     if (extent[0] <= 0) {
         extent[0] = 1;
     }
     if (extent[1] <= 0) {
         extent[1] = 1;
     }
-    return .{ .min = min, .extent = extent };
+    return .{ .min = .{ min_x, min_y }, .extent = extent };
 }
 
 const Point = [2]u16;
 
-fn quantizePoint(point: [2]f32, bounds: Bounds) Point {
-    return .{ quantize(point[0], bounds.min[0], bounds.extent[0]), quantize(point[1], bounds.min[1], bounds.extent[1]) };
+inline fn packQuantizedPoint(point: [2]f32, min: [2]f32, quant_scale: [2]f32) u32 {
+    const qx = quantizeScaled(point[0], min[0], quant_scale[0]);
+    const qy = quantizeScaled(point[1], min[1], quant_scale[1]);
+    return @as(u32, qx) | (@as(u32, qy) << 16);
+}
+
+inline fn decodePackedPoint(packed_pt: u32, bounds: Bounds, dequant_scale: [2]f32) [2]f32 {
+    const qx: u16 = @truncate(packed_pt);
+    const qy: u16 = @truncate(packed_pt >> 16);
+    return .{
+        bounds.min[0] + @as(f32, @floatFromInt(qx)) * dequant_scale[0],
+        bounds.min[1] + @as(f32, @floatFromInt(qy)) * dequant_scale[1],
+    };
 }
 
 fn decodePoint(point: Point, bounds: Bounds) [2]f32 {
@@ -301,8 +317,10 @@ fn decodePoint(point: Point, bounds: Bounds) [2]f32 {
 
 const stack_encode_curve_capacity: usize = 256;
 
-pub fn encode(allocator: std.mem.Allocator, curves_in: []const Curve) !Encoded {
+fn encodeInto(allocator: std.mem.Allocator, curves_in: []const Curve, out_words: *std.ArrayList(u32)) !EncodedInto {
     const bounds = boundsOf(curves_in);
+    const quant_scale: [2]f32 = .{ quant_max / bounds.extent[0], quant_max / bounds.extent[1] };
+    const dequant_scale: [2]f32 = .{ bounds.extent[0] / quant_max, bounds.extent[1] / quant_max };
     const use_stack = curves_in.len <= stack_encode_curve_capacity;
 
     var stack_starts: [stack_encode_curve_capacity]u32 = undefined;
@@ -313,36 +331,54 @@ pub fn encode(allocator: std.mem.Allocator, curves_in: []const Curve) !Encoded {
     const decoded = if (use_stack) stack_decoded[0..curves_in.len] else try allocator.alloc(Curve, curves_in.len);
     defer if (!use_stack) allocator.free(decoded);
 
-    var stack_points: [stack_encode_curve_capacity * 3]Point = undefined;
-    var heap_points: std.ArrayList(Point) = .empty;
+    var stack_points: [stack_encode_curve_capacity * 3]u32 = undefined;
+    var heap_points: std.ArrayList(u32) = .empty;
     defer if (!use_stack) heap_points.deinit(allocator);
     if (!use_stack) try heap_points.ensureTotalCapacity(allocator, curves_in.len * 3);
 
     var points_len: usize = 0;
+    var prev_raw_p3: [2]f32 = undefined;
+    var prev_packed_p3: u32 = 0;
+    var prev_decoded_p3: [2]f32 = undefined;
+
     for (curves_in, 0..) |c, index| {
-        const p1 = quantizePoint(c.p1, bounds);
-        const p2 = quantizePoint(c.p2, bounds);
-        const p3 = quantizePoint(c.p3, bounds);
+        var p1_packed: u32 = undefined;
+        var p1_decoded: [2]f32 = undefined;
+        if (index > 0 and c.p1[0] == prev_raw_p3[0] and c.p1[1] == prev_raw_p3[1]) {
+            p1_packed = prev_packed_p3;
+            p1_decoded = prev_decoded_p3;
+        } else {
+            p1_packed = packQuantizedPoint(c.p1, bounds.min, quant_scale);
+            p1_decoded = decodePackedPoint(p1_packed, bounds, dequant_scale);
+        }
+        const p2_packed = packQuantizedPoint(c.p2, bounds.min, quant_scale);
+        const p3_packed = packQuantizedPoint(c.p3, bounds.min, quant_scale);
+        const p2_decoded = decodePackedPoint(p2_packed, bounds, dequant_scale);
+        const p3_decoded = decodePackedPoint(p3_packed, bounds, dequant_scale);
+
         if (use_stack) {
-            const shares = points_len > 0 and std.meta.eql(stack_points[points_len - 1], p1);
+            const shares = points_len > 0 and stack_points[points_len - 1] == p1_packed;
             if (!shares) {
-                stack_points[points_len] = p1;
+                stack_points[points_len] = p1_packed;
                 points_len += 1;
             }
             starts[index] = @intCast(points_len - 1);
-            stack_points[points_len] = p2;
-            stack_points[points_len + 1] = p3;
+            stack_points[points_len] = p2_packed;
+            stack_points[points_len + 1] = p3_packed;
             points_len += 2;
         } else {
-            const shares = heap_points.items.len > 0 and std.meta.eql(heap_points.items[heap_points.items.len - 1], p1);
+            const shares = heap_points.items.len > 0 and heap_points.items[heap_points.items.len - 1] == p1_packed;
             if (!shares) {
-                heap_points.appendAssumeCapacity(p1);
+                heap_points.appendAssumeCapacity(p1_packed);
             }
             starts[index] = @intCast(heap_points.items.len - 1);
-            heap_points.appendAssumeCapacity(p2);
-            heap_points.appendAssumeCapacity(p3);
+            heap_points.appendAssumeCapacity(p2_packed);
+            heap_points.appendAssumeCapacity(p3_packed);
         }
-        decoded[index] = .{ .p1 = decodePoint(p1, bounds), .p2 = decodePoint(p2, bounds), .p3 = decodePoint(p3, bounds) };
+        decoded[index] = .{ .p1 = p1_decoded, .p2 = p2_decoded, .p3 = p3_decoded };
+        prev_raw_p3 = c.p3;
+        prev_packed_p3 = p3_packed;
+        prev_decoded_p3 = p3_decoded;
     }
     const points_slice = if (use_stack) stack_points[0..points_len] else heap_points.items;
     if (points_slice.len > std.math.maxInt(u16)) {
@@ -357,32 +393,38 @@ pub fn encode(allocator: std.mem.Allocator, curves_in: []const Curve) !Encoded {
     var list_words: usize = 0;
     for (partition_result.horizontal_bands) |entries| list_words += (entries.len + 1) / 2;
     for (partition_result.vertical_bands) |entries| list_words += (entries.len + 1) / 2;
-    const total = header_count + list_words + points_slice.len;
-    const words = try allocator.alloc(u32, total);
-    errdefer allocator.free(words);
-    @memset(words, 0);
+    const points_offset = header_count + list_words;
+    if (points_offset > std.math.maxInt(u16)) {
+        return error.GlyphTooComplex;
+    }
+    const total = points_offset + points_slice.len;
+
+    const base_len = out_words.items.len;
+    try out_words.ensureUnusedCapacity(allocator, total);
+    const words = out_words.items.ptr[base_len .. base_len + total];
+    @memset(words[0..points_offset], 0);
 
     var cursor: usize = header_count;
     var header: usize = 0;
     for ([_][][]u32{ partition_result.horizontal_bands, partition_result.vertical_bands }) |bands| {
         for (bands) |entries| {
             words[header] = @as(u32, @intCast(entries.len)) | (@as(u32, @intCast(cursor)) << 16);
-            for (entries, 0..) |curve_index, position| {
-                const shift: u5 = @intCast((position % 2) * 16);
-                words[cursor + position / 2] |= starts[curve_index] << shift;
+            var pos: usize = 0;
+            while (pos + 2 <= entries.len) : (pos += 2) {
+                words[cursor + pos / 2] = starts[entries[pos]] | (starts[entries[pos + 1]] << 16);
+            }
+            if (pos < entries.len) {
+                words[cursor + pos / 2] = starts[entries[pos]];
             }
             cursor += (entries.len + 1) / 2;
             header += 1;
         }
     }
-    if (cursor > std.math.maxInt(u16)) {
-        return error.GlyphTooComplex;
-    }
-    const points_offset = cursor;
-    for (points_slice, 0..) |point, index| words[points_offset + index] = @as(u32, point[0]) | (@as(u32, point[1]) << 16);
+    @memcpy(words[points_offset .. points_offset + points_slice.len], points_slice);
+    out_words.items.len = base_len + total;
 
     return .{
-        .words = words,
+        .words_len = total,
         .entry = .{
             .bounds = .{ bounds.min[0], bounds.min[1], bounds.min[0] + bounds.extent[0], bounds.min[1] + bounds.extent[1] },
             .band = .{ partition_result.band_scale[0], partition_result.band_scale[1], partition_result.band_offset[0], partition_result.band_offset[1] },
@@ -390,6 +432,16 @@ pub fn encode(allocator: std.mem.Allocator, curves_in: []const Curve) !Encoded {
             .points = @intCast(points_offset),
             .band_max = @as(u32, partition_result.band_index_max[0]) | (@as(u32, partition_result.band_index_max[1]) << 8),
         },
+    };
+}
+
+pub fn encode(allocator: std.mem.Allocator, curves_in: []const Curve) !Encoded {
+    var list: std.ArrayList(u32) = .empty;
+    errdefer list.deinit(allocator);
+    const res = try encodeInto(allocator, curves_in, &list);
+    return .{
+        .words = try list.toOwnedSlice(allocator),
+        .entry = res.entry,
     };
 }
 
