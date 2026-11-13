@@ -300,6 +300,15 @@ pub fn main(init: process.Init.Minimal) !void {
                 if (cs.wasi_exec_model) |wem| {
                     try zig_args.append(arena, try std.fmt.allocPrint(arena, "-mexec-model={t}", .{wem}));
                 }
+                if (cs.wit_path) |wit_path| {
+                    try zig_args.append(arena, try std.fmt.allocPrint(arena, "-fwit-path={s}", .{try resolveLazyPath(arena, wit_path, generated_paths)}));
+                }
+                if (cs.wit_world) |wit_world| {
+                    try zig_args.append(arena, try std.fmt.allocPrint(arena, "-fwit-world={s}", .{wit_world}));
+                }
+                if (cs.wasi_adapter) |wasi_adapter| {
+                    try zig_args.append(arena, try std.fmt.allocPrint(arena, "-fwasi-adapter={s}", .{try resolveLazyPath(arena, wasi_adapter, generated_paths)}));
+                }
 
                 // Assign unique CLI names to all modules in cs.root_module.getGraph()
                 const mod_graph = cs.root_module.getGraph();
@@ -555,6 +564,8 @@ fn visitStep(
 
 fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
     const cs = step.cast(Step.Compile) orelse return;
+    if (cs.wit_path) |lp| lp.addStepDependencies(step);
+    if (cs.wasi_adapter) |lp| lp.addStepDependencies(step);
     const modules = cs.root_module.getGraph().modules;
     for (modules) |mod| {
         if (mod.root_source_file) |lp| lp.addStepDependencies(step);

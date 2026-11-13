@@ -87,6 +87,12 @@ jobs:
           test -s examples/playground/zig-out/web/knots-worker-pool.js
           test -s examples/playground/zig-out/web/knots-worker.js
           test -s examples/playground/zig-out/web/coi-serviceworker.js
+          test -s examples/playground/zig-out/web/component-host.js
+          test -s examples/playground/zig-out/web/components/visual.wit
+          for comp in harmonograph boids-flock plasma-sdf kaleidoscope-effect chromatic-prism-effect; do
+            test -s "examples/playground/zig-out/web/components/${comp}.wasm"
+            wasmtime compile -W component-model=y -o "$RUNNER_TEMP/${comp}.cwasm" "examples/playground/zig-out/web/components/${comp}.wasm"
+          done
           cp examples/playground/_headers examples/playground/zig-out/web/
 
       - name: Publish the orphaned web branch
@@ -103,6 +109,9 @@ jobs:
           test -s examples/playground/zig-out/web/knots-worker-pool.js
           test -s examples/playground/zig-out/web/knots-worker.js
           test -s examples/playground/zig-out/web/coi-serviceworker.js
+          test -s examples/playground/zig-out/web/component-host.js
+          test -s examples/playground/zig-out/web/components/harmonograph.wasm
+          test -s examples/playground/zig-out/web/components/kaleidoscope-effect.wasm
           rm -rf "$PUBLISH_DIR"
           gh auth setup-git
           git init --quiet --initial-branch=web "$PUBLISH_DIR"

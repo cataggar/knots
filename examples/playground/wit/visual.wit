@@ -1,0 +1,95 @@
+package knots:visual@0.1.0;
+
+interface types {
+    enum output-kind {
+        vector-scene,
+        pixel-buffer,
+    }
+
+    enum role {
+        generator,
+        effect,
+    }
+
+    record param-spec {
+        name: string,
+        min-val: f32,
+        max-val: f32,
+        default-val: f32,
+        step: f32,
+    }
+
+    record component-info {
+        id: string,
+        title: string,
+        summary: string,
+        role: role,
+        preferred-output: output-kind,
+        params: list<param-spec>,
+    }
+
+    record frame-context {
+        time-sec: f32,
+        delta-sec: f32,
+        width: u32,
+        height: u32,
+        pointer-x: f32,
+        pointer-y: f32,
+        pointer-down: bool,
+        params: list<f32>,
+    }
+
+    enum shape-tag {
+        fill-rect,
+        stroke-rect,
+        fill-circle,
+        stroke-circle,
+        line-seg,
+        fill-triangle,
+    }
+
+    record draw-shape {
+        tag: shape-tag,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        radius-or-width: f32,
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    }
+
+    record pixel-frame {
+        width: u32,
+        height: u32,
+        rgba: list<u8>,
+    }
+}
+
+interface upstream {
+    use types.{frame-context, draw-shape, pixel-frame};
+
+    render-vector: func(ctx: frame-context) -> list<draw-shape>;
+    render-pixels: func(ctx: frame-context) -> pixel-frame;
+}
+
+interface source {
+    use types.{component-info, frame-context, draw-shape, pixel-frame};
+
+    describe: func() -> component-info;
+    render-vector: func(ctx: frame-context) -> list<draw-shape>;
+    render-pixels: func(ctx: frame-context) -> pixel-frame;
+}
+
+world visual-generator {
+    export source;
+}
+
+world visual-effect {
+    import upstream;
+    export source;
+}
