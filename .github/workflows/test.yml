@@ -94,6 +94,8 @@ jobs:
         run: ./wazig-build test -Dtarget=wasm32-wasi -Dgpu_backend=webgl2 -fwasmtime
       - name: knots (webgpu + web_threads)
         run: ./wazig-build test -Dtarget=wasm32-wasi -Dgpu_backend=webgpu -Dweb_threads=true -fwasmtime
+      - name: examples/playground
+        run: ./wazig-build test --build-root examples/playground -Dtarget=wasm32-wasi -fwasmtime
 
   wasm-build:
     name: wasm-freestanding
