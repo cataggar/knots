@@ -427,7 +427,7 @@ fn renderRenderer(self: *const DevTools, app: *Frame, renderer_info: RendererInf
     });
     try app.e(Text{
         .key = panel_key.indexed(26),
-        .content = @tagName(gpu.backend),
+        .content = @tagName(gpu.activeBackend()),
         .style = &.{ .width = .grow() },
         .selectable = false,
     });

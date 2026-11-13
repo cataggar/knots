@@ -83,6 +83,16 @@ test "consumer needs only the public render module" {
         render.contract.layouts.primitive_stride_bytes,
     );
     try std.testing.expect(render.shaders.primitives_wgsl.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.primitives_vertex.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.primitives_instance_vertex.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.primitives_fragment.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.slug_vertex.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.slug_fragment.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.backdrop_blur_vertex.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.backdrop_blur_down_fragment.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.backdrop_blur_up_fragment.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.backdrop_glass_vertex.len > 0);
+    try std.testing.expect(render.shaders.webgl2_glsl.backdrop_glass_fragment.len > 0);
     try std.testing.expect(render.shaders.vulkan_zig.primitives_vertex.len > 0);
 }
 

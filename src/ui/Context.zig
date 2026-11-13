@@ -29,6 +29,14 @@ const HitRecord = UI.HitRecord;
 
 const press_drag_threshold_sq: f64 = 9.0;
 
+inline fn clearList(list: anytype) void {
+    if (comptime std.debug.runtime_safety) {
+        list.clearRetainingCapacity();
+    } else {
+        list.items.len = 0;
+    }
+}
+
 pub const Config = struct {
     ui: UI.Config = .{},
     arena_reset_mode: std.heap.ArenaAllocator.ResetMode = .retain_capacity,
@@ -95,7 +103,7 @@ pub fn beginFrame(self: *Context, input: input_types.FrameInput) !Frame {
     if (self.generation == std.math.maxInt(u64)) return error.FrameGenerationExhausted;
     self.generation += 1;
     _ = self.frame_arena.reset(self.cfg.arena_reset_mode);
-    self.packet_commands.clearRetainingCapacity();
+    clearList(&self.packet_commands);
     self.frame_input = input;
     try resolveWindow(&self.ui, input.input, input.now_ms, input.content_scale);
     const previous_nodes = self.ui.accessibility_nodes.items;
@@ -154,7 +162,7 @@ fn copyRequested(input: *const @import("Input.zig")) bool {
 
 fn clearAccessibilityActions(self: *Context, actions: *std.ArrayList(Accessibility.ActionRequest)) void {
     for (actions.items) |request| if (request.value_text) |value| self.allocator.free(value);
-    actions.clearRetainingCapacity();
+    clearList(actions);
 }
 
 /// Finish one frame for every backend. Output is borrowed until the next
@@ -261,48 +269,98 @@ fn visibleHitBounds(rec: HitRecord) math.Rect {
 }
 
 fn semanticDigest(snapshot: Accessibility.Snapshot) u64 {
+    const Header = extern struct {
+        focus: u64,
+        content_scale: f32,
+        _pad: u32 = 0,
+    };
+    const Flags = packed struct(u16) {
+        has_text_run_id: bool,
+        disabled: bool,
+        focused: bool,
+        multiline: bool,
+        has_checked: bool,
+        checked: bool,
+        has_selected: bool,
+        selected: bool,
+        has_expanded: bool,
+        expanded: bool,
+        has_value_text: bool,
+        has_value_number: bool,
+        has_min: bool,
+        has_max: bool,
+        has_selection_anchor: bool,
+        has_selection_focus: bool,
+    };
+    const PackedNode = extern struct {
+        id: u64,
+        parent: u64,
+        text_run_id: u64,
+        bounds: [4]f32,
+        name_len: u32,
+        value_text_len: u32,
+        child_count: u32,
+        value_number: u32,
+        min: u32,
+        max: u32,
+        selection_anchor: u32,
+        selection_focus: u32,
+        flags: u16,
+        actions: u16,
+        role: u8,
+        _pad: [3]u8 = .{ 0, 0, 0 },
+    };
+    comptime std.debug.assert(@sizeOf(PackedNode) == 80);
+
     var digest = std.hash.Wyhash.init(0);
-    digest.update(std.mem.asBytes(&snapshot.content_scale));
-    digest.update(std.mem.asBytes(&snapshot.focus));
-    for (snapshot.nodes) |node| {
-        digest.update(std.mem.asBytes(&node.id));
-        digest.update(std.mem.asBytes(&node.parent));
-        hashOptional(&digest, node.text_run_id);
-        digest.update(std.mem.asBytes(&node.role));
-        const name_length: u32 = @intCast(node.name.len);
-        digest.update(std.mem.asBytes(&name_length));
-        digest.update(node.name);
-        digest.update(std.mem.asBytes(&node.bounds.v));
-        digest.update(std.mem.asBytes(&node.child_count));
-        digest.update(std.mem.asBytes(&node.state.disabled));
-        digest.update(std.mem.asBytes(&node.state.focused));
-        digest.update(std.mem.asBytes(&node.state.multiline));
-        hashOptional(&digest, node.state.checked);
-        hashOptional(&digest, node.state.selected);
-        hashOptional(&digest, node.state.expanded);
-        const has_value_text = node.state.value_text != null;
-        digest.update(std.mem.asBytes(&has_value_text));
-        if (node.state.value_text) |value| {
-            const length: u32 = @intCast(value.len);
-            digest.update(std.mem.asBytes(&length));
-            digest.update(value);
-        }
-        hashOptional(&digest, node.state.value_number);
-        hashOptional(&digest, node.state.min);
-        hashOptional(&digest, node.state.max);
-        hashOptional(&digest, node.state.selection_anchor);
-        hashOptional(&digest, node.state.selection_focus);
-        const actions = node.actions.bits;
-        digest.update(std.mem.asBytes(&actions));
+    const header: Header = .{
+        .focus = snapshot.focus,
+        .content_scale = snapshot.content_scale,
+    };
+    digest.update(std.mem.asBytes(&header));
+    for (snapshot.nodes) |*node| {
+        const st = &node.state;
+        const flags: Flags = .{
+            .has_text_run_id = node.text_run_id != null,
+            .disabled = st.disabled,
+            .focused = st.focused,
+            .multiline = st.multiline,
+            .has_checked = st.checked != null,
+            .checked = st.checked orelse false,
+            .has_selected = st.selected != null,
+            .selected = st.selected orelse false,
+            .has_expanded = st.expanded != null,
+            .expanded = st.expanded orelse false,
+            .has_value_text = st.value_text != null,
+            .has_value_number = st.value_number != null,
+            .has_min = st.min != null,
+            .has_max = st.max != null,
+            .has_selection_anchor = st.selection_anchor != null,
+            .has_selection_focus = st.selection_focus != null,
+        };
+        const packed_node: PackedNode = .{
+            .id = node.id,
+            .parent = node.parent,
+            .text_run_id = node.text_run_id orelse 0,
+            .bounds = node.bounds.v,
+            .name_len = @intCast(node.name.len),
+            .value_text_len = if (st.value_text) |v| @intCast(v.len) else 0,
+            .child_count = node.child_count,
+            .value_number = if (st.value_number) |v| @bitCast(v) else 0,
+            .min = if (st.min) |v| @bitCast(v) else 0,
+            .max = if (st.max) |v| @bitCast(v) else 0,
+            .selection_anchor = st.selection_anchor orelse 0,
+            .selection_focus = st.selection_focus orelse 0,
+            .flags = @bitCast(flags),
+            .actions = node.actions.bits.mask,
+            .role = @backingInt(node.role),
+        };
+        digest.update(std.mem.asBytes(&packed_node));
+        if (node.name.len > 0) digest.update(node.name);
+        if (st.value_text) |value| if (value.len > 0) digest.update(value);
     }
     digest.update(std.mem.sliceAsBytes(snapshot.children));
     return digest.final();
-}
-
-fn hashOptional(digest: *std.hash.Wyhash, value: anytype) void {
-    const present = value != null;
-    digest.update(std.mem.asBytes(&present));
-    if (value) |item| digest.update(std.mem.asBytes(&item));
 }
 
 /// Cancel an active frame after user code fails, allowing a later retry.
@@ -348,21 +406,21 @@ fn reset(ui: *UI) void {
     ui.cull_depth = 0;
     ui.culled_count = 0;
     ui.layout_ctx.reset();
-    ui.decorations.clearRetainingCapacity();
-    ui.contents.clearRetainingCapacity();
-    ui.clip_shapes.clearRetainingCapacity();
-    ui.hit_records.clearRetainingCapacity();
-    ui.hit_region_marks.clearRetainingCapacity();
-    ui.focus_order.clearRetainingCapacity();
+    clearList(&ui.decorations);
+    clearList(&ui.contents);
+    clearList(&ui.clip_shapes);
+    clearList(&ui.hit_records);
+    clearList(&ui.hit_region_marks);
+    clearList(&ui.focus_order);
     Accessibility.freeNodes(ui.allocator, ui.accessibility_nodes.items);
-    ui.accessibility_nodes.clearRetainingCapacity();
-    ui.accessibility_children.clearRetainingCapacity();
-    ui.accessibility_node_indices.clearRetainingCapacity();
+    clearList(&ui.accessibility_nodes);
+    clearList(&ui.accessibility_children);
+    if (ui.accessibility_node_indices.size > 0) ui.accessibility_node_indices.clearRetainingCapacity();
     ui.hit_counter = 0;
-    ui.scroll_geoms.clearRetainingCapacity();
-    ui.slot_clips.clearRetainingCapacity();
-    ui.child_clips.clearRetainingCapacity();
-    ui.clip_nodes.clearRetainingCapacity();
+    clearList(&ui.scroll_geoms);
+    clearList(&ui.slot_clips);
+    clearList(&ui.child_clips);
+    clearList(&ui.clip_nodes);
     ui.input_scopes.resetFrame();
     ui.anim_active = false;
     ui.text_session = null;
@@ -414,16 +472,17 @@ fn hasAccessibilityNode(ui: *const UI, id: Element.Id) bool {
 /// Returns true if any height changed, in which case the caller should re-run layout so ancestors fit the new heights.
 fn reflowWrappedText(ui: *UI) !bool {
     var changed = false;
-    for (ui.decorations.items, 0..) |dec, slot| {
-        if (dec != .text) continue;
-        const t = dec.text;
+    for (ui.decorations.items, 0..) |*dec, slot| {
+        if (dec.* != .text) continue;
+        const t = &dec.text;
         if (!t.wrap or t.content.len == 0) continue;
 
         const el = ui.layout_ctx.pool.get(@intCast(slot));
         const wrap_px = el.box.w() * ui.content_scale;
         if (wrap_px <= 0) continue;
 
-        const text_layout = try ui.styledTextLayout(&t, el.box.w());
+        const text_layout = try ui.styledTextLayout(t, el.box.w());
+        t.cached_layout = text_layout;
         const new_h = text_layout.height / ui.content_scale;
         if (new_h != el.intrinsic_h) {
             el.intrinsic_h = new_h;
@@ -435,36 +494,58 @@ fn reflowWrappedText(ui: *UI) !bool {
 
 fn syncStateBounds(ui: *UI) void {
     if (ui.layout_ctx.root_slot == Element.INVALID_SLOT) return;
+    const pools = &ui.state.storage.pools;
+    const has_text_select = pools.text_select.map.size != 0;
+    const has_slider = pools.slider.map.size != 0;
+    const has_measured = pools.measured.map.size != 0;
+    const has_resize = pools.resize.map.size != 0;
+    const has_select_input = pools.select_input.map.size != 0;
+    const has_color_picker = pools.color_picker.map.size != 0;
+    const has_context_menu = pools.context_menu.map.size != 0;
+    const has_menu_button = pools.menu_button.map.size != 0;
+    const has_tooltip = pools.tooltip.map.size != 0;
+    if (!has_text_select and !has_slider and !has_measured and !has_resize and
+        !has_select_input and !has_color_picker and !has_context_menu and
+        !has_menu_button and !has_tooltip) return;
+
     const root_box = ui.layout_ctx.pool.get(ui.layout_ctx.root_slot).box;
-    for (ui.layout_ctx.pool.elements.items) |el| {
-        if (ui.state.get(.text_select, el.id)) |s| s.box = el.box;
-        if (ui.state.get(.slider, el.id)) |s| s.bounds = el.box;
-        if (ui.state.get(.measured, el.id)) |s| {
-            s.box = el.box;
-            s.width = el.box.w();
-            s.height = el.box.h();
-        }
-        if (ui.state.get(.resize, el.id)) |s| s.box = el.box;
-        if (ui.state.get(.select_input, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.color_picker, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.context_menu, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.menu_button, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
-        if (ui.state.get(.tooltip, el.id)) |s| {
-            s.anchor_box = el.box;
-            s.viewport_box = root_box;
-        }
+    for (ui.layout_ctx.pool.elements.items) |*el| {
+        const id = el.id;
+        if (id == Element.INVALID_ID) continue;
+        if (has_text_select) if (pools.text_select.map.getPtr(id)) |e| {
+            e.value.box = el.box;
+        };
+        if (has_slider) if (pools.slider.map.getPtr(id)) |e| {
+            e.value.bounds = el.box;
+        };
+        if (has_measured) if (pools.measured.map.getPtr(id)) |e| {
+            e.value.box = el.box;
+            e.value.width = el.box.w();
+            e.value.height = el.box.h();
+        };
+        if (has_resize) if (pools.resize.map.getPtr(id)) |e| {
+            e.value.box = el.box;
+        };
+        if (has_select_input) if (pools.select_input.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_color_picker) if (pools.color_picker.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_context_menu) if (pools.context_menu.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_menu_button) if (pools.menu_button.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
+        if (has_tooltip) if (pools.tooltip.map.getPtr(id)) |e| {
+            e.value.anchor_box = el.box;
+            e.value.viewport_box = root_box;
+        };
     }
 }
 
@@ -480,7 +561,7 @@ fn mouseHit(ui: *UI, pos: [2]f64) Element.Id {
 }
 
 fn captureHitAncestors(allocator: Allocator, layout_ctx: *layout.Context, id: Element.Id, out: *std.ArrayList(Element.Id)) !void {
-    out.clearRetainingCapacity();
+    clearList(out);
     var slot = layout_ctx.slotForId(id) orelse return;
     while (slot != Element.INVALID_SLOT) {
         const el = layout_ctx.pool.get(slot);
@@ -497,7 +578,7 @@ fn resolveWindow(ui: *UI, input: input_types.Input, now_ms: i64, content_scale: 
     if (ui.input.focus_lost or ui.input.pointer_cancelled) {
         ui.state.active = Element.INVALID_ID;
         ui.state.press_origin = Element.INVALID_ID;
-        ui.press_ancestors.clearRetainingCapacity();
+        clearList(&ui.press_ancestors);
         ui.state.press_drag = false;
     }
 
@@ -509,7 +590,7 @@ fn resolveWindow(ui: *UI, input: input_types.Input, now_ms: i64, content_scale: 
         if (!ui.acceptsInput(ui.state.active)) ui.state.active = Element.INVALID_ID;
         if (!ui.acceptsInput(ui.state.press_origin)) {
             ui.state.press_origin = Element.INVALID_ID;
-            ui.press_ancestors.clearRetainingCapacity();
+            clearList(&ui.press_ancestors);
         }
     }
 
@@ -762,9 +843,9 @@ fn tessellate(ui: *UI, allocator: Allocator, draw_list: *DrawList) !void {
 fn buildClipStates(ui: *UI) !void {
     const elements = ui.layout_ctx.pool.elements.items;
 
-    ui.slot_clips.clearRetainingCapacity();
-    ui.child_clips.clearRetainingCapacity();
-    ui.clip_nodes.clearRetainingCapacity();
+    clearList(&ui.slot_clips);
+    clearList(&ui.child_clips);
+    clearList(&ui.clip_nodes);
 
     try ui.slot_clips.resize(ui.allocator, elements.len);
     try ui.child_clips.resize(ui.allocator, elements.len);
@@ -831,7 +912,7 @@ fn textWrapWidth(t: Decoration.Text, el: *const Element) f32 {
 fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Text, clip: Clip.State) !void {
     const content_scale = ui.content_scale;
     if (t.size <= 0) return;
-    const text_layout = try ui.styledTextLayout(&t, textWrapWidth(t, el));
+    const text_layout = t.cached_layout orelse try ui.styledTextLayout(&t, textWrapWidth(t, el));
     if (text_layout.lines.len == 0) return;
     try paintUnderlines(draw_list, el, t, text_layout, content_scale, clip);
     if (text_layout.glyphs.ids.len == 0) return;
@@ -858,6 +939,8 @@ fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Te
 
     const slots = try ui.text_system.resolveSlots(text_layout);
     const store = &ui.text_system.glyph_store;
+    const uniform_color = t.colors.len == 0;
+    const default_half_color = halfColor(t.color);
     var colors: ColorCursor = .{ .spans = t.colors, .default = t.color };
     for (text_layout.lines[line_range.start..line_range.end]) |line| {
         const baseline = el.box.y() + line.baseline / content_scale + line.y / content_scale;
@@ -876,12 +959,13 @@ fn paintText(ui: *UI, draw_list: *DrawList, el: *const Element, t: Decoration.Te
                 .clip = clip.scissor,
                 .margin = dilation_margin,
             };
-            const color = colors.at(glyphs.cluster[index]);
             if (slot != text.TextLayout.layered_slot) {
                 store.touch(slot);
-                try pushSlot(draw_list, batch, slot, store.table.items[slot].bounds, pen, color);
+                const col_f16 = if (uniform_color) default_half_color else halfColor(colors.at(glyphs.cluster[index]));
+                try pushSlotHalf(draw_list, batch, slot, store.table.items[slot].bounds, pen, col_f16);
                 continue;
             }
+            const color = if (uniform_color) t.color else colors.at(glyphs.cluster[index]);
             const colr = &ui.text_system.faceById(run.face).program.colr;
             const layers = colr.layers(glyphs.ids[index]);
             try draw_list.reserveTextInstances(layers.count);
@@ -904,11 +988,11 @@ fn pushGlyph(ui: *UI, draw_list: *DrawList, batch: DrawList.TextBatch, face: tex
     const rec = try ui.text_system.glyphRecord(face, glyph_id);
     if (rec.isEmpty()) return;
     const bounds = [4]f32{ rec.bounds_em_min[0], rec.bounds_em_min[1], rec.bounds_em_max[0], rec.bounds_em_max[1] };
-    try pushSlot(draw_list, batch, rec.slot, bounds, pen, color);
+    try pushSlotHalf(draw_list, batch, rec.slot, bounds, pen, halfColor(color));
 }
 
 /// Pushes one glyph instance unless its ink, `bounds` in ems, falls outside the clip.
-fn pushSlot(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: [4]f32, pen: Pen, color: [4]f32) !void {
+inline fn pushSlotHalf(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: [4]f32, pen: Pen, col_f16: [4]f16) !void {
     const ink = math.Rect.fromMinMax(
         .{ pen.origin[0] + bounds[0] * pen.size, pen.origin[1] - bounds[3] * pen.size },
         .{ pen.origin[0] + bounds[2] * pen.size, pen.origin[1] - bounds[1] * pen.size },
@@ -916,7 +1000,7 @@ fn pushSlot(draw_list: *DrawList, batch: DrawList.TextBatch, slot: u32, bounds: 
     if (pen.clip) |c| {
         if (!c.overlaps(ink.expand(pen.margin))) return;
     }
-    try draw_list.pushTextInstance(batch, ink, .{ .origin = pen.origin, .size = pen.size, .slot = slot, .col = halfColor(color) });
+    try draw_list.pushTextInstance(batch, ink, .{ .origin = pen.origin, .size = pen.size, .slot = slot, .col = col_f16 });
 }
 
 /// Palette colors keep the text's opacity. A null palette color is the text color.
@@ -993,12 +1077,12 @@ fn tessellateLayer(ui: *UI, allocator: Allocator, draw_list: *DrawList, slots: [
 
         switch (ui.decorations.items[slot]) {
             .none => {},
-            .rect => |r| {
+            .rect => |*r| {
                 // The backdrop filters what is already drawn; the fill then tints it.
                 if (r.backdrop.isActive() and r.backdrop.isValid()) try draw_list.pushBackdrop(el.box, r.corner_radius.value, r.backdrop, clip);
                 const inst = render.Instance{
-                    .pos = .{ el.box.x(), el.box.y() },
-                    .size = .{ el.box.w(), el.box.h() },
+                    .pos = .{ el.box.v[0], el.box.v[1] },
+                    .size = .{ el.box.v[2], el.box.v[3] },
                     .uv0 = .{ 0, 0 },
                     .uv1 = .{ 0, 0 },
                     .color = r.color,

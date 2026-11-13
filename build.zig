@@ -15,11 +15,14 @@ pub const Backend = enum {
     vulkan,
     /// The core, the window, and the bundled renderer on WebGPU.
     webgpu,
+    /// The core, the window, and the bundled renderer on WebGL2 (browser Wasm).
+    webgl2,
 
     pub fn fromGpu(gpu: GPUBackend) Backend {
         return switch (gpu) {
             .vulkan => .vulkan,
             .webgpu => .webgpu,
+            .webgl2 => .webgl2,
         };
     }
 
@@ -29,6 +32,7 @@ pub const Backend = enum {
             .none => null,
             .vulkan => .vulkan,
             .webgpu => .webgpu,
+            .webgl2 => .webgl2,
         };
     }
 };
@@ -64,6 +68,7 @@ pub const web_bridge_export_symbol_names = web_build.bridge_export_symbol_names;
 
 pub const WebInstallOptions = struct {
     dir: []const u8 = "web",
+    title: ?[]const u8 = null,
     start_symbol: []const u8 = "main",
     host_js_name: []const u8 = "knots.js",
     bridge_js_name: []const u8 = "js-bridge.js",
@@ -95,7 +100,13 @@ const Core = struct {
 };
 
 pub fn build(b: *std.Build) void {
+    const wasm64 = b.option(bool, "wasm64", "Use 64-bit WebAssembly (wasm64) when building for Wasm (default: false).") orelse false;
     var target = b.standardTargetOptions(.{});
+    if (wasm64 and target.result.cpu.arch == .wasm32) {
+        var query = target.query;
+        query.cpu_arch = .wasm64;
+        target = b.resolveTargetQuery(query);
+    }
     const optimize = b.standardOptimizeOption(.{});
 
     const platform: Platform = if (target.result.cpu.arch.isWasm()) .browser else .native;
@@ -108,6 +119,7 @@ pub fn build(b: *std.Build) void {
     const core = addCoreModules(b, target, optimize);
     const test_step = b.step("test", "Run tests");
     addCoreTests(b, test_step, &core, target, optimize);
+    addWasmBenchStep(b, &core, target, optimize);
     // With `none`, the modules of `addBackends` do not exist: `module("knots")`,
     // `module("window")`, `module("gpu")` and `module("renderer")` fail by name.
     const gpu_backend = backend.gpuBackend() orelse return;
@@ -286,6 +298,47 @@ fn addCoreTests(
     test_step.dependOn(&b.addRunArtifact(public_render_consumer_tests).step);
 }
 
+fn addWasmBenchStep(
+    b: *std.Build,
+    core: *const Core,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    const bench_exe = b.addExecutable(.{
+        .name = "knots-wasm-bench",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("tests/wasm_bench_runner.zig"),
+            .imports = &.{
+                .{ .name = "math", .module = core.math },
+                .{ .name = "style", .module = core.style },
+                .{ .name = "layout", .module = core.layout },
+                .{ .name = "font", .module = core.font },
+                .{ .name = "shape", .module = core.shape },
+                .{ .name = "unicode", .module = core.unicode },
+                .{ .name = "text", .module = core.text },
+                .{ .name = "render", .module = core.render },
+                .{ .name = "input", .module = core.input },
+                .{ .name = "ui", .module = core.ui },
+            },
+        }),
+    });
+    if (target.result.cpu.arch.isWasm() and target.result.os.tag == .freestanding) {
+        bench_exe.entry = .{ .symbol_name = "_start" };
+        bench_exe.export_memory = true;
+    }
+    const bench_install = b.addInstallArtifact(bench_exe, .{});
+    const bench_build_step = b.step("wasm-bench-bin", "Build headless Wasm benchmark binary");
+    bench_build_step.dependOn(&bench_install.step);
+
+    const run_bench = b.addRunArtifact(bench_exe);
+    const bench_step = b.step("bench", "Run headless UI/layout/text/render benchmark suite");
+    bench_step.dependOn(&run_bench.step);
+    const wasm_bench_step = b.step("wasm-bench", "Run headless UI/layout/text/render benchmark suite");
+    wasm_bench_step.dependOn(&run_bench.step);
+}
+
 /// The window, GPU and renderer modules, the `knots` app module and their tests.
 /// Each third-party package here is lazy, so a `-Dbackend=none` build never fetches it.
 fn addBackends(
@@ -306,7 +359,7 @@ fn addBackends(
     const ui_mod = core.ui;
 
     const accesskit_dep = if (platform == .native)
-        b.dependency("accesskit", .{ .target = target, .optimize = optimize })
+        b.lazyDependency("accesskit", .{ .target = target, .optimize = optimize })
     else
         null;
 
@@ -318,15 +371,17 @@ fn addBackends(
     if (js_bridge_mod) |m| b.modules.put(b.graph.arena, "js-bridge", m) catch @panic("OOM");
     if (platform == .browser) {
         b.addNamedLazyPath("web-host-js", b.path("src/web/host.js"));
+        b.addNamedLazyPath("web-webgl2-js", b.path("src/web/webgl2.js"));
         b.addNamedLazyPath("web-bridge-js", b.path("lib/js-bridge/src/runtime.js"));
         b.addNamedLazyPath("web-wasi-js", b.path("src/web/wasi.js"));
         if (web_threads) {
             b.addNamedLazyPath("web-worker-pool-js", b.path("src/web/worker-pool.js"));
             b.addNamedLazyPath("web-worker-js", b.path("src/web/worker.js"));
+            b.addNamedLazyPath("web-coi-sw-js", b.path("src/web/coi-serviceworker.js"));
         }
     }
 
-    const wasm_threads_mod = if (web_threads) b.createModule(.{
+    const wasm_threads_mod = if (platform == .browser) b.createModule(.{
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/wasm/threads.zig"),
@@ -366,16 +421,39 @@ fn addBackends(
             if (platform == .browser)
                 webgpu_mod.addImport("js-bridge", js_bridge_mod.?)
             else {
-                const wgpu = b.dependency("wgpu", .{ .target = target, .optimize = optimize });
+                const wgpu = b.lazyDependency("wgpu", .{ .target = target, .optimize = optimize }) orelse return;
                 webgpu_mod.addImport("wgpu", wgpu.module("wgpu"));
             }
 
             break :blk webgpu_mod;
         },
-        .vulkan => {
-            const vulkan = b.dependency("vulkan", .{
-                .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
+        .webgl2 => {
+            if (platform != .browser) {
+                std.debug.panic("gpu_backend=webgl2 is only supported for browser WebAssembly targets", .{});
+            }
+            const browser_gpu_mod = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/gpu/backend/webgpu/root.zig"),
+                .imports = &.{
+                    .{ .name = "js-bridge", .module = js_bridge_mod.? },
+                },
             });
+            const m = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .root_source_file = b.path("src/gpu/backend/webgl2/root.zig"),
+                .imports = &.{
+                    .{ .name = "browser_gpu", .module = browser_gpu_mod },
+                },
+            });
+            break :blk m;
+        },
+        .vulkan => {
+            const vulkan_headers = b.lazyDependency("vulkan_headers", .{}) orelse return;
+            const vulkan = b.lazyDependency("vulkan", .{
+                .registry = vulkan_headers.path("registry/vk.xml"),
+            }) orelse return;
             buildTool(vulkan.artifact("vulkan-zig-generator"));
             break :blk b.createModule(.{
                 .target = target,
@@ -394,6 +472,9 @@ fn addBackends(
         .root_source_file = b.path("src/gpu/root.zig"),
     });
     gpu_impl_mod.addImport("gpu", gpu_mod);
+    if (gpu_impl_mod.import_table.get("browser_gpu")) |browser_gpu_mod| {
+        browser_gpu_mod.addImport("gpu", gpu_mod);
+    }
 
     var gpu_opts = b.addOptions();
     gpu_opts.addOption(GPUBackend, "backend", gpu_backend);
@@ -408,7 +489,7 @@ fn addBackends(
     const window_impl_mod = blk: {
         switch (target.result.os.tag) {
             .macos => {
-                const objc_dep = b.dependency("zig_objc", .{ .target = target, .optimize = optimize });
+                const objc_dep = b.lazyDependency("zig_objc", .{ .target = target, .optimize = optimize }) orelse return;
                 const m = b.createModule(.{
                     .target = target,
                     .optimize = optimize,
@@ -425,7 +506,7 @@ fn addBackends(
                 break :blk m;
             },
             .windows => {
-                const win32_dep = b.dependency("win32", .{});
+                const win32_dep = b.lazyDependency("win32", .{}) orelse return;
                 break :blk b.createModule(.{
                     .target = target,
                     .optimize = optimize,
@@ -439,6 +520,7 @@ fn addBackends(
             },
             .linux => {
                 // Lazy, so that a `-Dbackend=none` build never fetches zig-wayland.
+                _ = b.lazyDependency("wayland", .{}) orelse return;
                 const wayland_build = b.lazyImport(@This(), "wayland") orelse return;
                 const scanner = wayland_build.Scanner.create(b, .{});
                 buildTool(scanner.run.producer.?);
@@ -596,6 +678,9 @@ fn addBackends(
 
     test_step.dependOn(&b.addRunArtifact(renderer_tests).step);
     test_step.dependOn(&b.addRunArtifact(mod_tests).step);
+    if (wasm_threads_mod) |wasm_threads| {
+        test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = wasm_threads })).step);
+    }
     if (platform == .native and gpu_backend == .vulkan) {
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = gpu_impl_mod })).step);
     }
@@ -668,16 +753,20 @@ pub fn addWebHostInstall(b: *std.Build, knots: *std.Build.Dependency, options: W
     }
 
     const install_host_js = b.addInstallFileWithDir(knots.namedLazyPath("web-host-js"), .{ .custom = options.dir }, options.host_js_name);
+    const install_webgl2_js = b.addInstallFileWithDir(knots.namedLazyPath("web-webgl2-js"), .{ .custom = options.dir }, "knots-webgl2.js");
     const install_bridge_js = b.addInstallFileWithDir(knots.namedLazyPath("web-bridge-js"), .{ .custom = options.dir }, options.bridge_js_name);
     install.dependOn(&install_host_js.step);
+    install.dependOn(&install_webgl2_js.step);
     install.dependOn(&install_bridge_js.step);
     const install_wasi_js = b.addInstallFileWithDir(knots.namedLazyPath("web-wasi-js"), .{ .custom = options.dir }, "knots-wasi.js");
     install.dependOn(&install_wasi_js.step);
     if (web_threads) {
         const install_worker_pool_js = b.addInstallFileWithDir(knots.namedLazyPath("web-worker-pool-js"), .{ .custom = options.dir }, "knots-worker-pool.js");
         const install_worker_js = b.addInstallFileWithDir(knots.namedLazyPath("web-worker-js"), .{ .custom = options.dir }, "knots-worker.js");
+        const install_coi_sw_js = b.addInstallFileWithDir(knots.namedLazyPath("web-coi-sw-js"), .{ .custom = options.dir }, "coi-serviceworker.js");
         install.dependOn(&install_worker_pool_js.step);
         install.dependOn(&install_worker_js.step);
+        install.dependOn(&install_coi_sw_js.step);
     }
     return install;
 }
@@ -702,7 +791,9 @@ pub const DevWatcherOptions = struct {
 /// `exe`, or reload the page when `exe` is a browser app. The app is the one
 /// `options.step` installs, with nothing added for dev.
 pub fn addDevWatcher(b: *std.Build, knots: *std.Build.Dependency, step: *std.Build.Step, exe: *std.Build.Step.Compile, options: DevWatcherOptions) void {
+    if (b.graph.host.result.cpu.arch.isWasm()) return;
     const knots_builder = knots.builder;
+    const celer_dep = knots_builder.lazyDependency("celer", .{ .target = b.graph.host, .optimize = .ReleaseFast }) orelse return;
     const tool = b.addExecutable(.{
         .name = "knots-dev",
         .root_module = b.createModule(.{
@@ -711,7 +802,7 @@ pub fn addDevWatcher(b: *std.Build, knots: *std.Build.Dependency, step: *std.Bui
             .optimize = .Debug,
             .imports = &.{.{
                 .name = "celer",
-                .module = knots_builder.dependency("celer", .{ .target = b.graph.host, .optimize = .ReleaseFast }).module("celer"),
+                .module = celer_dep.module("celer"),
             }},
         }),
     });
@@ -751,10 +842,21 @@ pub fn defaultGpuBackend(target: std.Target) GPUBackend {
 
 fn addRenderShaderSources(b: *std.Build, render_mod: *std.Build.Module) void {
     const webgpu_dir = "src/gpu/backend/webgpu/shaders/";
+    const webgl2_dir = "src/gpu/backend/webgl2/shaders/";
     const vulkan_dir = "src/gpu/backend/vulkan/shaders/";
     addShaderSource(b, render_mod, "primitives_wgsl", webgpu_dir ++ "ui_primitives.wgsl");
     addShaderSource(b, render_mod, "slug_wgsl", webgpu_dir ++ "slug.wgsl");
     addShaderSource(b, render_mod, "backdrop_wgsl", webgpu_dir ++ "backdrop.wgsl");
+    addShaderSource(b, render_mod, "primitives_vert_glsl", webgl2_dir ++ "ui_primitives.vert.glsl");
+    addShaderSource(b, render_mod, "primitives_instance_vert_glsl", webgl2_dir ++ "ui_primitives_instance.vert.glsl");
+    addShaderSource(b, render_mod, "primitives_frag_glsl", webgl2_dir ++ "ui_primitives.frag.glsl");
+    addShaderSource(b, render_mod, "slug_vert_glsl", webgl2_dir ++ "slug.vert.glsl");
+    addShaderSource(b, render_mod, "slug_frag_glsl", webgl2_dir ++ "slug.frag.glsl");
+    addShaderSource(b, render_mod, "backdrop_blur_vert_glsl", webgl2_dir ++ "backdrop_blur.vert.glsl");
+    addShaderSource(b, render_mod, "backdrop_blur_down_frag_glsl", webgl2_dir ++ "backdrop_blur_down.frag.glsl");
+    addShaderSource(b, render_mod, "backdrop_blur_up_frag_glsl", webgl2_dir ++ "backdrop_blur_up.frag.glsl");
+    addShaderSource(b, render_mod, "backdrop_glass_vert_glsl", webgl2_dir ++ "backdrop_glass.vert.glsl");
+    addShaderSource(b, render_mod, "backdrop_glass_frag_glsl", webgl2_dir ++ "backdrop_glass.frag.glsl");
     addShaderSource(
         b,
         render_mod,

@@ -16,14 +16,29 @@ pub fn create(allocator: std.mem.Allocator, device: *Device, desc: CommonPipelin
     if (desc.depth_stencil) |state| {
         if (state.format != .depth24_plus) return error.UnsupportedDepthFormat;
     }
-    const wgsl = switch (desc.shader) {
+    const wgsl: ?[]const u8 = switch (desc.shader) {
         .wgsl => |s| s,
+        .glsl => null,
         .spirv => return error.UnsupportedShaderSource,
+    };
+    const glsl: ?CommonPipeline.GlslSource = switch (desc.shader) {
+        .glsl => |g| g,
+        .wgsl => desc.glsl,
+        .spirv => unreachable,
     };
 
     var shader_desc = try js.ObjectBuilder.init();
     defer shader_desc.finish().release();
-    try shader_desc.set("code", js.Arg.string(wgsl));
+    if (wgsl) |code| {
+        try shader_desc.set("code", js.Arg.string(code));
+    }
+    if (glsl) |g| {
+        var glsl_obj = try js.ObjectBuilder.init();
+        defer glsl_obj.finish().release();
+        try glsl_obj.set("vs", js.Arg.string(g.vs));
+        try glsl_obj.set("fs", js.Arg.string(g.fs));
+        try shader_desc.set("glsl", js.Arg.value(glsl_obj.value));
+    }
     const shader_module = try device.device.call("createShaderModule", &.{js.Arg.value(shader_desc.value)});
     defer shader_module.release();
 

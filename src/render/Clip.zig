@@ -9,11 +9,11 @@ pub const State = struct {
     scissor: ?math.Rect = null,
     node: u32 = 0,
 
-    pub fn eql(a: State, b: State) bool {
+    pub inline fn eql(a: State, b: State) bool {
         return a.node == b.node and a.scissorEql(b);
     }
 
-    pub fn scissorEql(a: State, b: State) bool {
+    pub inline fn scissorEql(a: State, b: State) bool {
         const some_a = a.scissor orelse return b.scissor == null;
         const some_b = b.scissor orelse return false;
         return some_a.eql(some_b);

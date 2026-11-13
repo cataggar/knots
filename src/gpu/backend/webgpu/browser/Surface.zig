@@ -24,7 +24,7 @@ pub fn init(device: *Device, window_handle: gpu.Context.WindowHandle, cfg: gpu.C
     defer host.release();
     const canvas = try host.call("resolveCanvas", &.{js.Arg.string(selector)});
     errdefer canvas.release();
-    const context = try canvas.call("getContext", &.{js.Arg.string("webgpu")});
+    const context = try host.call("getGpuContext", &.{js.Arg.value(canvas)});
     errdefer context.release();
     if (context.isNullish()) return error.CreateSurfaceError;
 

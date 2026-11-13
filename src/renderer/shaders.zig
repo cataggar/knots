@@ -7,6 +7,7 @@ const sources = @import("render").shaders;
 pub const primitives_wgsl = sources.primitives_wgsl;
 pub const text_wgsl = sources.text_wgsl;
 pub const backdrop_wgsl = sources.backdrop_wgsl;
+pub const webgl2_glsl = sources.webgl2_glsl;
 pub const vulkan_zig = sources.vulkan_zig;
 
 const primitives_vert_bytes align(@alignOf(u32)) = if (cfg.has_spirv_shaders) @embedFile("primitives_vert_spv").* else [_]u8{};

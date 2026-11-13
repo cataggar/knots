@@ -1,7 +1,11 @@
 const std = @import("std");
 const js = @import("js-bridge");
 const config = @import("web_config");
-const threads = if (config.worker_concurrency_enabled) @import("wasm_threads") else struct {};
+pub const threads = @import("wasm_threads");
+pub const worker_host = threads.worker_host;
+pub const pollWorkers = threads.poll;
+pub const pollGroup = threads.pollGroup;
+pub const pollFuture = threads.pollFuture;
 
 const error_buffer_len = 2048;
 
@@ -14,6 +18,9 @@ const vtable: std.Io.VTable = blk: {
     table.clockResolution = clockResolution;
     table.random = random;
     table.randomSecure = randomSecure;
+    table.sleep = threads.singleThreadSleep;
+    table.futexWait = threads.singleThreadFutexWait;
+    table.futexWaitUncancelable = threads.singleThreadFutexWaitUncancelable;
     if (config.worker_concurrency_enabled) threads.install(&table);
     break :blk table;
 };
@@ -57,6 +64,10 @@ fn randomSecure(_: ?*anyopaque, buffer: []u8) std.Io.RandomSecureError!void {
     const host = js.host() catch return error.EntropyUnavailable;
     defer host.release();
     host.callVoid("randomSecure", &.{js.Arg.bytes(buffer)}) catch return error.EntropyUnavailable;
+}
+
+pub fn runtimeCapabilities() u32 {
+    return worker_host.capabilities() & worker_host.CAP_STATIC_MASK;
 }
 
 pub fn logFn(comptime level: std.log.Level, comptime _: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
@@ -165,4 +176,8 @@ export fn knots_last_error_len() callconv(.{ .wasm_mvp = .{} }) usize {
 
 export fn knots_last_error_copy(ptr: usize, len: usize) callconv(.{ .wasm_mvp = .{} }) usize {
     return lastErrorCopy(ptr, len);
+}
+
+pub export fn knots_runtime_capabilities() callconv(.c) u32 {
+    return worker_host.capabilities() & worker_host.CAP_STATIC_MASK;
 }

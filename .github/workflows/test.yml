@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, wazig]
   pull_request:
   workflow_dispatch:
 
@@ -10,109 +10,183 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  attestations: read
+
 jobs:
   fmt:
     name: zig fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
-      - run: zig fmt --check build.zig web_build.zig src lib examples tests
-
-  native:
-    name: ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: x86_64-linux-gnu
-            os: ubuntu-latest
-            target_flag: ""
-
-          - name: aarch64-macos
-            os: macos-latest
-            target_flag: ""
-
-          - name: x86_64-windows-msvc
-            os: windows-latest
-            target_flag: -Dtarget=x86_64-windows-msvc
-
-          - name: x86_64-windows-gnu
-            os: windows-latest
-            target_flag: -Dtarget=x86_64-windows-gnu
-
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
-      - name: Install Wayland development packages
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev pkg-config
-
-      - name: knots
-        run: zig build test ${{ matrix.target_flag }} --summary all
-
-      - name: lib/accesskit
-        working-directory: lib/accesskit
-        run: zig build test ${{ matrix.target_flag }} --summary all
-
-      - name: lib/js-bridge
-        working-directory: lib/js-bridge
-        run: zig build test ${{ matrix.target_flag }} --summary all
-
-  shaping:
-    name: shaping goldens
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
-      - name: Install Wayland development packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev pkg-config
-
-      # Downloads have pinned hashes, so they only change with the manifest.
-      - uses: actions/cache@v4
+      - name: Install wazig and Wasmtime
+        uses: cataggar/ghr/actions/install@v0.10.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path: .cache/shaping/downloads
-          key: shaping-${{ hashFiles('tests/shaping/fonts.txt') }}
+          tools: |
+            cataggar/zig@v0.17.0-wazig.6
+            bytecodealliance/wasmtime@v50.0.1
+      - name: Cache Zig and Wasmtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            ~/.cache/wasmtime
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          restore-keys: |
+            wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
+      - name: Configure Wasmtime cache
+        run: |
+          mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
+          cat > "$HOME/.cache/wasmtime/config.toml" <<EOF
+          [cache]
+          enabled = true
+          directory = "$HOME/.cache/wasmtime/cache"
+          EOF
+          echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
+          echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
+      - name: Check formatting with wazig fmt
+        run: wazig fmt --check src/ tests/ examples/ lib/js-bridge/src/ build.zig web_build.zig tools/
 
-      - name: Fetch the font corpus and test data
-        working-directory: tests/shaping
-        run: zig build fetch --summary all
-
-      - name: Compare against HarfBuzz
-        working-directory: tests/shaping
-        run: zig build test -Doptimize=ReleaseSafe --summary all
-
-  wasi:
+  wasm:
     name: wasm32-wasi
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
-      - uses: bytecodealliance/actions/wasmtime/setup@v1
-
-      - name: knots
-        run: zig build test -Dtarget=wasm32-wasi -fwasmtime --summary all
-
+      - name: Install wazig and Wasmtime
+        uses: cataggar/ghr/actions/install@v0.10.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tools: |
+            cataggar/zig@v0.17.0-wazig.6
+            bytecodealliance/wasmtime@v50.0.1
+      - name: Cache Zig and Wasmtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            ~/.cache/wasmtime
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          restore-keys: |
+            wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
+      - name: Configure Wasmtime cache
+        run: |
+          mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
+          cat > "$HOME/.cache/wasmtime/config.toml" <<EOF
+          [cache]
+          enabled = true
+          directory = "$HOME/.cache/wasmtime/cache"
+          EOF
+          echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
+          echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
       - name: lib/js-bridge
-        working-directory: lib/js-bridge
-        run: zig build test -Dtarget=wasm32-wasi -fwasmtime --summary all
+        run: ./wazig-build test --build-root lib/js-bridge -Dtarget=wasm32-wasi -fwasmtime
+      - name: knots (webgpu)
+        run: ./wazig-build test -Dtarget=wasm32-wasi -Dgpu_backend=webgpu -fwasmtime
+      - name: knots (webgl2)
+        run: ./wazig-build test -Dtarget=wasm32-wasi -Dgpu_backend=webgl2 -fwasmtime
+      - name: knots (webgpu + web_threads)
+        run: ./wazig-build test -Dtarget=wasm32-wasi -Dgpu_backend=webgpu -Dweb_threads=true -fwasmtime
+      - name: examples/playground
+        run: ./wazig-build test --build-root examples/playground -Dtarget=wasm32-wasi -fwasmtime
 
-  browser:
-    name: wasm32-freestanding
+  wasm-build:
+    name: wasm-freestanding
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
+      - name: Install wazig and Wasmtime
+        uses: cataggar/ghr/actions/install@v0.10.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tools: |
+            cataggar/zig@v0.17.0-wazig.6
+            bytecodealliance/wasmtime@v50.0.1
+      - name: Cache Zig and Wasmtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            ~/.cache/wasmtime
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          restore-keys: |
+            wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
+      - name: Configure Wasmtime cache
+        run: |
+          mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
+          cat > "$HOME/.cache/wasmtime/config.toml" <<EOF
+          [cache]
+          enabled = true
+          directory = "$HOME/.cache/wasmtime/cache"
+          EOF
+          echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
+          echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
+      - name: Build playground (webgpu)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgpu -Dweb_threads=false
+      - name: Build playground (webgl2)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2 -Dweb_threads=false
+      - name: Build playground (webgpu + web_threads)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgpu -Dweb_threads=true
+      - name: Build playground (webgl2 + web_threads)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dgpu_backend=webgl2 -Dweb_threads=true
+      - name: Build playground (wasm64 webgpu)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu -Dweb_threads=false
+      - name: Build playground (wasm64 webgl2)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgl2 -Dweb_threads=false
+      - name: Build playground (wasm64 webgpu + web_threads)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgpu -Dweb_threads=true
+      - name: Build playground (wasm64 webgl2 + web_threads)
+        run: ./wazig-build --build-root examples/playground -Dtarget=wasm64-freestanding -Dgpu_backend=webgl2 -Dweb_threads=true
 
-      - name: Build playground
-        working-directory: examples/playground
-        run: zig build -Dtarget=wasm32-freestanding --summary all
+  benchmark:
+    name: wazig benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install wazig and Wasmtime
+        uses: cataggar/ghr/actions/install@v0.10.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tools: |
+            cataggar/zig@v0.17.0-wazig.6
+            cataggar/zig@v0.17.0-wazigl.6 ?id=wazigl
+            bytecodealliance/wasmtime@v50.0.1
+      - name: Cache Zig and Wasmtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            ~/.cache/wasmtime
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          restore-keys: |
+            wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
+      - name: Configure Wasmtime cache
+        run: |
+          mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
+          cat > "$HOME/.cache/wasmtime/config.toml" <<EOF
+          [cache]
+          enabled = true
+          directory = "$HOME/.cache/wasmtime/cache"
+          EOF
+          echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
+          echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
+      - name: Verify toolchain
+        run: |
+          wazig version
+          wazigl version
+          wasmtime --version
+      - name: Run wazig CI benchmarks and publish summary
+        run: python3 scripts/bench-wazig.py --ci-summary >> "$GITHUB_STEP_SUMMARY"

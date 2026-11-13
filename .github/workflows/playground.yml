@@ -2,7 +2,7 @@ name: Deploy playground
 
 on:
   push:
-    branches: [main]
+    branches: [main, wazig]
     paths:
       - "examples/playground/**"
       - "src/**"
@@ -10,25 +10,153 @@ on:
       - "build.zig"
       - "build.zig.zon"
       - "web_build.zig"
+      - "wazig-build"
+      - "scripts/wazig-build.py"
+      - "tools/wazig_configurer.zig"
       - ".github/workflows/playground.yml"
   workflow_dispatch:
+    inputs:
+      wasm64:
+        description: "Build playground with 64-bit WebAssembly (wasm64-freestanding)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-playground
   cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  attestations: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
         with:
-          version: 0.17.0
+          persist-credentials: false
+      - name: Install wazig and Wasmtime
+        uses: cataggar/ghr/actions/install@v0.10.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tools: |
+            cataggar/zig@v0.17.0-wazig.6
+            bytecodealliance/wasmtime@v50.0.1
+      - name: Cache Zig and Wasmtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            ~/.cache/wasmtime
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          restore-keys: |
+            wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
+      - name: Configure Wasmtime cache
+        run: |
+          mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
+          cat > "$HOME/.cache/wasmtime/config.toml" <<EOF
+          [cache]
+          enabled = true
+          directory = "$HOME/.cache/wasmtime/cache"
+          EOF
+          echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
+          echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
 
-      - uses: cloudflare/wrangler-action@v3
+      - name: Build playground (ReleaseSmall)
+        env:
+          WASM64: ${{ inputs.wasm64 == true && 'true' || 'false' }}
+        run: |
+          if [ "$WASM64" = "true" ]; then
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dweb_threads=true -Doptimize=ReleaseSmall
+            cp examples/playground/zig-out/web/app.wasm "$RUNNER_TEMP/app-wasm32.wasm"
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=true -Dweb_threads=true -Doptimize=ReleaseSmall
+            cp "$RUNNER_TEMP/app-wasm32.wasm" examples/playground/zig-out/web/app-wasm32.wasm
+          else
+            ./wazig-build --build-root examples/playground -Dtarget=wasm32-freestanding -Dwasm64=false -Dweb_threads=true -Doptimize=ReleaseSmall
+          fi
+          test -s examples/playground/zig-out/web/index.html
+          test -s examples/playground/zig-out/web/app.wasm
+          test -s examples/playground/zig-out/web/knots.js
+          test -s examples/playground/zig-out/web/knots-webgl2.js
+          test -s examples/playground/zig-out/web/knots-worker-pool.js
+          test -s examples/playground/zig-out/web/knots-worker.js
+          test -s examples/playground/zig-out/web/coi-serviceworker.js
+          test -s examples/playground/zig-out/web/component-host.js
+          test -s examples/playground/zig-out/web/components/visual.wit
+          for comp in harmonograph boids-flock plasma-sdf kaleidoscope-effect chromatic-prism-effect; do
+            test -s "examples/playground/zig-out/web/components/${comp}.wasm"
+            wasmtime compile -W component-model=y -o "$RUNNER_TEMP/${comp}.cwasm" "examples/playground/zig-out/web/components/${comp}.wasm"
+          done
+          cp examples/playground/_headers examples/playground/zig-out/web/
+
+      - name: Publish the orphaned web branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_DIR: ${{ runner.temp }}/knots-published-web
+          WASM_TARGET: ${{ inputs.wasm64 == true && 'wasm64-freestanding' || 'wasm32-freestanding' }}
+        run: |
+          set -euo pipefail
+          test -s examples/playground/zig-out/web/index.html
+          test -s examples/playground/zig-out/web/app.wasm
+          test -s examples/playground/zig-out/web/knots.js
+          test -s examples/playground/zig-out/web/knots-webgl2.js
+          test -s examples/playground/zig-out/web/knots-worker-pool.js
+          test -s examples/playground/zig-out/web/knots-worker.js
+          test -s examples/playground/zig-out/web/coi-serviceworker.js
+          test -s examples/playground/zig-out/web/component-host.js
+          test -s examples/playground/zig-out/web/components/harmonograph.wasm
+          test -s examples/playground/zig-out/web/components/kaleidoscope-effect.wasm
+          rm -rf "$PUBLISH_DIR"
+          gh auth setup-git
+          git init --quiet --initial-branch=web "$PUBLISH_DIR"
+          git -C "$PUBLISH_DIR" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          existing=$(git -C "$PUBLISH_DIR" ls-remote --heads origin refs/heads/web)
+          if [ -n "$existing" ]; then
+            git -C "$PUBLISH_DIR" fetch --quiet --no-tags origin web
+            # Retain the branch parent without checking out obsolete static files.
+            git -C "$PUBLISH_DIR" reset --soft FETCH_HEAD
+          fi
+          cp -a examples/playground/zig-out/web/. "$PUBLISH_DIR/"
+          touch "$PUBLISH_DIR/.nojekyll"
+          git -C "$PUBLISH_DIR" config user.name 'github-actions[bot]'
+          git -C "$PUBLISH_DIR" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$PUBLISH_DIR" add --all
+          if ! git -C "$PUBLISH_DIR" rev-parse --verify HEAD >/dev/null 2>&1 || \
+             ! git -C "$PUBLISH_DIR" diff --cached --quiet; then
+            git -C "$PUBLISH_DIR" commit --quiet \
+              -m "Deploy playground (${WASM_TARGET}) from ${GITHUB_SHA::7}" \
+              -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+            git -C "$PUBLISH_DIR" push origin HEAD:refs/heads/web
+          fi
+
+      - name: Check the Pages source and request a build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          configured=$(gh api "repos/$GITHUB_REPOSITORY/pages" \
+            --jq '.build_type == "legacy" and .source.branch == "web" and .source.path == "/"')
+          if [ "$configured" != true ]; then
+            echo '::error::An administrator must configure GitHub Pages to deploy from web / (root).'
+            exit 1
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
+
+      - name: Deploy to Cloudflare Workers
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.152.0"
           workingDirectory: examples/playground
+

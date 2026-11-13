@@ -70,6 +70,29 @@ pub const Stats = struct {
     layers: usize = 0,
 };
 
+const IdContext = struct {
+    pub inline fn hash(_: IdContext, id: Element.Id) u64 {
+        return id;
+    }
+    pub inline fn eql(_: IdContext, a: Element.Id, b: Element.Id) bool {
+        return a == b;
+    }
+};
+
+const AccessibilityIndexMap = std.HashMapUnmanaged(
+    Element.Id,
+    u32,
+    IdContext,
+    std.hash_map.default_max_load_percentage,
+);
+
+const CullMap = std.HashMapUnmanaged(
+    Element.Id,
+    CullRecord,
+    IdContext,
+    std.hash_map.default_max_load_percentage,
+);
+
 allocator: Allocator,
 layout_ctx: layout.Context,
 decorations: std.ArrayList(Decoration),
@@ -87,7 +110,7 @@ focus_order: std.ArrayList(Element.Id),
 accessibility_nodes: std.ArrayList(Accessibility.Node),
 accessibility_enabled: bool = true,
 accessibility_children: std.ArrayList(Element.Id) = .empty,
-accessibility_node_indices: std.AutoHashMapUnmanaged(Element.Id, u32) = .empty,
+accessibility_node_indices: AccessibilityIndexMap = .empty,
 accessibility_actions: []const Accessibility.ActionRequest = &.{},
 accessibility_consumed: [Accessibility.actions_max]bool = @splat(false),
 hit_counter: u32,
@@ -97,8 +120,8 @@ slot_clips: std.ArrayList(Clip.State),
 child_clips: std.ArrayList(Clip.State),
 clip_nodes: std.ArrayList(Clip.Node),
 input_scopes: InputScope,
-cull_prev: std.AutoHashMapUnmanaged(Element.Id, CullRecord) = .empty,
-cull_next: std.AutoHashMapUnmanaged(Element.Id, CullRecord) = .empty,
+cull_prev: CullMap = .empty,
+cull_next: CullMap = .empty,
 cull_ancestors: std.ArrayList(Element.Slot) = .empty,
 /// 1 inside a culled element, plus one per nested open, which creates no element.
 cull_depth: u32 = 0,
@@ -194,10 +217,11 @@ pub fn openWith(self: *UI, key: Key, element: Element.Config, decoration: Decora
         self.cull_depth += 1;
         return INVALID_ID;
     }
+    const id = key.hash();
     var cfg = element;
     var decoration_used = decoration;
     if (options.root == null) {
-        if (self.cullRecord(key.hash())) |record| {
+        if (self.cullRecord(id)) |record| {
             if (cfg.width.kind == .fit) cfg.width = .fixed(record.size[0]);
             if (cfg.height.kind == .fit) cfg.height = .fixed(record.size[1]);
             cfg.interactive = false;
@@ -211,17 +235,18 @@ pub fn openWith(self: *UI, key: Key, element: Element.Config, decoration: Decora
         cfg.z_index = State.overlayWithin(self.currentLayer(), Layer.fromIndex(cfg.z_index)).index();
     }
 
-    const id = key.hash();
     try self.decorations.ensureUnusedCapacity(self.allocator, 1);
     try self.contents.ensureUnusedCapacity(self.allocator, 1);
     try self.clip_shapes.ensureUnusedCapacity(self.allocator, 1);
     if (cfg.focusable) try self.focus_order.ensureUnusedCapacity(self.allocator, 1);
     const content = options.content orelse self.parentContent();
     const slot = if (options.root != null) try self.layout_ctx.openRoot(id, cfg) else try self.layout_ctx.open(id, cfg);
-    const slot_index: usize = @intCast(slot);
-    std.debug.assert(self.decorations.items.len == slot_index);
-    std.debug.assert(self.contents.items.len == slot_index);
-    std.debug.assert(self.clip_shapes.items.len == slot_index);
+    if (comptime std.debug.runtime_safety) {
+        const slot_index: usize = @intCast(slot);
+        std.debug.assert(self.decorations.items.len == slot_index);
+        std.debug.assert(self.contents.items.len == slot_index);
+        std.debug.assert(self.clip_shapes.items.len == slot_index);
+    }
     self.decorations.appendAssumeCapacity(decoration_used);
     self.contents.appendAssumeCapacity(content);
     self.clip_shapes.appendAssumeCapacity(clipShapeFromDecoration(decoration_used));
@@ -280,8 +305,8 @@ fn cullEnabled(self: *const UI) bool {
 }
 
 pub fn recordCulling(self: *UI) !void {
-    self.cull_next.clearRetainingCapacity();
-    if (self.accessibility_enabled) return self.swapCullRecords();
+    if (self.cull_next.size > 0) self.cull_next.clearRetainingCapacity();
+    if (self.accessibility_enabled or !self.layout_ctx.has_scroll) return self.swapCullRecords();
     const elements = self.layout_ctx.pool.elements.items;
     try self.cull_ancestors.resize(self.allocator, elements.len);
     const ancestors = self.cull_ancestors.items;
@@ -307,7 +332,7 @@ pub fn recordCulling(self: *UI) !void {
 }
 
 fn swapCullRecords(self: *UI) void {
-    std.mem.swap(std.AutoHashMapUnmanaged(Element.Id, CullRecord), &self.cull_prev, &self.cull_next);
+    std.mem.swap(CullMap, &self.cull_prev, &self.cull_next);
 }
 
 /// Layer of the element being built.
@@ -387,11 +412,13 @@ pub fn styledTextLayout(self: *UI, t: *const Decoration.Text, wrap_width: f32) !
 pub fn measureText(self: *UI, t: *Decoration.Text) !void {
     const scale = self.content_scale;
     if (t.wrap) {
+        t.cached_layout = null;
         t.intrinsic_w = 0;
         t.intrinsic_h = (try self.text_system.lineHeight(t.font, t.size * scale)) / scale;
         return;
     }
     const measured = try self.styledTextLayout(t, 0);
+    t.cached_layout = measured;
     t.intrinsic_w = measured.width / scale;
     t.intrinsic_h = measured.height / scale;
 }
@@ -444,7 +471,7 @@ pub fn states(self: *UI, id: Element.Id, extra: style.States) style.States {
 pub fn resolveStyle(self: *UI, id: Element.Id, cascade: style.Cascade, st: style.States, parent: ?*const style.Content) style.Resolved {
     const inherited = if (parent) |p| p.* else self.parentContent();
     var resolved = style.resolve(cascade, st, &inherited, &self.theme);
-    if (resolved.transition) |transition| resolved.setVisual(self.transitionVisual(id, resolved.visual(), transition));
+    if (resolved.transition) |transition| self.applyTransition(id, &resolved, transition);
     return resolved;
 }
 
@@ -490,12 +517,13 @@ pub fn styledText(self: *UI, key: Key, content: []const u8, cascade: style.Casca
     return id;
 }
 
-fn transitionVisual(self: *UI, id: Element.Id, target: style.Visual, transition: style.Transition) style.Visual {
-    const s: *State.StyleTransition = self.state.getOrCreate(.style_transition, self.allocator, id) catch return target;
+fn applyTransition(self: *UI, id: Element.Id, resolved: *style.Resolved, transition: style.Transition) void {
+    const target = resolved.visual();
+    const s: *State.StyleTransition = self.state.getOrCreate(.style_transition, self.allocator, id) catch return;
     const now = self.input.now_ms;
     if (!s.initialized) {
         s.* = .{ .from = target, .to = target, .t0_ms = now, .duration_ms = transition.duration_ms, .ease = transition.ease, .initialized = true };
-        return target;
+        return;
     }
     if (!s.to.eql(target)) {
         s.from = sampleTransition(s, now).visual;
@@ -503,10 +531,14 @@ fn transitionVisual(self: *UI, id: Element.Id, target: style.Visual, transition:
         s.t0_ms = now;
         s.duration_ms = transition.duration_ms;
         s.ease = transition.ease;
+    } else if (s.duration_ms == 0 or now - s.t0_ms >= @as(i64, s.duration_ms)) {
+        return;
     }
     const sample = sampleTransition(s, now);
-    if (sample.t < 1.0) self.anim_active = true;
-    return sample.visual;
+    if (sample.t < 1.0) {
+        self.anim_active = true;
+        resolved.setVisual(sample.visual);
+    }
 }
 
 fn sampleTransition(s: *const State.StyleTransition, now_ms: i64) struct { visual: style.Visual, t: f32 } {

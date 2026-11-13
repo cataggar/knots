@@ -27,19 +27,19 @@ pub const sizing = struct {
 
         const Self = @This();
 
-        pub fn fixed(v: f32) Self {
+        pub inline fn fixed(v: f32) Self {
             return .{ .kind = .fixed, .value = v };
         }
 
-        pub fn grow() Self {
+        pub inline fn grow() Self {
             return .{ .kind = .grow };
         }
 
-        pub fn fit() Self {
+        pub inline fn fit() Self {
             return .{ .kind = .fit };
         }
 
-        pub fn percent(v: f32) Self {
+        pub inline fn percent(v: f32) Self {
             return .{ .kind = .percent, .value = v };
         }
     };
@@ -63,31 +63,31 @@ pub const Justify = enum {
 pub const Padding = struct {
     value: [4]f32,
 
-    pub fn init(t: f32, r: f32, b: f32, l: f32) Padding {
+    pub inline fn init(t: f32, r: f32, b: f32, l: f32) Padding {
         return Padding{ .value = .{ t, r, b, l } };
     }
 
-    pub fn all(v: f32) Padding {
+    pub inline fn all(v: f32) Padding {
         return .init(v, v, v, v);
     }
 
-    pub fn xy(x: f32, y: f32) Padding {
+    pub inline fn xy(x: f32, y: f32) Padding {
         return .init(y, x, y, x);
     }
 
-    pub fn top(self: Padding) f32 {
+    pub inline fn top(self: *const Padding) f32 {
         return self.value[0];
     }
 
-    pub fn right(self: Padding) f32 {
+    pub inline fn right(self: *const Padding) f32 {
         return self.value[1];
     }
 
-    pub fn bottom(self: Padding) f32 {
+    pub inline fn bottom(self: *const Padding) f32 {
         return self.value[2];
     }
 
-    pub fn left(self: Padding) f32 {
+    pub inline fn left(self: *const Padding) f32 {
         return self.value[3];
     }
 };
@@ -111,7 +111,7 @@ pub const Overflow = enum {
     scroll_y,
     hidden,
 
-    pub fn isScroll(self: Overflow) bool {
+    pub inline fn isScroll(self: Overflow) bool {
         return self == .scroll or self == .scroll_x or self == .scroll_y;
     }
 };
@@ -163,6 +163,7 @@ first_child: Slot = INVALID_SLOT,
 next_sibling: Slot = INVALID_SLOT,
 last_child: Slot = INVALID_SLOT,
 child_count: u32 = 0,
+has_absolute_child: bool = false,
 
 // config
 width: sizing.Axis,
@@ -211,7 +212,7 @@ pub const Config = struct {
 
     /// Absolutely positioned at parent-local (x, y) with a fixed size: overlays such
     /// as carets, selections and drag handles that sit on top of sibling content.
-    pub fn at(x: f32, y: f32, w: f32, h: f32) Config {
+    pub inline fn at(x: f32, y: f32, w: f32, h: f32) Config {
         return .{ .width = .fixed(w), .height = .fixed(h), .position = .absolute, .offset = .{ x, y } };
     }
 

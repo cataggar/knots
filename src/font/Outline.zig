@@ -189,7 +189,7 @@ const Point = struct {
 
 /// Walks the flag, x and y streams of a simple glyph in step.
 const Points = struct {
-    data: Reader,
+    bytes: []const u8,
     flag_offset: usize,
     x_offset: usize,
     y_offset: usize,
@@ -201,6 +201,7 @@ const Points = struct {
     fn init(data: Reader, flags_offset: usize, point_count: u32) Reader.Error!Points {
         var offset = flags_offset;
         var x_size: usize = 0;
+        var y_size: usize = 0;
         var remaining = point_count;
         while (remaining > 0) {
             const flag = try data.u8At(offset);
@@ -217,29 +218,38 @@ const Points = struct {
             } else if (flag & 16 == 0) {
                 x_size += count * 2;
             }
+            if (flag & 4 != 0) {
+                y_size += count;
+            } else if (flag & 32 == 0) {
+                y_size += count * 2;
+            }
         }
-        return .{ .data = data, .flag_offset = flags_offset, .x_offset = offset, .y_offset = offset + x_size };
+        const y_offset = offset + x_size;
+        if (y_offset + y_size > data.bytes.len) {
+            return error.OutOfBounds;
+        }
+        return .{ .bytes = data.bytes, .flag_offset = flags_offset, .x_offset = offset, .y_offset = y_offset };
     }
 
-    fn next(self: *Points) Reader.Error!Point {
+    inline fn next(self: *Points) Point {
         if (self.repeat == 0) {
-            self.flag = try self.data.u8At(self.flag_offset);
+            self.flag = self.bytes[self.flag_offset];
             self.flag_offset += 1;
             if (self.flag & 8 != 0) {
-                self.repeat = try self.data.u8At(self.flag_offset);
+                self.repeat = self.bytes[self.flag_offset];
                 self.flag_offset += 1;
             }
         } else {
             self.repeat -= 1;
         }
-        self.x += try self.delta(&self.x_offset, 2, 16);
-        self.y += try self.delta(&self.y_offset, 4, 32);
+        self.x += self.delta(&self.x_offset, 2, 16);
+        self.y += self.delta(&self.y_offset, 4, 32);
         return .{ .x = self.x, .y = self.y, .on_curve = self.flag & 1 != 0 };
     }
 
-    fn delta(self: *const Points, offset: *usize, short_bit: u8, same_bit: u8) Reader.Error!i32 {
+    inline fn delta(self: *const Points, offset: *usize, comptime short_bit: u8, comptime same_bit: u8) i32 {
         if (self.flag & short_bit != 0) {
-            const magnitude: i32 = try self.data.u8At(offset.*);
+            const magnitude: i32 = self.bytes[offset.*];
             offset.* += 1;
             if (self.flag & same_bit != 0) {
                 return magnitude;
@@ -249,7 +259,7 @@ const Points = struct {
         if (self.flag & same_bit != 0) {
             return 0;
         }
-        const value = try self.data.i16At(offset.*);
+        const value = std.mem.readInt(i16, self.bytes[offset.*..][0..2], .big);
         offset.* += 2;
         return value;
     }
@@ -268,10 +278,10 @@ fn appendSimple(gpa: std.mem.Allocator, data: Reader, contour_count: u16, vertic
     var contour_index: usize = 0;
     var index: u32 = 0;
     while (index < point_count) : (index += 1) {
-        const point = try points.next();
+        const point = points.next();
         if (index == next_move) {
             if (index != 0) {
-                try contour.close(gpa, vertices);
+                contour.close(vertices);
             }
             contour = .{ .start_off = !point.on_curve };
             if (contour.start_off) {
@@ -281,7 +291,7 @@ fn appendSimple(gpa: std.mem.Allocator, data: Reader, contour_count: u16, vertic
                     return error.InvalidGlyph;
                 }
                 var peek = points;
-                const following = try peek.next();
+                const following = peek.next();
                 if (following.on_curve) {
                     contour.start = .{ following.x, following.y };
                     points = peek;
@@ -292,12 +302,15 @@ fn appendSimple(gpa: std.mem.Allocator, data: Reader, contour_count: u16, vertic
             } else {
                 contour.start = .{ point.x, point.y };
             }
-            try vertices.append(gpa, .{ .kind = .move, .x = contour.start[0], .y = contour.start[1] });
-            next_move = @as(u32, try end_points.u16At(contour_index * 2)) + 1;
+            vertices.appendAssumeCapacity(.{ .kind = .move, .x = contour.start[0], .y = contour.start[1] });
+            if (contour_index >= contour_count) {
+                return error.InvalidGlyph;
+            }
+            next_move = @as(u32, std.mem.readInt(u16, end_points.bytes[contour_index * 2 ..][0..2], .big)) + 1;
             contour_index += 1;
         } else if (!point.on_curve) {
             if (contour.was_off) {
-                try vertices.append(gpa, .{
+                vertices.appendAssumeCapacity(.{
                     .kind = .quad,
                     .x = (contour.control[0] + point.x) >> 1,
                     .y = (contour.control[1] + point.y) >> 1,
@@ -309,14 +322,14 @@ fn appendSimple(gpa: std.mem.Allocator, data: Reader, contour_count: u16, vertic
             contour.was_off = true;
         } else {
             if (contour.was_off) {
-                try vertices.append(gpa, .{ .kind = .quad, .x = point.x, .y = point.y, .cx = contour.control[0], .cy = contour.control[1] });
+                vertices.appendAssumeCapacity(.{ .kind = .quad, .x = point.x, .y = point.y, .cx = contour.control[0], .cy = contour.control[1] });
             } else {
-                try vertices.append(gpa, .{ .kind = .line, .x = point.x, .y = point.y });
+                vertices.appendAssumeCapacity(.{ .kind = .line, .x = point.x, .y = point.y });
             }
             contour.was_off = false;
         }
     }
-    try contour.close(gpa, vertices);
+    contour.close(vertices);
 }
 
 const Contour = struct {
@@ -326,10 +339,10 @@ const Contour = struct {
     start_off: bool = false,
     was_off: bool = false,
 
-    fn close(self: Contour, gpa: std.mem.Allocator, vertices: *std.ArrayList(Vertex)) error{OutOfMemory}!void {
+    inline fn close(self: Contour, vertices: *std.ArrayList(Vertex)) void {
         if (self.start_off) {
             if (self.was_off) {
-                try vertices.append(gpa, .{
+                vertices.appendAssumeCapacity(.{
                     .kind = .quad,
                     .x = (self.control[0] + self.start_control[0]) >> 1,
                     .y = (self.control[1] + self.start_control[1]) >> 1,
@@ -337,11 +350,11 @@ const Contour = struct {
                     .cy = self.control[1],
                 });
             }
-            try vertices.append(gpa, .{ .kind = .quad, .x = self.start[0], .y = self.start[1], .cx = self.start_control[0], .cy = self.start_control[1] });
+            vertices.appendAssumeCapacity(.{ .kind = .quad, .x = self.start[0], .y = self.start[1], .cx = self.start_control[0], .cy = self.start_control[1] });
         } else if (self.was_off) {
-            try vertices.append(gpa, .{ .kind = .quad, .x = self.start[0], .y = self.start[1], .cx = self.control[0], .cy = self.control[1] });
+            vertices.appendAssumeCapacity(.{ .kind = .quad, .x = self.start[0], .y = self.start[1], .cx = self.control[0], .cy = self.control[1] });
         } else {
-            try vertices.append(gpa, .{ .kind = .line, .x = self.start[0], .y = self.start[1] });
+            vertices.appendAssumeCapacity(.{ .kind = .line, .x = self.start[0], .y = self.start[1] });
         }
     }
 };

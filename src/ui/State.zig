@@ -186,7 +186,8 @@ fn Pool(comptime T: type) type {
             self.map.deinit(allocator);
         }
 
-        pub fn get(self: *Self, id: Element.Id) ?*T {
+        pub inline fn get(self: *Self, id: Element.Id) ?*T {
+            if (self.map.size == 0) return null;
             if (self.map.getPtr(id)) |e| return &e.value;
             return null;
         }
@@ -202,7 +203,12 @@ fn Pool(comptime T: type) type {
         }
 
         pub fn evictStale(self: *Self, allocator: std.mem.Allocator, frame: u32, ttl: u32, scratch: *std.ArrayList(Element.Id)) !void {
-            scratch.clearRetainingCapacity();
+            if (self.map.size == 0) return;
+            if (comptime std.debug.runtime_safety) {
+                scratch.clearRetainingCapacity();
+            } else {
+                scratch.items.len = 0;
+            }
             var it = self.map.iterator();
             while (it.next()) |kv| {
                 if (frame -% kv.value_ptr.last_seen >= ttl) {
@@ -238,7 +244,7 @@ pub const Storage = struct {
 
     pools: StoragePools = .{},
 
-    fn poolFor(self: *Storage, comptime name: std.meta.FieldEnum(StoragePools)) *@FieldType(StoragePools, @tagName(name)) {
+    inline fn poolFor(self: *Storage, comptime name: std.meta.FieldEnum(StoragePools)) *@FieldType(StoragePools, @tagName(name)) {
         return &@field(self.pools, @tagName(name));
     }
 
@@ -249,7 +255,7 @@ pub const Storage = struct {
         }
     }
 
-    pub fn get(self: *Storage, comptime name: std.meta.FieldEnum(StoragePools), id: Element.Id) ?*PoolValueType(@FieldType(StoragePools, @tagName(name))) {
+    pub inline fn get(self: *Storage, comptime name: std.meta.FieldEnum(StoragePools), id: Element.Id) ?*PoolValueType(@FieldType(StoragePools, @tagName(name))) {
         return self.poolFor(name).get(id);
     }
 
@@ -309,7 +315,7 @@ pub fn deinit(self: *State) void {
 
 /// Returns a pointer to the state for `id`, or null if not yet created.
 /// Does not refresh the TTL stamp.
-pub fn get(self: *State, comptime name: @EnumLiteral(), id: Element.Id) ?*PoolValueType(@FieldType(Storage.StoragePools, @tagName(name))) {
+pub inline fn get(self: *State, comptime name: @EnumLiteral(), id: Element.Id) ?*PoolValueType(@FieldType(Storage.StoragePools, @tagName(name))) {
     return self.storage.get(name, id);
 }
 

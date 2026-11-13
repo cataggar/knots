@@ -2,6 +2,7 @@ const std = @import("std");
 const knots = @import("knots");
 const ui = @import("knots-ui");
 const code_viewer = @import("code_viewer.zig");
+const js = if (knots.platform.is_wasm) @import("js-bridge") else struct {};
 
 const Rect = ui.component.Rect;
 const Text = ui.component.Text;
@@ -41,6 +42,7 @@ const Demos = struct {
     canvas: @import("demos/canvas.zig") = .{},
     gpu_shader: @import("demos/gpu_shader.zig") = .{},
     async_dispatch: @import("demos/async_dispatch.zig") = .{},
+    wasm_components: @import("demos/wasm_components.zig") = .{},
     windows: @import("demos/windows.zig") = .{},
     drops: @import("demos/drops.zig") = .{},
     shaping: @import("demos/shaping.zig") = .{},
@@ -69,7 +71,8 @@ const entries = [_]Entry{
     .{ .demo = .glass, .name = "Glass", .icon = "\u{e3a5}", .description = "Style.backdrop: blur, saturation and refraction over an animated scene." },
     .{ .demo = .canvas, .name = "Canvas", .icon = "\u{e3ae}", .description = "Painter primitives: gradient grid, clock face, bar chart, polygon." },
     .{ .demo = .gpu_shader, .name = "GPU geometry", .icon = "\u{e1b1}", .description = "Thousands of indexed, instanced facets forming an interactive torus knot." },
-    .{ .demo = .async_dispatch, .name = "Async dispatch", .icon = "\u{e627}", .description = "Schedule background work via app.dispatch and react to wakeups." },
+    .{ .demo = .async_dispatch, .name = "Async dispatch", .icon = "\u{e627}", .description = "Schedule background work via app.dispatch, futex worker batches, sharded heap allocs, and non-blocking pollGroup." },
+    .{ .demo = .wasm_components, .name = "Wasm components", .icon = "\u{e87b}", .description = "Dynamically fetch, inspect, hot-swap, and compose wasm32-wasip2 Component Model visual plugins." },
     .{ .demo = .windows, .name = "Windows", .icon = "\u{e30c}", .description = "Floating windows in the current viewport and secondary native windows." },
     .{ .demo = .drops, .name = "Drops", .icon = "\u{e2c6}", .description = "Drag files onto the window and consume the paths from the frame input." },
     .{ .demo = .shaping, .name = "Shaping", .icon = "\u{e262}", .description = "Type text, pick a font, toggle its features and inspect every shaped glyph." },
@@ -96,7 +99,33 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !Playground {
     errdefer app.deinit();
     try app.main_viewport.ui_ctx.ui.text_system.addFace("jetbrains-mono", @embedFile("fonts/JetBrainsMono-VariableFont_wght.ttf"));
     const devtools = try knots.debug.DevTools.init(allocator, app.main_viewport.renderer.cfg.present_mode);
-    return .{ .app = app, .devtools = devtools };
+    return .{ .app = app, .devtools = devtools, .active = initialDemoFromUrl(allocator) orelse .buttons };
+}
+
+fn initialDemoFromUrl(allocator: std.mem.Allocator) ?Demo {
+    if (comptime !knots.platform.is_wasm) return null;
+    const loc = js.global("location") catch return null;
+    defer loc.release();
+    const search_val = loc.get("search") catch return null;
+    defer search_val.release();
+    const search = search_val.toOwnedString(allocator) catch return null;
+    defer allocator.free(search);
+
+    const trimmed = if (std.mem.startsWith(u8, search, "?")) search[1..] else search;
+    var it = std.mem.splitScalar(u8, trimmed, '&');
+    while (it.next()) |pair| {
+        if (std.mem.cutPrefix(u8, pair, "demo=")) |raw_val| {
+            inline for (comptime std.meta.fieldNames(Demos)) |field_name| {
+                if (std.mem.eql(u8, raw_val, field_name)) {
+                    return @field(Demo, field_name);
+                }
+            }
+            if (std.mem.eql(u8, raw_val, "wasm-components") or std.mem.eql(u8, raw_val, "components")) {
+                return .wasm_components;
+            }
+        }
+    }
+    return null;
 }
 
 pub fn deinit(self: *Playground) void {
@@ -127,6 +156,9 @@ fn frame(view: *knots.View, context: *ui.Frame) !void {
     _ = try body.open(context);
     try self.renderNav(context);
     try context.e(Spacer{ .style = &.{ .width = .fixed(12) }, .key = .str("playground.nav-space") });
+    if (self.active != .async_dispatch and self.demos.async_dispatch.tick()) {
+        context.requestRedraw();
+    }
     inline for (entries) |entry| {
         if (self.active == entry.demo) try self.renderDemo(context, entry);
     }

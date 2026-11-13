@@ -35,6 +35,26 @@ pub const ClusterIterator = struct {
         if (self.index >= self.text.len) {
             return null;
         }
+        if (self.text[self.index] < 0x80) {
+            self.continuation = .{};
+            self.index += 1;
+            if (self.index >= self.text.len or self.text[self.index] < 0x80) {
+                return self.index;
+            }
+            var first_done = true;
+            _ = &first_done;
+            while (self.index < self.text.len) {
+                const decoded = unicode.decodeUtf8(self.text, self.index);
+                const saved = self.continuation;
+                const continued = self.continuation.next(decoded.codepoint);
+                if (!continued) {
+                    self.continuation = saved;
+                    break;
+                }
+                self.index += decoded.len;
+            }
+            return self.index;
+        }
         var first = true;
         while (self.index < self.text.len) {
             const decoded = unicode.decodeUtf8(self.text, self.index);
@@ -50,6 +70,28 @@ pub const ClusterIterator = struct {
         return self.index;
     }
 };
+
+comptime {
+    @setEvalBranchQuota(20_000);
+    for (0..128) |cp| {
+        const c: u32 = @intCast(cp);
+        const s = unicode.script(c);
+        std.debug.assert(s == .latn or isWeak(s));
+        std.debug.assert(!unicode.isDefaultIgnorable(c));
+        std.debug.assert(unicode.decompose(c) == null);
+    }
+}
+
+fn appendOrExtendRun(gpa: std.mem.Allocator, out: *std.ArrayList(Run), start: u32, end: u32, face: u8, script: unicode.Script) !void {
+    if (out.items.len > 0) {
+        const last = &out.items[out.items.len - 1];
+        if (last.face == face and last.script == script and last.end == start) {
+            last.end = end;
+            return;
+        }
+    }
+    try out.append(gpa, .{ .start = start, .end = end, .face = face, .script = script });
+}
 
 fn isWeak(script: unicode.Script) bool {
     return script == .zyyy or script == .zinh or script == .zzzz;
@@ -132,6 +174,26 @@ pub fn itemize(gpa: std.mem.Allocator, text: []const u8, chain: []const *const F
 
 pub fn itemizeWith(gpa: std.mem.Allocator, scratch: *Scratch, text: []const u8, chain: []const *const FontProgram, out: *std.ArrayList(Run)) !void {
     std.debug.assert(chain.len > 0 and chain.len <= chain_length_max);
+    if (text.len == 0) {
+        return;
+    }
+    if (unicode.isAscii(text)) {
+        if (chain.len == 1) {
+            return appendOrExtendRun(gpa, out, 0, @intCast(text.len), 0, .latn);
+        }
+        const ascii_cmap = &chain[0].cmap.ascii;
+        var all_primary = true;
+        for (text) |b| {
+            if (ascii_cmap[b] == 0) {
+                all_primary = false;
+                break;
+            }
+        }
+        if (all_primary) {
+            return appendOrExtendRun(gpa, out, 0, @intCast(text.len), 0, .latn);
+        }
+    }
+
     const clusters = &scratch.clusters;
     clusters.clearRetainingCapacity();
     var iterator = ClusterIterator.init(text);
@@ -148,14 +210,7 @@ pub fn itemizeWith(gpa: std.mem.Allocator, scratch: *Scratch, text: []const u8, 
         const weak = isWeak(unicode.script(unicode.decodeUtf8(slice, 0).codepoint));
         const face = chooseFace(chain, slice, weak, previous);
         previous = face;
-        if (out.items.len > 0) {
-            const last = &out.items[out.items.len - 1];
-            if (last.face == face and last.script == cluster.script and last.end == cluster.start) {
-                last.end = cluster.end;
-                continue;
-            }
-        }
-        try out.append(gpa, .{ .start = cluster.start, .end = cluster.end, .face = face, .script = cluster.script });
+        try appendOrExtendRun(gpa, out, cluster.start, cluster.end, face, cluster.script);
     }
 }
 

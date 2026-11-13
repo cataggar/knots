@@ -2,7 +2,7 @@ name: Examples
 
 on:
   push:
-    branches: [main]
+    branches: [main, wazig]
   pull_request:
   workflow_dispatch:
 
@@ -10,44 +10,58 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  attestations: read
+
 jobs:
-  native:
-    name: ${{ matrix.name }}
+  wasm-examples:
+    name: ${{ matrix.example }} (${{ matrix.gpu_backend }}, threads=${{ matrix.web_threads }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: x86_64-linux-gnu
-            os: ubuntu-latest
-            target_flag: ""
-
-          - name: aarch64-macos
-            os: macos-latest
-            target_flag: ""
-
-          - name: x86_64-windows-msvc
-            os: windows-latest
-            target_flag: -Dtarget=x86_64-windows-msvc
-
-          - name: x86_64-windows-gnu
-            os: windows-latest
-            target_flag: -Dtarget=x86_64-windows-gnu
-
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-
+        example: [triangle, embedded, benchmark, playground]
+        gpu_backend: [webgpu, webgl2]
+        web_threads: [false, true]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mlugg/setup-zig@v2
-
-      - name: Install Wayland development packages
-        if: runner.os == 'Linux'
+      - name: Install wazig and Wasmtime
+        uses: cataggar/ghr/actions/install@v0.10.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tools: |
+            cataggar/zig@v0.17.0-wazig.6
+            bytecodealliance/wasmtime@v50.0.1
+      - name: Cache Zig and Wasmtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-global-cache
+            ~/.cache/wasmtime
+          key: wazig6-cache-${{ runner.os }}-${{ hashFiles('build.zig.zon', 'build.zig', 'web_build.zig') }}
+          restore-keys: |
+            wazig6-cache-${{ runner.os }}-
+            wazig5-cache-${{ runner.os }}-
+            wazig-cache-${{ runner.os }}-
+      - name: Configure Wasmtime cache
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev pkg-config
-
-      - name: examples/playground
-        working-directory: examples/playground
-        run: zig build ${{ matrix.target_flag }} --summary all
+          mkdir -p "$HOME/.cache/wasmtime/cache" "$GITHUB_WORKSPACE/.zig-global-cache"
+          cat > "$HOME/.cache/wasmtime/config.toml" <<EOF
+          [cache]
+          enabled = true
+          directory = "$HOME/.cache/wasmtime/cache"
+          EOF
+          echo "WASMTIME_CACHE_CONFIG=$HOME/.cache/wasmtime/config.toml" >> "$GITHUB_ENV"
+          echo "ZIG_GLOBAL_CACHE_DIR=$GITHUB_WORKSPACE/.zig-global-cache" >> "$GITHUB_ENV"
+      - name: Build examples/${{ matrix.example }}
+        run: |
+          ./wazig-build --build-root "examples/${{ matrix.example }}" \
+            -Dtarget=wasm32-freestanding \
+            -Doptimize=ReleaseSmall \
+            -Dgpu_backend=${{ matrix.gpu_backend }} \
+            -Dweb_threads=${{ matrix.web_threads }}
+          test -s "examples/${{ matrix.example }}/zig-out/web/app.wasm"
+          test -s "examples/${{ matrix.example }}/zig-out/web/knots.js"
+          test -s "examples/${{ matrix.example }}/zig-out/web/js-bridge.js"

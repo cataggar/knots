@@ -32,6 +32,7 @@
       startKnots({
         wasmUrl: "./app.wasm",
         canvas: "#canvas",
+        extensions: ["./component-host.js"],
       }).catch((err) => {
         console.error(err);
       });

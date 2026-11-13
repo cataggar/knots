@@ -8,6 +8,8 @@ pub const Curve = struct {
     p3: [2]f32,
 };
 
+pub const stack_decomposed_curve_capacity: usize = 256;
+
 // Eight fixed segments avoid recursive, input-dependent subdivision work.
 const cubic_subdivision_depth: u32 = 3;
 const cubic_segment_count = 1 << cubic_subdivision_depth;
@@ -24,11 +26,11 @@ comptime {
     std.debug.assert(cubic_segment_count == 8);
 }
 
-fn midpoint(a: [2]f32, b: [2]f32) [2]f32 {
+inline fn midpoint(a: [2]f32, b: [2]f32) [2]f32 {
     return .{ (a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5 };
 }
 
-fn splitCubic(cubic: Cubic) [2]Cubic {
+inline fn splitCubic(cubic: Cubic) [2]Cubic {
     const p01 = midpoint(cubic.p0, cubic.p1);
     const p12 = midpoint(cubic.p1, cubic.p2);
     const p23 = midpoint(cubic.p2, cubic.p3);
@@ -42,15 +44,15 @@ fn splitCubic(cubic: Cubic) [2]Cubic {
     };
 }
 
-fn appendCubic(curves: *std.ArrayList(Curve), allocator: std.mem.Allocator, cubic: Cubic) !void {
+fn appendCubic(out: *[cubic_segment_count]Curve, cubic: Cubic) void {
     var segments: [cubic_segment_count]Cubic = undefined;
     var subdivisions: [cubic_segment_count]Cubic = undefined;
     segments[0] = cubic;
 
     var segment_count: u32 = 1;
     for (0..cubic_subdivision_depth) |_| {
-        for (segments[0..segment_count], 0..) |segment, index| {
-            const halves = splitCubic(segment);
+        for (segments[0..segment_count], 0..) |*segment, index| {
+            const halves = splitCubic(segment.*);
             subdivisions[index * 2] = halves[0];
             subdivisions[index * 2 + 1] = halves[1];
         }
@@ -60,8 +62,7 @@ fn appendCubic(curves: *std.ArrayList(Curve), allocator: std.mem.Allocator, cubi
     }
 
     std.debug.assert(segment_count == cubic_segment_count);
-    try curves.ensureUnusedCapacity(allocator, cubic_segment_count);
-    for (segments) |segment| {
+    for (&segments, out) |*segment, *dst| {
         const control_start = [2]f32{
             (3.0 * segment.p1[0] - segment.p0[0]) * 0.5,
             (3.0 * segment.p1[1] - segment.p0[1]) * 0.5,
@@ -70,22 +71,32 @@ fn appendCubic(curves: *std.ArrayList(Curve), allocator: std.mem.Allocator, cubi
             (3.0 * segment.p2[0] - segment.p3[0]) * 0.5,
             (3.0 * segment.p2[1] - segment.p3[1]) * 0.5,
         };
-        curves.appendAssumeCapacity(.{
+        dst.* = .{
             .p1 = segment.p0,
             .p2 = midpoint(control_start, control_end),
             .p3 = segment.p3,
-        });
+        };
     }
 }
 
-pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const Outline.Vertex, units_per_em: f32) ![]Curve {
+pub inline fn countDecomposedCurves(vertices: []const Outline.Vertex) usize {
+    var count: usize = 0;
+    for (vertices) |vertex| {
+        count += switch (vertex.kind) {
+            .move => 0,
+            .line, .quad => 1,
+            .cubic => cubic_segment_count,
+        };
+    }
+    return count;
+}
+
+pub fn decomposeVerticesInto(out: []Curve, vertices: []const Outline.Vertex, units_per_em: f32) []Curve {
     std.debug.assert(std.math.isFinite(units_per_em));
     std.debug.assert(units_per_em > 0);
 
     const units_per_em_inverse = 1.0 / units_per_em;
-    var curves: std.ArrayList(Curve) = .empty;
-    errdefer curves.deinit(allocator);
-
+    var write_idx: usize = 0;
     var current_point: [2]f32 = .{ 0, 0 };
 
     for (vertices) |vertex| {
@@ -98,26 +109,28 @@ pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const Outline
                 current_point = point;
             },
             .line => {
-                try curves.append(allocator, .{
+                out[write_idx] = .{
                     .p1 = current_point,
                     .p2 = midpoint(current_point, point),
                     .p3 = point,
-                });
+                };
+                write_idx += 1;
                 current_point = point;
             },
             .quad => {
-                try curves.append(allocator, .{
+                out[write_idx] = .{
                     .p1 = current_point,
                     .p2 = .{
                         @as(f32, @floatFromInt(vertex.cx)) * units_per_em_inverse,
                         @as(f32, @floatFromInt(vertex.cy)) * units_per_em_inverse,
                     },
                     .p3 = point,
-                });
+                };
+                write_idx += 1;
                 current_point = point;
             },
             .cubic => {
-                try appendCubic(&curves, allocator, .{
+                appendCubic(out[write_idx..][0..cubic_segment_count], .{
                     .p0 = current_point,
                     .p1 = .{
                         @as(f32, @floatFromInt(vertex.cx)) * units_per_em_inverse,
@@ -129,12 +142,21 @@ pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const Outline
                     },
                     .p3 = point,
                 });
+                write_idx += cubic_segment_count;
                 current_point = point;
             },
         }
     }
 
-    return curves.toOwnedSlice(allocator);
+    return out[0..write_idx];
+}
+
+pub fn decomposeVertices(allocator: std.mem.Allocator, vertices: []const Outline.Vertex, units_per_em: f32) ![]Curve {
+    std.debug.assert(std.math.isFinite(units_per_em));
+    std.debug.assert(units_per_em > 0);
+
+    const out = try allocator.alloc(Curve, countDecomposedCurves(vertices));
+    return decomposeVerticesInto(out, vertices, units_per_em);
 }
 
 test "decomposeVertices produces line as degenerate quadratic" {
@@ -161,4 +183,20 @@ test "decomposeVertices produces line as degenerate quadratic" {
         try std.testing.expectApproxEqAbs(expected_midpoint[0], curve.p2[0], 1e-6);
         try std.testing.expectApproxEqAbs(expected_midpoint[1], curve.p2[1], 1e-6);
     }
+
+    const mixed_vertices = [_]Outline.Vertex{
+        .{ .x = 0, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .kind = .move },
+        .{ .x = 512, .y = 0, .cx = 0, .cy = 0, .cx1 = 0, .cy1 = 0, .kind = .line },
+        .{ .x = 1024, .y = 512, .cx = 1024, .cy = 0, .cx1 = 0, .cy1 = 0, .kind = .quad },
+        .{ .x = 0, .y = 0, .cx = 512, .cy = 1024, .cx1 = 0, .cy1 = 512, .kind = .cubic },
+    };
+    const expected_count = countDecomposedCurves(&mixed_vertices);
+    try std.testing.expectEqual(@as(usize, 1 + 1 + cubic_segment_count), expected_count);
+
+    var stack_out: [16]Curve = undefined;
+    const into_slice = decomposeVerticesInto(&stack_out, &mixed_vertices, 1024.0);
+    const heap_slice = try decomposeVertices(allocator, &mixed_vertices, 1024.0);
+    defer allocator.free(heap_slice);
+    try std.testing.expectEqual(expected_count, into_slice.len);
+    try std.testing.expectEqualSlices(Curve, heap_slice, into_slice);
 }

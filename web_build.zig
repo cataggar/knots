@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const memory_initial = 16 * 1024 * 1024;
 pub const memory_max = 2 * 1024 * 1024 * 1024;
+pub const memory_max_wasm64: u64 = 8 * 1024 * 1024 * 1024;
 
 pub const bridge_export_symbol_names = [_][]const u8{
     "js_bridge_alloc",
@@ -10,6 +11,7 @@ pub const bridge_export_symbol_names = [_][]const u8{
     "js_bridge_pointer_size",
     "knots_last_error_len",
     "knots_last_error_copy",
+    "knots_runtime_capabilities",
 };
 
 const thread_export_symbol_names = [_][]const u8{
@@ -19,6 +21,12 @@ const thread_export_symbol_names = [_][]const u8{
     "knots_worker_abort",
     "knots_worker_stack_alloc",
     "knots_worker_stack_free",
+    "knots_worker_loop",
+    "knots_worker_poll",
+    "knots_worker_wake_all",
+    "knots_worker_ack_complete",
+    "knots_worker_current_task",
+    "knots_worker_set_max_workers",
     "__stack_pointer",
 };
 
@@ -33,16 +41,21 @@ pub fn configureExecutable(b: *std.Build, root_module: *std.Build.Module, execut
     const optimize = executable.root_module.optimize orelse .debug;
     configureWasmTarget(&root_module.resolved_target.?, threads, optimize);
     configureWasmTarget(&executable.root_module.resolved_target.?, threads, optimize);
+    const target = executable.root_module.resolved_target.?;
     executable.import_memory = threads;
+    executable.import_symbols = true;
     executable.export_memory = true;
     executable.export_table = threads;
     executable.shared_memory = threads;
     executable.initial_memory = memory_initial;
-    executable.max_memory = memory_max;
+    executable.max_memory = if (target.result.cpu.arch == .wasm64) memory_max_wasm64 else memory_max;
 
     // Zig's own wasm backend rebuilds a debug app in a fraction of a second
     // under `zig build --watch -fincremental`; LLVM takes seconds.
-    if (executable.use_llvm == null and optimize == .debug and executable.root_module.resolved_target.?.result.os.tag == .freestanding)
+    // Upstream zig 0.17.0's self-hosted wasm backend emits invalid v128 code
+    // when +simd128 is enabled, whereas wazig's self-hosted backend fixes this.
+    const is_wazig = std.mem.indexOf(u8, @import("builtin").zig_version_string, "wazig") != null;
+    if (is_wazig and executable.use_llvm == null and optimize == .debug and executable.root_module.resolved_target.?.result.os.tag == .freestanding)
         executable.use_llvm = false;
 
     // wasm32-wasi otherwise gets a 16 MiB stack, larger than the initial memory.
@@ -72,10 +85,12 @@ pub fn configureWasmTarget(target: *std.Build.ResolvedTarget, threads: bool, opt
     if (!target.result.cpu.arch.isWasm())
         return;
     // Text shaping and layout use @Vector, which lowers to scalar code without simd128.
-    // Debug builds use Zig's own wasm backend (see configureExecutable), which miscompiles
-    // vector code, so only optimized builds get it.
-    if (optimize != .debug) {
+    // Upstream Zig's self-hosted wasm backend miscompiles vector code in Debug mode,
+    // whereas wazig's self-hosted wasm backend supports simd128 in all modes.
+    const is_wazig = std.mem.indexOf(u8, @import("builtin").zig_version_string, "wazig") != null;
+    if (is_wazig or optimize != .debug) {
         const simd = std.Target.wasm.Feature.simd128;
+        target.query.cpu_features_sub.removeFeature(@backingInt(simd));
         target.query.cpu_features_add.addFeature(@backingInt(simd));
         target.result.cpu.features.addFeature(@backingInt(simd));
     }

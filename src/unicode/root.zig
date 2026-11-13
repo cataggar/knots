@@ -89,9 +89,30 @@ pub const Decoded = struct {
     len: u3,
 };
 
+/// Fast 8-byte SWAR check for pure ASCII slices (`all bytes < 0x80`).
+pub inline fn isAscii(text: []const u8) bool {
+    var i: usize = 0;
+    while (i + 8 <= text.len) : (i += 8) {
+        if ((std.mem.readInt(u64, text[i..][0..8], .little) & 0x8080_8080_8080_8080) != 0) {
+            return false;
+        }
+    }
+    while (i < text.len) : (i += 1) {
+        if (text[i] >= 0x80) return false;
+    }
+    return true;
+}
+
 /// Decodes one codepoint, mapping every invalid byte to U+FFFD.
-pub fn decodeUtf8(text: []const u8, index: usize) Decoded {
+pub inline fn decodeUtf8(text: []const u8, index: usize) Decoded {
     const first = text[index];
+    if (first < 0x80) {
+        return .{ .codepoint = first, .len = 1 };
+    }
+    return decodeUtf8NonAscii(text, index, first);
+}
+
+fn decodeUtf8NonAscii(text: []const u8, index: usize, first: u8) Decoded {
     const len = std.unicode.utf8ByteSequenceLength(first) catch return .{ .codepoint = replacement_character, .len = 1 };
     if (index + len > text.len) {
         return .{ .codepoint = replacement_character, .len = 1 };
@@ -100,9 +121,28 @@ pub fn decodeUtf8(text: []const u8, index: usize) Decoded {
     return .{ .codepoint = codepoint, .len = len };
 }
 
-pub fn props(codepoint: u32) Props {
+const ascii_props: [128]Props = table: {
+    @setEvalBranchQuota(20_000);
+    var out: [128]Props = undefined;
+    const block_len = 1 << tables.block_shift;
+    for (&out, 0..) |*slot, cp| {
+        const block = tables.stage1[cp >> tables.block_shift];
+        const idx = tables.stage2[@as(usize, block) * block_len + (cp & (block_len - 1))];
+        slot.* = @bitCast(tables.values[idx]);
+    }
+    break :table out;
+};
+
+pub inline fn props(codepoint: u32) Props {
+    if (codepoint < 0x80) {
+        return ascii_props[codepoint];
+    }
+    return propsNonAscii(codepoint);
+}
+
+fn propsNonAscii(codepoint: u32) Props {
     if (codepoint > codepoint_max) {
-        return props(replacement_character);
+        return propsNonAscii(replacement_character);
     }
     const block = tables.stage1[codepoint >> tables.block_shift];
     const block_len = 1 << tables.block_shift;
@@ -219,7 +259,10 @@ pub const Continuation = struct {
 };
 
 /// Whether the codepoint at byte `index` continues the cluster of the codepoint before it.
-pub fn continuesAfter(text: []const u8, previous: usize, index: usize) bool {
+pub inline fn continuesAfter(text: []const u8, previous: usize, index: usize) bool {
+    if (text[index] < 0x80) {
+        return false;
+    }
     var state: Continuation = .{};
     _ = state.next(decodeUtf8(text, previous).codepoint);
     return state.next(decodeUtf8(text, index).codepoint);

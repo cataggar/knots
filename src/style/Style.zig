@@ -29,7 +29,7 @@ pub const States = packed struct(u8) {
     disabled: bool = false,
     _: u2 = 0,
 
-    pub fn any(self: States) bool {
+    pub inline fn any(self: States) bool {
         return @as(u8, @bitCast(self)) != 0;
     }
 };
@@ -259,21 +259,72 @@ pub const Cascade = struct {
 
 /// Merge + theme-resolve. Deterministic; no allocation.
 pub fn resolve(cascade: Cascade, states: States, parent: *const Content, theme: *const Theme) Resolved {
-    var props: Style = .{};
-    mergeProps(&props, cascade.base);
-    mergeProps(&props, cascade.user);
-
     var st = states;
     if (st.disabled) {
         st.hover = false;
         st.focus = false;
         st.active = false;
     }
-    if (st.any()) {
-        applyStates(&props, cascade.base, st);
-        applyStates(&props, cascade.user, st);
+    if (!st.any() or (!hasMatchingState(cascade.base, st) and !hasMatchingState(cascade.user, st))) {
+        return resolveCascade(cascade.base, cascade.user, parent, theme);
     }
+
+    var props: Style = .{};
+    mergeProps(&props, cascade.base);
+    mergeProps(&props, cascade.user);
+    applyStates(&props, cascade.base, st);
+    applyStates(&props, cascade.user, st);
     return resolveProps(&props, parent, theme);
+}
+
+inline fn hasMatchingState(s: *const Style, st: States) bool {
+    inline for (variant_names) |name| {
+        if (@field(st, name) and @field(s.*, name) != null) return true;
+    }
+    return false;
+}
+
+inline fn cascadeProp(comptime name: []const u8, base: *const Style, user: *const Style) @FieldType(Style, name) {
+    return @field(user.*, name) orelse @field(base.*, name);
+}
+
+fn resolveCascade(base: *const Style, user: *const Style, parent: *const Content, theme: *const Theme) Resolved {
+    var l: Layout = .{};
+    inline for (@typeInfo(Layout).@"struct".field_names) |name| {
+        if (cascadeProp(name, base, user)) |v| @field(l, name) = v;
+    }
+
+    const tone = cascadeProp("tone", base, user) orelse parent.tone;
+    var content: Content = .{
+        .foreground = if (cascadeProp("foreground", base, user)) |c| c.resolveIn(theme, tone, parent.foreground) else parent.foreground,
+        .font = cascadeProp("font", base, user) orelse parent.font,
+        .font_size = if (cascadeProp("font_size", base, user)) |f| f.resolve(theme) else parent.font_size,
+        .tone = tone,
+    };
+    const fg = content.foreground;
+
+    var surface: Surface = .{
+        .color = if (cascadeProp("background", base, user)) |c| c.resolveIn(theme, tone, fg) else Color.transparent.value,
+        .corner_radius = if (cascadeProp("radius", base, user)) |r| r.resolve(theme) else .zero,
+        .border_width = cascadeProp("border_width", base, user) orelse .zero,
+        .border_color = if (cascadeProp("border_color", base, user)) |c| c.resolveIn(theme, tone, fg) else Color.transparent.value,
+        .backdrop = cascadeProp("backdrop", base, user) orelse .none,
+    };
+    if (cascadeProp("state_layer", base, user)) |amount| surface.color = composite(surface.color, fg, amount);
+    if (cascadeProp("opacity", base, user)) |o| {
+        surface.color[3] *= o;
+        surface.border_color[3] *= o;
+        content.foreground[3] *= o;
+        surface.backdrop = .lerp(.none, surface.backdrop, std.math.clamp(o, 0, 1));
+    }
+
+    return .{
+        .layout = l,
+        .surface = surface,
+        .content = content,
+        .wrap = cascadeProp("wrap", base, user) orelse false,
+        .transition = cascadeProp("transition", base, user),
+    };
 }
 
 fn resolveProps(props: *const Style, parent: *const Content, theme: *const Theme) Resolved {
